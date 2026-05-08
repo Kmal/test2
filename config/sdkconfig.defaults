@@ -1,0 +1,21 @@
+## Default SDK configuration for the Bluetooth microphone project
+##
+## Enabling only classic Bluetooth and the Hands‑Free profile
+## reduces memory consumption and ensures that the
+## microphone streams over HFP.  Voice over HCI is selected to
+## route SCO audio through the application layer (rather than
+## directly via PCM pins) so that microphone samples can be
+## provided via the outgoing data callback【60199267661565†L468-L517】.
+
+CONFIG_BT_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y
+CONFIG_BT_BLE_ENABLED=n
+CONFIG_BT_SCO_DATA_PATH_HCI=y
+CONFIG_BT_HFP_CLIENT_ENABLE=y
+
+# Release memory reserved for BLE (not used)
+CONFIG_BTDM_CTRL_BLE_MAX_CONN=0
+
+## Increase the number of I2S DMA buffers for lower latency
+CONFIG_I2S_RX_DMA_BUF_COUNT=8
+CONFIG_I2S_TX_DMA_BUF_COUNT=8
