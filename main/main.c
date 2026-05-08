@@ -37,6 +37,7 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_bt.h"
@@ -79,6 +80,19 @@ static const char *TAG = "BT_MIC";
 // sampling rate, 16 bit mono (16 kbit/s).  When capturing at
 // 16 kHz the audio is downsampled by discarding every second sample.
 #define PCM_CHUNK_SIZE   320
+
+#define HFP_LOG_THROTTLE_US          (1000000LL)
+#define HFP_UNDERFILL_LOG_THRESHOLD  3
+
+/*
+ * ESP-IDF HFP outgoing callbacks normally expect the callback to return the
+ * requested byte count after the application has filled the whole buffer.
+ * Keep returning len after zero-padding underfills unless a specific ESP-IDF
+ * version/application integration defines this compatibility switch.
+ */
+#ifndef HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL
+#define HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL 0
+#endif
 
 static esp_bd_addr_t peer_addr = {0};
 static bool slc_connected = false;
@@ -202,32 +216,68 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
  * whenever it requires audio samples to send to the remote device.
  * The buffer length provided by the stack corresponds to one SCO
  * packet.  Audio is read from the I2S bus and downsampled from
- * 16 kHz to 8 kHz by discarding every second sample.  Returns the
- * number of bytes actually written.
+ * 16 kHz to 8 kHz by discarding every second sample.  The callback
+ * always initialises the full requested buffer, padding any I2S
+ * shortfall with silence before returning.
  */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 {
-    // Temporary buffer to hold 16 kHz audio.  Each sample is 16 bits
-    // so we need twice as many bytes as the number requested by HFP.
-    size_t bytes_read = 0;
     static int16_t pcm16[PCM_CHUNK_SIZE];
-    int16_t *out16 = (int16_t *)data;
+    static int64_t last_read_error_log_us = -HFP_LOG_THROTTLE_US;
+    static int64_t last_underfill_log_us = -HFP_LOG_THROTTLE_US;
+    static uint32_t consecutive_underfills = 0;
 
-    // Read data from I2S
+    size_t bytes_read = 0;
+    size_t bytes_written = 0;
+    size_t downsampled_bytes = 0;
+
     esp_err_t err = i2s_read(I2S_PORT, pcm16, sizeof(pcm16), &bytes_read, portMAX_DELAY);
-    if (err != ESP_OK || bytes_read == 0) {
-        memset(data, 0, len);
-        return len;
+    if (err == ESP_OK && bytes_read > 0) {
+        /*
+         * Downsample by selecting every second 16-bit sample.  Track exactly
+         * how many bytes of real microphone audio have been copied into data;
+         * any remaining requested bytes are filled with zeroes below.
+         */
+        const size_t samples = bytes_read / sizeof(int16_t);
+        for (size_t i = 0; i < samples && bytes_written + sizeof(int16_t) <= len; i += 2) {
+            memcpy(data + bytes_written, &pcm16[i], sizeof(int16_t));
+            bytes_written += sizeof(int16_t);
+        }
+        downsampled_bytes = bytes_written;
+    } else {
+        const int64_t now_us = esp_timer_get_time();
+        if (now_us - last_read_error_log_us >= HFP_LOG_THROTTLE_US) {
+            ESP_LOGW(TAG, "I2S read failed in HFP outgoing callback: err=%s, bytes_read=%u",
+                     esp_err_to_name(err), (unsigned int)bytes_read);
+            last_read_error_log_us = now_us;
+        }
     }
 
-    // Downsample by selecting every second sample.  HFP expects
-    // mono audio at 8 kHz and 16 bits per sample (len bytes is multiple of 2).
-    int samples = bytes_read / sizeof(int16_t);
-    int out_idx = 0;
-    for (int i = 0; i < samples && out_idx * sizeof(int16_t) < len; i += 2) {
-        out16[out_idx++] = pcm16[i];
+    if (bytes_written < len) {
+        const size_t zero_fill_len = len - bytes_written;
+        memset(data + bytes_written, 0, zero_fill_len);
+        bytes_written += zero_fill_len;
+
+        consecutive_underfills++;
+        if (consecutive_underfills >= HFP_UNDERFILL_LOG_THRESHOLD) {
+            const int64_t now_us = esp_timer_get_time();
+            if (now_us - last_underfill_log_us >= HFP_LOG_THROTTLE_US) {
+                ESP_LOGW(TAG, "HFP outgoing audio underfill: downsampled %u/%u bytes, zero-filled %u bytes, i2s_read=%u bytes, consecutive=%u",
+                         (unsigned int)downsampled_bytes, (unsigned int)len,
+                         (unsigned int)(bytes_written - downsampled_bytes),
+                         (unsigned int)bytes_read, (unsigned int)consecutive_underfills);
+                last_underfill_log_us = now_us;
+            }
+        }
+    } else {
+        consecutive_underfills = 0;
     }
-    return out_idx * sizeof(int16_t);
+
+#if HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL
+    return (int)downsampled_bytes;
+#else
+    return (int)bytes_written;
+#endif
 }
 
 /* HFP incoming data callback.  Called by the HFP stack when audio
