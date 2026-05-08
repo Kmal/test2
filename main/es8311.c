@@ -1,11 +1,11 @@
 /*
  * Basic ES8311 codec initialisation.  The purpose of this file is
  * to provide a small set of helper functions sufficient for
- * recording and playback on the M5Stack Stick S3.  It resets the
+ * recording and playback on the M5Stack Stick S3.  It resets the
  * ES8311 and configures it for I2S slave mode, 16-bit samples and
  * the desired sampling rate.  The ESP32-S3 I2S peripheral is the clock
  * master and drives MCLK/BCLK/LRCLK.  More detailed control (e.g. mic
- * gain, de‑emphasis filters, power management) can be achieved
+ * gain, de-emphasis filters, power management) can be achieved
  * using the full Espressif codec framework.
  */
 
@@ -23,16 +23,76 @@
 #define ES8311_VERIFY_REGISTERS 1
 #endif
 
-static const char *TAG_CODEC = "ES8311";
+#define ES8311_I2C_TIMEOUT_MS           1000
 
-#define ES8311_CLK_MANAGER_REG          0x0B
+#define ES8311_REG_RESET                0x00
+#define ES8311_REG_POWER_1              0x01
+#define ES8311_REG_POWER_2              0x02
+#define ES8311_REG_POWER_3              0x03
+#define ES8311_REG_CLK_MANAGER          0x0B
+#define ES8311_REG_I2S_MODE             0x0D
+#define ES8311_REG_ADC_FORMAT           0x11
+#define ES8311_REG_DAC_FORMAT           0x12
+#define ES8311_REG_MIC_GAIN             0x14
+#define ES8311_REG_DAC_POWER            0x15
+#define ES8311_REG_ADC_DAC_POWER        0x16
+#define ES8311_REG_ADC_POWER            0x17
+#define ES8311_REG_DAC_MUTE             0x31
+#define ES8311_REG_DAC_VOLUME           0x32
+
+#define ES8311_RESET_ASSERT             0x1F
+#define ES8311_RESET_RELEASE            0x00
+#define ES8311_POWER1_UP                0x30
+#define ES8311_POWER1_DOWN              0x00
+#define ES8311_POWER2_ADC_PGA_UP        0x10
+#define ES8311_POWER2_ADC_PGA_DOWN      0x00
+#define ES8311_POWER3_UP                0x00
 #define ES8311_CLK_12M288_TO_16K        0x1B
 #define ES8311_CLK_12M288_TO_8K         0x3B
 #define ES8311_CLK_12M288_TO_48K        0x00
-#define ES8311_I2S_MODE_REG             0x0D
 #define ES8311_I2S_SLAVE_MODE           0x00
+#define ES8311_FORMAT_16BIT             0x10
+#define ES8311_MIC_GAIN_MASK            0x0F
+#define ES8311_DEFAULT_MIC_GAIN         ES8311_MIC_GAIN_30DB
+#define ES8311_DAC_POWER_UP             0x06
+#define ES8311_DAC_POWER_DOWN           0x00
+#define ES8311_ADC_DAC_POWER_UP         0x30
+#define ES8311_ADC_DAC_POWER_DOWN       0x00
+#define ES8311_ADC_POWER_UP             0x30
+#define ES8311_ADC_POWER_DOWN           0x00
+#define ES8311_DAC_MUTE_BIT             BIT(5)
+#define ES8311_DAC_DEFAULT_VOLUME       0xBF
 
-// Write a single 8-bit value to a codec register
+static const char *TAG_CODEC = "ES8311";
+
+static esp_err_t es8311_first_error(esp_err_t current, esp_err_t next)
+{
+    return (current != ESP_OK) ? current : next;
+}
+
+static esp_err_t es8311_clock_divider_for_rate(int sample_rate, uint8_t *clk_div)
+{
+    if (clk_div == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    switch (sample_rate) {
+    case 8000:
+        *clk_div = ES8311_CLK_12M288_TO_8K;
+        return ESP_OK;
+    case 16000:
+        *clk_div = ES8311_CLK_12M288_TO_16K;
+        return ESP_OK;
+    case 48000:
+        *clk_div = ES8311_CLK_12M288_TO_48K;
+        return ESP_OK;
+    default:
+        ESP_LOGE(TAG_CODEC, "Unsupported ES8311 sample rate %d Hz", sample_rate);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+}
+
+// Write a single 8-bit value to a codec register.
 static esp_err_t es8311_write_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t reg, uint8_t val)
 {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -108,35 +168,6 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
     return es8311_write_reg_checked(i2c_num, i2c_addr, reg, next, verify);
 }
 
-static esp_err_t es8311_configure_clock(i2c_port_t i2c_num, uint8_t i2c_addr, int sample_rate)
-{
-    const es8311_clock_config_t *clock = es8311_get_clock_config(sample_rate);
-    if (clock == NULL) {
-        ESP_LOGE(TAG_CODEC, "Unsupported ES8311 sample rate %d Hz for %dx MCLK", sample_rate, ES8311_MCLK_MULTIPLE);
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
-    uint8_t reg02 = ((clock->pre_div - 1) << 5) | (clock->pre_mult << 3);
-    uint8_t reg03 = (clock->fs_mode << 6) | clock->adc_osr;
-    uint8_t reg05 = ((clock->adc_div - 1) << 4) | (clock->dac_div - 1);
-    uint8_t reg06 = (clock->bclk_div < 19) ? (clock->bclk_div - 1) : clock->bclk_div;
-
-    esp_err_t ret = ESP_OK;
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_1, ES8311_CLKMGR1_MCLK_PIN_ENABLE, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_2, reg02, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_3, reg03, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_4, clock->dac_osr, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_5, reg05, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_6, reg06, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_7, clock->lrck_h, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_CLKMGR_8, clock->lrck_l, true));
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG_CODEC, "Clock configured: sample_rate=%d Hz, mclk=%d Hz", sample_rate,
-                 sample_rate * ES8311_MCLK_MULTIPLE);
-    }
-    return ret;
-}
-
 /*
  * The sequence below follows the ES8311 user guide/datasheet register map:
  * reset, MCLK/LRCK/BCLK dividers, I2S 16-bit serial ports, analog Mic1 PGA,
@@ -147,52 +178,123 @@ static esp_err_t es8311_configure_clock(i2c_port_t i2c_num, uint8_t i2c_addr, in
 esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port, int sample_rate)
 {
     (void)i2s_port; // The codec is configured over I2C; I2S is configured by the caller.
+
+    uint8_t clk_div = 0;
+    esp_err_t ret = es8311_clock_divider_for_rate(sample_rate, &clk_div);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
     ESP_LOGI(TAG_CODEC, "Initialising ES8311 at I2C 0x%02x (sample_rate=%d)", i2c_addr, sample_rate);
 
-    esp_err_t ret = es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_ASSERT);
+    ret = es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_ASSERT);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG_CODEC, "ES8311 initialisation failed during reset assert");
         return ret;
     }
+
     vTaskDelay(pdMS_TO_TICKS(20));
-    ret = es8311_write_reg(i2c_num, i2c_addr, 0x00, 0x00);
-    if (ret != ESP_OK) return ret;
 
-    // Power up and configure analog blocks: enable microphone bias
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x01, 0x30); // MICBIAS=2.4V, enable VB
-    // Configure the power management of ADC and DAC
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x02, 0x10); // Start internal bias
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x03, 0x00);
+    ret = ESP_OK;
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_RELEASE));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_POWER_1, ES8311_POWER1_UP));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_POWER_2, ES8311_POWER2_ADC_PGA_UP));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_POWER_3, ES8311_POWER3_UP));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_CLK_MANAGER, clk_div));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_FORMAT, ES8311_FORMAT_16BIT));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_FORMAT, ES8311_FORMAT_16BIT));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_I2S_MODE, ES8311_I2S_SLAVE_MODE));
+    ret = es8311_first_error(ret, es8311_set_mic_gain(i2c_num, i2c_addr, ES8311_DEFAULT_MIC_GAIN));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_POWER, ES8311_DAC_POWER_UP));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_DAC_POWER, ES8311_ADC_DAC_POWER_UP));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_POWER, ES8311_ADC_POWER_UP));
+    ret = es8311_first_error(ret, es8311_set_dac_volume(i2c_num, i2c_addr, ES8311_DAC_DEFAULT_VOLUME));
+    ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, false));
 
-    // Keep the ES8311 in I2S slave mode.  The ESP32-S3 I2S master
-    // supplies a 12.288 MHz MCLK, so the codec clock divider is chosen
-    // for that MCLK frequency and the requested audio sample rate.
-    uint8_t clk_div = ES8311_CLK_12M288_TO_16K;
-    if (sample_rate == 8000) clk_div = ES8311_CLK_12M288_TO_8K;
-    else if (sample_rate == 16000) clk_div = ES8311_CLK_12M288_TO_16K;
-    else if (sample_rate == 48000) clk_div = ES8311_CLK_12M288_TO_48K;
-    ret |= es8311_write_reg(i2c_num, i2c_addr, ES8311_CLK_MANAGER_REG, clk_div);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG_CODEC, "ES8311 initialised");
+    } else {
+        ESP_LOGE(TAG_CODEC, "ES8311 initialisation failed: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
 
-    // Set I2S format: 16-bit I2S, left justified off
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x11, 0x10); // ADC word length 16 bits
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x12, 0x10); // DAC word length 16 bits
-    // Select I2S mode (no DSP) and slave mode; the ESP32-S3 provides clocks.
-    ret |= es8311_write_reg(i2c_num, i2c_addr, ES8311_I2S_MODE_REG, ES8311_I2S_SLAVE_MODE);
+esp_err_t es8311_set_mic_gain(i2c_port_t i2c_num, uint8_t i2c_addr, es8311_mic_gain_t gain)
+{
+    if (gain < ES8311_MIC_GAIN_0DB || gain > ES8311_MIC_GAIN_30DB) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    // Enable DAC and ADC
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x14, 0x1a); // Enable DAC, headphone output
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x15, 0x06); // Power up DAC
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x16, 0x30); // Enable DAC and ADC
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x17, 0x30); // ADC power on
+    return es8311_update_reg_bits(i2c_num, i2c_addr, ES8311_REG_MIC_GAIN,
+                                  ES8311_MIC_GAIN_MASK, (uint8_t)gain, true);
+}
+
+esp_err_t es8311_set_dac_volume(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t volume)
+{
+    return es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_DAC_VOLUME, volume, true);
+}
+
+esp_err_t es8311_mute(i2c_port_t i2c_num, uint8_t i2c_addr, bool mute)
+{
+    uint8_t value = mute ? ES8311_DAC_MUTE_BIT : 0;
+    return es8311_update_reg_bits(i2c_num, i2c_addr, ES8311_REG_DAC_MUTE,
+                                  ES8311_DAC_MUTE_BIT, value, true);
+}
+
+esp_err_t es8311_power_down(i2c_port_t i2c_num, uint8_t i2c_addr)
+{
+    esp_err_t ret = ESP_OK;
+    ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_ADC_DAC_POWER,
+                                                           ES8311_ADC_DAC_POWER_DOWN, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_ADC_POWER,
+                                                           ES8311_ADC_POWER_DOWN, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_DAC_POWER,
+                                                           ES8311_DAC_POWER_DOWN, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_POWER_2,
+                                                           ES8311_POWER2_ADC_PGA_DOWN, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_POWER_1,
+                                                           ES8311_POWER1_DOWN, true));
+
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG_CODEC, "ES8311 powered down");
+    } else {
+        ESP_LOGE(TAG_CODEC, "ES8311 power down failed: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
 
 esp_err_t es8311_power_up(i2c_port_t i2c_num, uint8_t i2c_addr)
 {
-    esp_err_t ret = es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_RELEASE, true);
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_POWER_1, ES8311_POWER1_UP, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_POWER_2, ES8311_POWER2_ADC_PGA_UP, true));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_DAC_POWER, ES8311_DAC_POWER_UP, true));
+    esp_err_t ret = ESP_OK;
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_RESET,
+                                                           ES8311_RESET_RELEASE, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_POWER_1,
+                                                           ES8311_POWER1_UP, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_POWER_2,
+                                                           ES8311_POWER2_ADC_PGA_UP, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_POWER_3,
+                                                           ES8311_POWER3_UP, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_DAC_POWER,
+                                                           ES8311_DAC_POWER_UP, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_ADC_DAC_POWER,
+                                                           ES8311_ADC_DAC_POWER_UP, true));
+    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
+                                                           ES8311_REG_ADC_POWER,
+                                                           ES8311_ADC_POWER_UP, true));
     ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, false));
-    ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_CODEC_ON, true));
+
     if (ret == ESP_OK) {
         ESP_LOGI(TAG_CODEC, "ES8311 powered up");
     } else {
