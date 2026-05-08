@@ -1,5 +1,7 @@
 #include "status_ui.h"
 
+#include "board_sticks3.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -9,19 +11,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#ifndef STATUS_UI_BUTTON_CLEAR_PAIRING_GPIO
-#define STATUS_UI_BUTTON_CLEAR_PAIRING_GPIO 37
-#endif
-
-#ifndef STATUS_UI_BUTTON_TOGGLE_MONITORING_GPIO
-#define STATUS_UI_BUTTON_TOGGLE_MONITORING_GPIO 39
-#endif
-
-#ifndef STATUS_UI_BUTTON_TOGGLE_DISCOVERABLE_GPIO
-#define STATUS_UI_BUTTON_TOGGLE_DISCOVERABLE_GPIO 35
-#endif
-
-#define STATUS_UI_BUTTON_ACTIVE_LEVEL 0
 #define STATUS_UI_DEBOUNCE_MS 50
 #define STATUS_UI_POLL_MS 25
 #define STATUS_UI_TASK_STACK 2048
@@ -107,7 +96,7 @@ bool status_ui_get_discoverable_enabled(void)
 
 static bool button_is_pressed(gpio_num_t gpio)
 {
-    return gpio_get_level(gpio) == STATUS_UI_BUTTON_ACTIVE_LEVEL;
+    return gpio_get_level(gpio) == BOARD_BUTTON_ACTIVE_LEVEL;
 }
 
 static void maybe_dispatch_button(status_button_t *button, TickType_t now)
@@ -141,17 +130,17 @@ static void status_ui_button_task(void *arg)
 
     status_button_t buttons[] = {
         {
-            .gpio = STATUS_UI_BUTTON_CLEAR_PAIRING_GPIO,
+            .gpio = BOARD_BUTTON_CLEAR_PAIRING_GPIO,
             .name = "clear pairing",
             .handler = s_handlers.clear_pairing,
         },
         {
-            .gpio = STATUS_UI_BUTTON_TOGGLE_MONITORING_GPIO,
+            .gpio = BOARD_BUTTON_TOGGLE_MONITORING_GPIO,
             .name = "toggle monitoring output",
             .handler = s_handlers.toggle_monitoring,
         },
         {
-            .gpio = STATUS_UI_BUTTON_TOGGLE_DISCOVERABLE_GPIO,
+            .gpio = BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO,
             .name = "toggle discoverable mode",
             .handler = s_handlers.toggle_discoverable,
         },
@@ -180,9 +169,9 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
         memset(&s_handlers, 0, sizeof(s_handlers));
     }
 
-    uint64_t pin_mask = (1ULL << STATUS_UI_BUTTON_CLEAR_PAIRING_GPIO) |
-                        (1ULL << STATUS_UI_BUTTON_TOGGLE_MONITORING_GPIO) |
-                        (1ULL << STATUS_UI_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
+    uint64_t pin_mask = (1ULL << BOARD_BUTTON_CLEAR_PAIRING_GPIO) |
+                        (1ULL << BOARD_BUTTON_TOGGLE_MONITORING_GPIO) |
+                        (1ULL << BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
     gpio_config_t io_conf = {
         .pin_bit_mask = pin_mask,
         .mode = GPIO_MODE_INPUT,
@@ -208,9 +197,9 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
     }
 
     ESP_LOGI(TAG, "status UI ready; buttons clear=%d monitor=%d discoverable=%d",
-             STATUS_UI_BUTTON_CLEAR_PAIRING_GPIO,
-             STATUS_UI_BUTTON_TOGGLE_MONITORING_GPIO,
-             STATUS_UI_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
+             BOARD_BUTTON_CLEAR_PAIRING_GPIO,
+             BOARD_BUTTON_TOGGLE_MONITORING_GPIO,
+             BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
     ESP_LOGI(TAG, "status: %s", status_ui_state_name(s_state));
     ESP_LOGI(TAG, "monitoring output: %s", bool_label(s_monitoring_enabled));
     return ESP_OK;

@@ -5,6 +5,8 @@
  *   MCLK=GPIO18, DAC data/DDAC=GPIO14, BCLK=GPIO17, LRCK=GPIO15,
  *   ADC data/DADC=GPIO16, I2C SCL=GPIO48, I2C SDA=GPIO47.
  *
+ * Status buttons are active-low GPIO inputs with internal pull-ups.
+ *
  * Note that this differs from an earlier working assumption that used
  * BCLK=GPIO47, LRCLK=GPIO0, DAC data=GPIO2, ADC data=GPIO1,
  * MCLK=GPIO48, I2C SDA=GPIO8, and I2C SCL=GPIO18.
@@ -14,6 +16,7 @@
 
 #include "driver/i2c.h"
 #include "driver/i2s.h"
+#include "driver/gpio.h"
 
 #define BOARD_I2S_PORT         I2S_NUM_0
 #define BOARD_I2S_SAMPLE_RATE  16000
@@ -33,3 +36,8 @@
 #define BOARD_ES8311_ADDR      0x18
 
 #define BOARD_PCM_CHUNK_SIZE   320
+
+#define BOARD_BUTTON_CLEAR_PAIRING_GPIO       GPIO_NUM_37
+#define BOARD_BUTTON_TOGGLE_MONITORING_GPIO   GPIO_NUM_39
+#define BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO GPIO_NUM_35
+#define BOARD_BUTTON_ACTIVE_LEVEL             0
