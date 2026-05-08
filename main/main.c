@@ -53,28 +53,28 @@ static const char *TAG = "BT_MIC";
 
 /* I2S and I2C pin definitions for the M5Stack Stick S3.  The
  * board’s schematic maps the ES8311 codec to the following pins:
- *   - BCLK (bit‑clock)  → GPIO47
- *   - LRCLK (word‑select) → GPIO0
- *   - DAC data (SDO) → GPIO2
- *   - ADC data (SDI) → GPIO1
- *   - MCLK → GPIO48
- *   - I2C SDA → GPIO8
- *   - I2C SCL → GPIO18
+ *   - MCLK → GPIO18
+ *   - ADC data from ES8311 DOUT → GPIO14
+ *   - BCLK (bit-clock) → GPIO17
+ *   - LRCLK (word-select) → GPIO15
+ *   - DAC data to ES8311 DIN → GPIO16
+ *   - I2C SCL → GPIO48
+ *   - I2C SDA → GPIO47
  */
 #define I2S_PORT         I2S_NUM_0
 #define I2S_SAMPLE_RATE  AUDIO_RESAMPLE_INPUT_RATE_HZ
 #define I2S_BITS         I2S_BITS_PER_SAMPLE_16BIT
 #define I2S_CHANNEL_FMT  I2S_CHANNEL_FMT_ONLY_LEFT
 
-#define I2S_BCK_IO       47
-#define I2S_WS_IO        0
-#define I2S_DO_IO        2
-#define I2S_DI_IO        1
-#define I2S_MCLK_IO      48
+#define I2S_BCK_IO       17
+#define I2S_WS_IO        15
+#define I2S_DO_IO        16
+#define I2S_DI_IO        14
+#define I2S_MCLK_IO      18
 
 #define I2C_PORT         I2C_NUM_0
-#define I2C_SDA_IO       8
-#define I2C_SCL_IO       18
+#define I2C_SDA_IO       47
+#define I2C_SCL_IO       48
 #define ES8311_ADDR      0x18
 
 // Buffer size used when reading from the codec.  A small buffer
