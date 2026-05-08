@@ -44,6 +44,7 @@
 #include "esp_gap_bt_api.h"
 #include "esp_bt_main.h"
 #include "esp_hf_client_api.h"
+#include "audio_resample.h"
 #include "es8311.h"
 
 // Tag used for log messages
@@ -60,7 +61,7 @@ static const char *TAG = "BT_MIC";
  *   - I2C SCL → GPIO18
  */
 #define I2S_PORT         I2S_NUM_0
-#define I2S_SAMPLE_RATE  16000
+#define I2S_SAMPLE_RATE  AUDIO_RESAMPLE_INPUT_RATE_HZ
 #define I2S_BITS         I2S_BITS_PER_SAMPLE_16BIT
 #define I2S_CHANNEL_FMT  I2S_CHANNEL_FMT_ONLY_LEFT
 
@@ -77,8 +78,9 @@ static const char *TAG = "BT_MIC";
 
 // Buffer size used when reading from the codec.  A small buffer
 // reduces latency at the expense of CPU load.  HFP audio uses 8 kHz
-// sampling rate, 16 bit mono (16 kbit/s).  When capturing at
-// 16 kHz the audio is downsampled by discarding every second sample.
+// sampling rate, 16 bit mono (16 kbit/s).  Captured audio is
+// low-pass filtered before 2:1 decimation to reduce aliasing harshness.
+#define HFP_SAMPLE_RATE  AUDIO_RESAMPLE_OUTPUT_RATE_HZ
 #define PCM_CHUNK_SIZE   320
 
 #define HFP_LOG_THROTTLE_US          (1000000LL)
