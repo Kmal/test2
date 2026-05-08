@@ -33,39 +33,14 @@
 // Tag used for log messages
 static const char *TAG = "BT_MIC";
 
-/* I2S and I2C pin definitions for the M5Stack Stick S3.  The
- * board’s schematic maps the ES8311 codec to the following pins:
- *   - MCLK → GPIO18
- *   - ADC data from ES8311 DOUT → GPIO14
- *   - BCLK (bit-clock) → GPIO17
- *   - LRCLK (word-select) → GPIO15
- *   - DAC data to ES8311 DIN → GPIO16
- *   - I2C SCL → GPIO48
- *   - I2C SDA → GPIO47
- */
-#define I2S_PORT         I2S_NUM_0
-#define I2S_SAMPLE_RATE  AUDIO_RESAMPLE_INPUT_RATE_HZ
-#define I2S_BITS         I2S_BITS_PER_SAMPLE_16BIT
-#define I2S_CHANNEL_FMT  I2S_CHANNEL_FMT_ONLY_LEFT
-
-#define I2S_BCK_IO       17
-#define I2S_WS_IO        15
-#define I2S_DO_IO        16
-#define I2S_DI_IO        14
-#define I2S_MCLK_IO      18
-
-#define I2C_PORT         I2C_NUM_0
-#define I2C_SDA_IO       47
-#define I2C_SCL_IO       48
-#define ES8311_ADDR      0x18
+#define BT_PEER_NVS_NAMESPACE "bt_peer"
+#define BT_PEER_NVS_KEY       "addr"
+#define RECONNECT_BACKOFF_MS   3000
 
 // Buffer size used when reading from the codec.  A small buffer
-// reduces latency at the expense of CPU load.  HFP audio uses 8 kHz
-// sampling rate, 16 bit mono (16 kbit/s).  Captured audio is
-// low-pass filtered before 2:1 decimation to reduce aliasing harshness.
-#define HFP_SAMPLE_RATE  AUDIO_RESAMPLE_OUTPUT_RATE_HZ
-#define PCM_CHUNK_SIZE   320
-
+// reduces latency at the expense of CPU load.  HFP audio uses 8 kHz
+// sampling rate, 16-bit mono.  Captured audio is low-pass filtered
+// before 2:1 decimation to reduce aliasing harshness.
 #define HFP_LOG_THROTTLE_US          (1000000LL)
 #define HFP_UNDERFILL_LOG_THRESHOLD  3
 
@@ -159,6 +134,7 @@ static esp_err_t peer_store_clear(void)
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(BT_PEER_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
+        memset(peer_addr, 0, sizeof(peer_addr));
         return ESP_OK;
     }
     if (err != ESP_OK) {
@@ -177,7 +153,6 @@ static esp_err_t peer_store_clear(void)
 
     if (err == ESP_OK) {
         memset(peer_addr, 0, sizeof(peer_addr));
-        peer_addr_valid = false;
         ESP_LOGI(TAG, "Cleared saved Bluetooth peer");
     } else {
         ESP_LOGE(TAG, "Failed to clear Bluetooth peer: %s", esp_err_to_name(err));
@@ -188,7 +163,7 @@ static esp_err_t peer_store_clear(void)
 static bool peer_reset_button_pressed(void)
 {
     gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << PEER_RESET_BUTTON_GPIO),
+        .pin_bit_mask = (1ULL << BOARD_BUTTON_CLEAR_PAIRING_GPIO),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -196,13 +171,13 @@ static bool peer_reset_button_pressed(void)
     };
     ESP_ERROR_CHECK(gpio_config(&cfg));
     vTaskDelay(pdMS_TO_TICKS(20));
-    return gpio_get_level(PEER_RESET_BUTTON_GPIO) == PEER_RESET_BUTTON_ACTIVE_LEVEL;
+    return gpio_get_level(BOARD_BUTTON_CLEAR_PAIRING_GPIO) == BOARD_BUTTON_ACTIVE_LEVEL;
 }
 
 /* Initialise the I2S peripheral for full-duplex operation with the
  * ES8311 codec.  The ESP32-S3 is the I2S master in this firmware: it
  * drives MCLK, BCLK, and LRCLK/WS, and the ES8311 is configured as an
- * I2S slave by es8311_init().  fixed_mclk is set to 12.288 MHz so the
+ * I2S slave by the codec init helper.  fixed_mclk is set to 12.288 MHz so the
  * ES8311 clock-divider register used for 16 kHz audio sees the MCLK
  * frequency it expects; APLL is enabled for stable MCLK output.
  * mclk_multiple is left at 256 for IDF bookkeeping, but fixed_mclk is
@@ -232,9 +207,6 @@ static void i2s_init(void)
         .mck_io_num = BOARD_I2S_MCLK_IO,
     };
 
-    ESP_ERROR_CHECK(i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL));
-    ESP_ERROR_CHECK(i2s_set_pin(I2S_PORT, &pin_config));
-    // Generate MCLK from the I2S peripheral using the configured pin map.
     ESP_ERROR_CHECK(i2s_driver_install(BOARD_I2S_PORT, &i2s_config, 0, NULL));
     ESP_ERROR_CHECK(i2s_set_pin(BOARD_I2S_PORT, &pin_config));
     // ESP32-S3 I2S master drives MCLK/BCLK/LRCLK for the ES8311 slave.
@@ -258,12 +230,6 @@ static void codec_init(void)
     ESP_ERROR_CHECK(i2c_driver_install(BOARD_I2C_PORT, i2c_cfg.mode, 0, 0, 0));
 
     // Configure the ES8311 codec using the local minimal driver.
-    ESP_ERROR_CHECK(es8311_init(I2C_PORT, ES8311_ADDR, I2S_PORT, I2S_SAMPLE_RATE));
-    // Configure the ES8311 codec using a minimal driver.  The helper
-    // function defined in es8311.c performs a soft reset, sets the
-    // sample rate and enables both ADC and DAC.  For more advanced
-    // control the espressif/esp_codec_dev component can be used
-    // instead【705914580000106†L231-L298】.
     ESP_ERROR_CHECK(es8311_init(BOARD_I2C_PORT, BOARD_ES8311_ADDR, BOARD_I2S_PORT, BOARD_I2S_SAMPLE_RATE));
     ESP_LOGI(TAG, "Codec initialised");
 }
@@ -330,11 +296,16 @@ static void clear_pairing_button_cb(void *ctx)
         free(bonded_devices);
     }
 
-    memset(peer_addr, 0, sizeof(peer_addr));
+    esp_err_t err = peer_store_clear();
+    if (err != ESP_OK) {
+        status_ui_set_state(STATUS_UI_STATE_ERROR);
+        return;
+    }
+
     hfp_connected = false;
     audio_connected = false;
     audio_connect_pending = false;
-    set_discoverable_mode(true);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(set_discoverable_mode(true));
 }
 
 static void toggle_monitoring_button_cb(void *ctx)
@@ -361,7 +332,6 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
             log_bd_addr("Paired with", param->auth_cmpl.bd_addr);
             memcpy(peer_addr, param->auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
             status_ui_set_state(STATUS_UI_STATE_PAIRED);
-            peer_addr_valid = true;
             peer_store_save(peer_addr);
         } else {
             ESP_LOGW(TAG, "Authentication failed");
@@ -429,42 +399,67 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
 
 /* HFP outgoing data callback.  The HFP stack invokes this function
  * whenever it requires audio samples to send to the remote device.
- * The buffer length provided by the stack corresponds to one SCO
- * packet.  Audio is read from the I2S bus and downsampled from
- * 16 kHz to 8 kHz by discarding every second sample.  The callback
- * always initialises the full requested buffer, padding any I2S
- * shortfall with silence before returning.
+ * The requested byte count is converted to an exact 8 kHz output sample
+ * count, then enough 16 kHz microphone samples are read to satisfy that
+ * request after 2:1 low-pass decimation.  Silence is appended only if
+ * I2S returns an error or short read.
  */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 {
-    static int16_t pcm16[PCM_CHUNK_SIZE];
+    static int16_t input_pcm[BOARD_PCM_CHUNK_SIZE];
+    static int16_t output_pcm[BOARD_PCM_CHUNK_SIZE / AUDIO_RESAMPLE_DECIMATION_FACTOR];
+    static audio_resample_decimator_t decimator;
     static int64_t last_read_error_log_us = -HFP_LOG_THROTTLE_US;
     static int64_t last_underfill_log_us = -HFP_LOG_THROTTLE_US;
     static uint32_t consecutive_underfills = 0;
 
-    size_t bytes_read = 0;
+    const size_t requested_output_samples = len / sizeof(int16_t);
+    size_t output_samples_written = 0;
     size_t bytes_written = 0;
-    size_t downsampled_bytes = 0;
+    size_t total_i2s_bytes_read = 0;
+    esp_err_t last_err = ESP_OK;
 
-    esp_err_t err = i2s_read(I2S_PORT, pcm16, sizeof(pcm16), &bytes_read, portMAX_DELAY);
-    if (err == ESP_OK && bytes_read > 0) {
-        /*
-         * Downsample by selecting every second 16-bit sample.  Track exactly
-         * how many bytes of real microphone audio have been copied into data;
-         * any remaining requested bytes are filled with zeroes below.
-         */
-        const size_t samples = bytes_read / sizeof(int16_t);
-        for (size_t i = 0; i < samples && bytes_written + sizeof(int16_t) <= len; i += 2) {
-            memcpy(data + bytes_written, &pcm16[i], sizeof(int16_t));
-            bytes_written += sizeof(int16_t);
+    if ((len % sizeof(int16_t)) != 0) {
+        ESP_LOGW(TAG, "HFP requested odd byte count: %u", (unsigned int)len);
+    }
+
+    while (output_samples_written < requested_output_samples) {
+        const size_t remaining_output_samples = requested_output_samples - output_samples_written;
+        size_t input_samples_needed = remaining_output_samples * AUDIO_RESAMPLE_DECIMATION_FACTOR;
+        if (input_samples_needed > BOARD_PCM_CHUNK_SIZE) {
+            input_samples_needed = BOARD_PCM_CHUNK_SIZE;
         }
-        downsampled_bytes = bytes_written;
-    } else {
-        const int64_t now_us = esp_timer_get_time();
-        if (now_us - last_read_error_log_us >= HFP_LOG_THROTTLE_US) {
-            ESP_LOGW(TAG, "I2S read failed in HFP outgoing callback: err=%s, bytes_read=%u",
-                     esp_err_to_name(err), (unsigned int)bytes_read);
-            last_read_error_log_us = now_us;
+
+        size_t bytes_read = 0;
+        last_err = i2s_read(BOARD_I2S_PORT, input_pcm,
+                            input_samples_needed * sizeof(int16_t),
+                            &bytes_read, portMAX_DELAY);
+        total_i2s_bytes_read += bytes_read;
+
+        if (last_err != ESP_OK || bytes_read == 0) {
+            const int64_t now_us = esp_timer_get_time();
+            if (now_us - last_read_error_log_us >= HFP_LOG_THROTTLE_US) {
+                ESP_LOGW(TAG, "I2S read failed in HFP outgoing callback: err=%s, bytes_read=%u",
+                         esp_err_to_name(last_err), (unsigned int)bytes_read);
+                last_read_error_log_us = now_us;
+            }
+            break;
+        }
+
+        const size_t input_samples_read = bytes_read / sizeof(int16_t);
+        const size_t output_capacity = sizeof(output_pcm) / sizeof(output_pcm[0]);
+        const size_t decimated_samples =
+            audio_resample_decimate_2to1(&decimator, input_pcm, input_samples_read,
+                                         output_pcm, output_capacity);
+        const size_t samples_to_copy =
+            decimated_samples < remaining_output_samples ? decimated_samples : remaining_output_samples;
+
+        memcpy(data + bytes_written, output_pcm, samples_to_copy * sizeof(int16_t));
+        output_samples_written += samples_to_copy;
+        bytes_written += samples_to_copy * sizeof(int16_t);
+
+        if (bytes_read < input_samples_needed * sizeof(int16_t)) {
+            break;
         }
     }
 
@@ -477,10 +472,12 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
         if (consecutive_underfills >= HFP_UNDERFILL_LOG_THRESHOLD) {
             const int64_t now_us = esp_timer_get_time();
             if (now_us - last_underfill_log_us >= HFP_LOG_THROTTLE_US) {
-                ESP_LOGW(TAG, "HFP outgoing audio underfill: downsampled %u/%u bytes, zero-filled %u bytes, i2s_read=%u bytes, consecutive=%u",
-                         (unsigned int)downsampled_bytes, (unsigned int)len,
-                         (unsigned int)(bytes_written - downsampled_bytes),
-                         (unsigned int)bytes_read, (unsigned int)consecutive_underfills);
+                ESP_LOGW(TAG, "HFP outgoing audio underfill: produced %u/%u bytes, zero-filled %u bytes, i2s_read=%u bytes, consecutive=%u",
+                         (unsigned int)(output_samples_written * sizeof(int16_t)),
+                         (unsigned int)len,
+                         (unsigned int)zero_fill_len,
+                         (unsigned int)total_i2s_bytes_read,
+                         (unsigned int)consecutive_underfills);
                 last_underfill_log_us = now_us;
             }
         }
@@ -489,7 +486,7 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
     }
 
 #if HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL
-    return (int)downsampled_bytes;
+    return (int)(output_samples_written * sizeof(int16_t));
 #else
     return (int)bytes_written;
 #endif
@@ -584,12 +581,10 @@ void app_main(void)
 
     esp_err_t peer_load_err = peer_store_load(peer_addr);
     if (peer_load_err == ESP_OK) {
-        peer_addr_valid = true;
         log_bd_addr("Startup reconnect mode; saved peer is", peer_addr);
         xTaskCreate(reconnect_task, "bt_reconnect", 3072, peer_addr, 5, NULL);
     } else {
         memset(peer_addr, 0, sizeof(peer_addr));
-        peer_addr_valid = false;
         ESP_LOGI(TAG, "Startup first-pairing mode; no saved Bluetooth peer (%s)",
                  esp_err_to_name(peer_load_err));
     }
