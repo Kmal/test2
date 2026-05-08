@@ -80,8 +80,6 @@ static const char *TAG = "BT_MIC";
 #endif
 
 static esp_bd_addr_t peer_addr = {0};
-static bool hfp_slc_connected = false;
-static bool hfp_audio_connected = false;
 static bool bt_ready = false;
 static bool hfp_connected = false;
 static bool audio_connected = false;
@@ -283,7 +281,7 @@ static esp_err_t set_discoverable_mode(bool enabled)
     esp_err_t err = esp_bt_gap_set_scan_mode(scan_mode);
     if (err == ESP_OK) {
         status_ui_set_discoverable_enabled(enabled);
-        if (enabled && !hfp_slc_connected && !hfp_audio_connected) {
+        if (enabled && !hfp_connected && !audio_connected) {
             status_ui_set_state(STATUS_UI_STATE_DISCOVERABLE);
         }
     } else {
@@ -333,8 +331,9 @@ static void clear_pairing_button_cb(void *ctx)
     }
 
     memset(peer_addr, 0, sizeof(peer_addr));
-    hfp_slc_connected = false;
-    hfp_audio_connected = false;
+    hfp_connected = false;
+    audio_connected = false;
+    audio_connect_pending = false;
     set_discoverable_mode(true);
 }
 
@@ -391,14 +390,13 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
             status_ui_set_state(STATUS_UI_STATE_PAIRED);
         }
         if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
-            hfp_slc_connected = true;
             status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
         } else if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED) {
-            hfp_slc_connected = false;
-            hfp_audio_connected = false;
             if (status_ui_get_discoverable_enabled()) {
                 status_ui_set_state(STATUS_UI_STATE_DISCOVERABLE);
             }
+        }
+
         hfp_connected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED;
         if (hfp_connected) {
             memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
@@ -409,14 +407,15 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
         break;
     case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         ESP_LOGI(TAG, "HFP audio state: %d", param->audio_stat.state);
-        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
-            hfp_audio_connected = true;
+        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
+            param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
             status_ui_set_state(STATUS_UI_STATE_AUDIO_STREAMING);
         } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
-            hfp_audio_connected = false;
-            if (hfp_slc_connected) {
+            if (hfp_connected) {
                 status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
             }
+        }
+
         audio_connected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                           param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC;
         if (audio_connected || param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
@@ -519,7 +518,7 @@ static void reconnect_task(void *arg)
     memcpy(addr, arg, sizeof(esp_bd_addr_t));
     vTaskDelay(pdMS_TO_TICKS(RECONNECT_BACKOFF_MS));
 
-    if (!slc_connected) {
+    if (!hfp_connected) {
         log_bd_addr("Attempting saved-peer reconnect to", addr);
         esp_err_t err = esp_hf_client_connect(addr);
         if (err != ESP_OK) {
@@ -602,8 +601,7 @@ void app_main(void)
         // If a service level connection exists and audio is not yet
         // connected, request to open the audio channel.  Once open
         // the audio callbacks will be invoked.
-        if (peer_addr[0] != 0 && hfp_slc_connected && !hfp_audio_connected) {
-        if (peer_addr[0] != 0 && hfp_connected && !audio_connected && !audio_connect_pending) {
+        if (!peer_addr_is_empty(peer_addr) && hfp_connected && !audio_connected && !audio_connect_pending) {
             // Connect the audio channel if not already done.  The
             // state is updated via the audio state event.
             ret = esp_hf_client_connect_audio(peer_addr);
