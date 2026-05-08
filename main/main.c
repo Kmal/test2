@@ -43,6 +43,7 @@
 #include "esp_gap_bt_api.h"
 #include "esp_bt_main.h"
 #include "esp_hf_client_api.h"
+#include "audio_resample.h"
 #include "es8311.h"
 
 // Tag used for log messages
@@ -59,7 +60,7 @@ static const char *TAG = "BT_MIC";
  *   - I2C SCL → GPIO18
  */
 #define I2S_PORT         I2S_NUM_0
-#define I2S_SAMPLE_RATE  16000
+#define I2S_SAMPLE_RATE  AUDIO_RESAMPLE_INPUT_RATE_HZ
 #define I2S_BITS         I2S_BITS_PER_SAMPLE_16BIT
 #define I2S_CHANNEL_FMT  I2S_CHANNEL_FMT_ONLY_LEFT
 
@@ -76,12 +77,14 @@ static const char *TAG = "BT_MIC";
 
 // Buffer size used when reading from the codec.  A small buffer
 // reduces latency at the expense of CPU load.  HFP audio uses 8 kHz
-// sampling rate, 16 bit mono (16 kbit/s).  When capturing at
-// 16 kHz the audio is downsampled by discarding every second sample.
+// sampling rate, 16 bit mono (16 kbit/s).  Captured audio is
+// low-pass filtered before 2:1 decimation to reduce aliasing harshness.
+#define HFP_SAMPLE_RATE  AUDIO_RESAMPLE_OUTPUT_RATE_HZ
 #define PCM_CHUNK_SIZE   320
 
 static esp_bd_addr_t peer_addr = {0};
 static bool slc_connected = false;
+static audio_resample_decimator_t mic_decimator;
 
 /* Forward declarations */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
@@ -190,6 +193,7 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
     case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         ESP_LOGI(TAG, "HFP audio state: %d", param->audio_stat.state);
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
+            audio_resample_decimator_reset(&mic_decimator);
             slc_connected = true;
         }
         break;
@@ -201,33 +205,33 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
 /* HFP outgoing data callback.  The HFP stack invokes this function
  * whenever it requires audio samples to send to the remote device.
  * The buffer length provided by the stack corresponds to one SCO
- * packet.  Audio is read from the I2S bus and downsampled from
- * 16 kHz to 8 kHz by discarding every second sample.  Returns the
- * number of bytes actually written.
+ * packet.  Audio is read from the I2S bus, passed through a small
+ * fixed-point FIR low-pass filter, and decimated from 16 kHz to 8 kHz.
+ * Returns the number of bytes actually written.
  */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 {
-    // Temporary buffer to hold 16 kHz audio.  Each sample is 16 bits
-    // so we need twice as many bytes as the number requested by HFP.
     size_t bytes_read = 0;
     static int16_t pcm16[PCM_CHUNK_SIZE];
     int16_t *out16 = (int16_t *)data;
+    const size_t requested_output_samples = len / sizeof(int16_t);
+    const size_t input_samples_to_read = requested_output_samples * AUDIO_RESAMPLE_DECIMATION_FACTOR;
+    const size_t input_bytes_to_read = input_samples_to_read * sizeof(int16_t);
+    const size_t read_size = (input_bytes_to_read < sizeof(pcm16)) ? input_bytes_to_read : sizeof(pcm16);
 
-    // Read data from I2S
-    esp_err_t err = i2s_read(I2S_PORT, pcm16, sizeof(pcm16), &bytes_read, portMAX_DELAY);
+    esp_err_t err = i2s_read(I2S_PORT, pcm16, read_size, &bytes_read, portMAX_DELAY);
     if (err != ESP_OK || bytes_read == 0) {
         memset(data, 0, len);
         return len;
     }
 
-    // Downsample by selecting every second sample.  HFP expects
-    // mono audio at 8 kHz and 16 bits per sample (len bytes is multiple of 2).
-    int samples = bytes_read / sizeof(int16_t);
-    int out_idx = 0;
-    for (int i = 0; i < samples && out_idx * sizeof(int16_t) < len; i += 2) {
-        out16[out_idx++] = pcm16[i];
-    }
-    return out_idx * sizeof(int16_t);
+    const size_t input_samples = bytes_read / sizeof(int16_t);
+    const size_t output_samples = audio_resample_decimate_2to1(&mic_decimator,
+                                                               pcm16,
+                                                               input_samples,
+                                                               out16,
+                                                               requested_output_samples);
+    return output_samples * sizeof(int16_t);
 }
 
 /* HFP incoming data callback.  Called by the HFP stack when audio
