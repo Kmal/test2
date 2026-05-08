@@ -81,7 +81,9 @@ static const char *TAG = "BT_MIC";
 #define PCM_CHUNK_SIZE   320
 
 static esp_bd_addr_t peer_addr = {0};
-static bool slc_connected = false;
+static bool hfp_connected = false;
+static bool audio_connected = false;
+static bool audio_connect_pending = false;
 
 /* Forward declarations */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
@@ -183,14 +185,20 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
     switch(event) {
     case ESP_HF_CLIENT_CONNECTION_STATE_EVT:
         ESP_LOGI(TAG, "HFP connection state: %d", param->conn_stat.state);
-        if (param->conn_stat.state == ESP_HF_CONNECTION_STATE_CONNECTED) {
+        hfp_connected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED;
+        if (hfp_connected) {
             memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+        } else {
+            audio_connected = false;
+            audio_connect_pending = false;
         }
         break;
     case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         ESP_LOGI(TAG, "HFP audio state: %d", param->audio_stat.state);
-        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
-            slc_connected = true;
+        audio_connected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
+                          param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC;
+        if (audio_connected || param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
+            audio_connect_pending = false;
         }
         break;
     default:
@@ -290,12 +298,14 @@ void app_main(void)
         // If a service level connection exists and audio is not yet
         // connected, request to open the audio channel.  Once open
         // the audio callbacks will be invoked.
-        if (peer_addr[0] != 0 && slc_connected) {
+        if (peer_addr[0] != 0 && hfp_connected && !audio_connected && !audio_connect_pending) {
             // Connect the audio channel if not already done.  The
-            // return value will be ESP_HF_CLIENT_SUCCESS if the
-            // operation was accepted.  The state is updated via the
-            // audio state event.
-            esp_hf_client_connect_audio(peer_addr);
+            // state is updated via the audio state event.
+            ret = esp_hf_client_connect_audio(peer_addr);
+            ESP_LOGI(TAG, "esp_hf_client_connect_audio returned %s (0x%x)", esp_err_to_name(ret), ret);
+            if (ret == ESP_OK) {
+                audio_connect_pending = true;
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
