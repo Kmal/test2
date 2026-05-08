@@ -29,12 +29,15 @@
  * tune the ES8311 register settings for optimum audio performance.
  */
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2s.h"
 #include "driver/i2c.h"
+#include "driver/gpio.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -106,6 +109,111 @@ static bool audio_connect_pending = false;
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len);
 static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param);
+static void reconnect_task(void *arg);
+
+static void log_bd_addr(const char *prefix, const esp_bd_addr_t addr)
+{
+    ESP_LOGI(TAG, "%s %02x:%02x:%02x:%02x:%02x:%02x", prefix,
+             addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+}
+
+static bool peer_addr_is_empty(const esp_bd_addr_t addr)
+{
+    const esp_bd_addr_t empty = {0};
+    return memcmp(addr, empty, sizeof(esp_bd_addr_t)) == 0;
+}
+
+static esp_err_t peer_store_save(const esp_bd_addr_t addr)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BT_PEER_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open peer store for write: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = nvs_set_blob(nvs, BT_PEER_NVS_KEY, addr, sizeof(esp_bd_addr_t));
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    if (err == ESP_OK) {
+        log_bd_addr("Saved Bluetooth peer", addr);
+    } else {
+        ESP_LOGE(TAG, "Failed to save Bluetooth peer: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+static esp_err_t peer_store_load(esp_bd_addr_t addr)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BT_PEER_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    size_t len = sizeof(esp_bd_addr_t);
+    err = nvs_get_blob(nvs, BT_PEER_NVS_KEY, addr, &len);
+    nvs_close(nvs);
+
+    if (err == ESP_OK && len != sizeof(esp_bd_addr_t)) {
+        ESP_LOGW(TAG, "Ignoring saved peer with invalid length: %u", (unsigned)len);
+        memset(addr, 0, sizeof(esp_bd_addr_t));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (err == ESP_OK && peer_addr_is_empty(addr)) {
+        ESP_LOGW(TAG, "Ignoring empty saved peer address");
+        return ESP_ERR_INVALID_STATE;
+    }
+    return err;
+}
+
+static esp_err_t peer_store_clear(void)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(BT_PEER_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open peer store for clear: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = nvs_erase_key(nvs, BT_PEER_NVS_KEY);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    if (err == ESP_OK) {
+        memset(peer_addr, 0, sizeof(peer_addr));
+        peer_addr_valid = false;
+        ESP_LOGI(TAG, "Cleared saved Bluetooth peer");
+    } else {
+        ESP_LOGE(TAG, "Failed to clear Bluetooth peer: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+static bool peer_reset_button_pressed(void)
+{
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << PEER_RESET_BUTTON_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&cfg));
+    vTaskDelay(pdMS_TO_TICKS(20));
+    return gpio_get_level(PEER_RESET_BUTTON_GPIO) == PEER_RESET_BUTTON_ACTIVE_LEVEL;
+}
 
 /* Initialise the I2S peripheral for full-duplex operation with the
  * ES8311 codec.  The ESP32-S3 is the I2S master in this firmware: it
@@ -182,8 +290,10 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
     switch(event) {
     case ESP_BT_GAP_AUTH_CMPL_EVT: {
         if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI(TAG, "Paired with %02x:%02x:%02x:%02x:%02x:%02x", param->auth_cmpl.bd_addr[0], param->auth_cmpl.bd_addr[1], param->auth_cmpl.bd_addr[2], param->auth_cmpl.bd_addr[3], param->auth_cmpl.bd_addr[4], param->auth_cmpl.bd_addr[5]);
+            log_bd_addr("Paired with", param->auth_cmpl.bd_addr);
             memcpy(peer_addr, param->auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
+            peer_addr_valid = true;
+            peer_store_save(peer_addr);
         } else {
             ESP_LOGW(TAG, "Authentication failed");
         }
@@ -306,6 +416,25 @@ static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len)
     (void)bytes_written;
 }
 
+static void reconnect_task(void *arg)
+{
+    esp_bd_addr_t addr;
+    memcpy(addr, arg, sizeof(esp_bd_addr_t));
+    vTaskDelay(pdMS_TO_TICKS(RECONNECT_BACKOFF_MS));
+
+    if (!slc_connected) {
+        log_bd_addr("Attempting saved-peer reconnect to", addr);
+        esp_err_t err = esp_hf_client_connect(addr);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Saved-peer reconnect request failed: %s", esp_err_to_name(err));
+        }
+    } else {
+        ESP_LOGI(TAG, "Skipping saved-peer reconnect; HFP is already connected");
+    }
+
+    vTaskDelete(NULL);
+}
+
 void app_main(void)
 {
     esp_err_t ret;
@@ -315,6 +444,11 @@ void app_main(void)
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
+    }
+
+    if (peer_reset_button_pressed()) {
+        ESP_LOGI(TAG, "Peer reset button held at boot; clearing saved Bluetooth peer");
+        ESP_ERROR_CHECK(peer_store_clear());
     }
 
     // Initialise audio peripherals
@@ -343,12 +477,21 @@ void app_main(void)
     // Register data callbacks (voice over HCI must be enabled in menuconfig)
     ESP_ERROR_CHECK(esp_hf_client_register_data_callback(hfp_incoming_data_cb, hfp_outgoing_data_cb));
 
-    ESP_LOGI(TAG, "Bluetooth Hands‑Free client initialised.  Awaiting connection…");
+    esp_err_t peer_load_err = peer_store_load(peer_addr);
+    if (peer_load_err == ESP_OK) {
+        peer_addr_valid = true;
+        log_bd_addr("Startup reconnect mode; saved peer is", peer_addr);
+        xTaskCreate(reconnect_task, "bt_reconnect", 3072, peer_addr, 5, NULL);
+    } else {
+        memset(peer_addr, 0, sizeof(peer_addr));
+        peer_addr_valid = false;
+        ESP_LOGI(TAG, "Startup first-pairing mode; no saved Bluetooth peer (%s)",
+                 esp_err_to_name(peer_load_err));
+    }
 
-    // The event loop runs in the background.  The main task can
-    // optionally attempt an automatic connection once the remote
-    // address is known.  Without this the host (Mac) must initiate
-    // the connection through its Bluetooth preferences.
+    ESP_LOGI(TAG, "Bluetooth Hands-Free client initialised");
+
+    // The event loop runs in the background.
     while (true) {
         // If a service level connection exists and audio is not yet
         // connected, request to open the audio channel.  Once open
