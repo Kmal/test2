@@ -37,6 +37,7 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_bt.h"
@@ -82,9 +83,23 @@ static const char *TAG = "BT_MIC";
 #define HFP_SAMPLE_RATE  AUDIO_RESAMPLE_OUTPUT_RATE_HZ
 #define PCM_CHUNK_SIZE   320
 
+#define HFP_LOG_THROTTLE_US          (1000000LL)
+#define HFP_UNDERFILL_LOG_THRESHOLD  3
+
+/*
+ * ESP-IDF HFP outgoing callbacks normally expect the callback to return the
+ * requested byte count after the application has filled the whole buffer.
+ * Keep returning len after zero-padding underfills unless a specific ESP-IDF
+ * version/application integration defines this compatibility switch.
+ */
+#ifndef HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL
+#define HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL 0
+#endif
+
 static esp_bd_addr_t peer_addr = {0};
-static bool slc_connected = false;
-static audio_resample_decimator_t mic_decimator;
+static bool hfp_connected = false;
+static bool audio_connected = false;
+static bool audio_connect_pending = false;
 
 /* Forward declarations */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
@@ -186,15 +201,20 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
     switch(event) {
     case ESP_HF_CLIENT_CONNECTION_STATE_EVT:
         ESP_LOGI(TAG, "HFP connection state: %d", param->conn_stat.state);
-        if (param->conn_stat.state == ESP_HF_CONNECTION_STATE_CONNECTED) {
+        hfp_connected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED;
+        if (hfp_connected) {
             memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+        } else {
+            audio_connected = false;
+            audio_connect_pending = false;
         }
         break;
     case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         ESP_LOGI(TAG, "HFP audio state: %d", param->audio_stat.state);
-        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
-            audio_resample_decimator_reset(&mic_decimator);
-            slc_connected = true;
+        audio_connected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
+                          param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC;
+        if (audio_connected || param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
+            audio_connect_pending = false;
         }
         break;
     default:
@@ -205,33 +225,69 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
 /* HFP outgoing data callback.  The HFP stack invokes this function
  * whenever it requires audio samples to send to the remote device.
  * The buffer length provided by the stack corresponds to one SCO
- * packet.  Audio is read from the I2S bus, passed through a small
- * fixed-point FIR low-pass filter, and decimated from 16 kHz to 8 kHz.
- * Returns the number of bytes actually written.
+ * packet.  Audio is read from the I2S bus and downsampled from
+ * 16 kHz to 8 kHz by discarding every second sample.  The callback
+ * always initialises the full requested buffer, padding any I2S
+ * shortfall with silence before returning.
  */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 {
-    size_t bytes_read = 0;
     static int16_t pcm16[PCM_CHUNK_SIZE];
-    int16_t *out16 = (int16_t *)data;
-    const size_t requested_output_samples = len / sizeof(int16_t);
-    const size_t input_samples_to_read = requested_output_samples * AUDIO_RESAMPLE_DECIMATION_FACTOR;
-    const size_t input_bytes_to_read = input_samples_to_read * sizeof(int16_t);
-    const size_t read_size = (input_bytes_to_read < sizeof(pcm16)) ? input_bytes_to_read : sizeof(pcm16);
+    static int64_t last_read_error_log_us = -HFP_LOG_THROTTLE_US;
+    static int64_t last_underfill_log_us = -HFP_LOG_THROTTLE_US;
+    static uint32_t consecutive_underfills = 0;
 
-    esp_err_t err = i2s_read(I2S_PORT, pcm16, read_size, &bytes_read, portMAX_DELAY);
-    if (err != ESP_OK || bytes_read == 0) {
-        memset(data, 0, len);
-        return len;
+    size_t bytes_read = 0;
+    size_t bytes_written = 0;
+    size_t downsampled_bytes = 0;
+
+    esp_err_t err = i2s_read(I2S_PORT, pcm16, sizeof(pcm16), &bytes_read, portMAX_DELAY);
+    if (err == ESP_OK && bytes_read > 0) {
+        /*
+         * Downsample by selecting every second 16-bit sample.  Track exactly
+         * how many bytes of real microphone audio have been copied into data;
+         * any remaining requested bytes are filled with zeroes below.
+         */
+        const size_t samples = bytes_read / sizeof(int16_t);
+        for (size_t i = 0; i < samples && bytes_written + sizeof(int16_t) <= len; i += 2) {
+            memcpy(data + bytes_written, &pcm16[i], sizeof(int16_t));
+            bytes_written += sizeof(int16_t);
+        }
+        downsampled_bytes = bytes_written;
+    } else {
+        const int64_t now_us = esp_timer_get_time();
+        if (now_us - last_read_error_log_us >= HFP_LOG_THROTTLE_US) {
+            ESP_LOGW(TAG, "I2S read failed in HFP outgoing callback: err=%s, bytes_read=%u",
+                     esp_err_to_name(err), (unsigned int)bytes_read);
+            last_read_error_log_us = now_us;
+        }
     }
 
-    const size_t input_samples = bytes_read / sizeof(int16_t);
-    const size_t output_samples = audio_resample_decimate_2to1(&mic_decimator,
-                                                               pcm16,
-                                                               input_samples,
-                                                               out16,
-                                                               requested_output_samples);
-    return output_samples * sizeof(int16_t);
+    if (bytes_written < len) {
+        const size_t zero_fill_len = len - bytes_written;
+        memset(data + bytes_written, 0, zero_fill_len);
+        bytes_written += zero_fill_len;
+
+        consecutive_underfills++;
+        if (consecutive_underfills >= HFP_UNDERFILL_LOG_THRESHOLD) {
+            const int64_t now_us = esp_timer_get_time();
+            if (now_us - last_underfill_log_us >= HFP_LOG_THROTTLE_US) {
+                ESP_LOGW(TAG, "HFP outgoing audio underfill: downsampled %u/%u bytes, zero-filled %u bytes, i2s_read=%u bytes, consecutive=%u",
+                         (unsigned int)downsampled_bytes, (unsigned int)len,
+                         (unsigned int)(bytes_written - downsampled_bytes),
+                         (unsigned int)bytes_read, (unsigned int)consecutive_underfills);
+                last_underfill_log_us = now_us;
+            }
+        }
+    } else {
+        consecutive_underfills = 0;
+    }
+
+#if HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL
+    return (int)downsampled_bytes;
+#else
+    return (int)bytes_written;
+#endif
 }
 
 /* HFP incoming data callback.  Called by the HFP stack when audio
@@ -294,12 +350,14 @@ void app_main(void)
         // If a service level connection exists and audio is not yet
         // connected, request to open the audio channel.  Once open
         // the audio callbacks will be invoked.
-        if (peer_addr[0] != 0 && slc_connected) {
+        if (peer_addr[0] != 0 && hfp_connected && !audio_connected && !audio_connect_pending) {
             // Connect the audio channel if not already done.  The
-            // return value will be ESP_HF_CLIENT_SUCCESS if the
-            // operation was accepted.  The state is updated via the
-            // audio state event.
-            esp_hf_client_connect_audio(peer_addr);
+            // state is updated via the audio state event.
+            ret = esp_hf_client_connect_audio(peer_addr);
+            ESP_LOGI(TAG, "esp_hf_client_connect_audio returned %s (0x%x)", esp_err_to_name(ret), ret);
+            if (ret == ESP_OK) {
+                audio_connect_pending = true;
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
