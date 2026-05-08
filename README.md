@@ -30,11 +30,13 @@ The ES8311 is a low‑power mono audio codec with a 24‑bit multi‑bit delta�
    ```
    bluetooth_mic/
      ├── CMakeLists.txt
+     ├── config/
+     │   └── sdkconfig.defaults
      ├── main/
+     │   ├── CMakeLists.txt
      │   ├── main.c
      │   ├── es8311.c
      │   └── es8311.h
-     ├── sdkconfig.defaults
      └── README.md
    ```
 
@@ -57,6 +59,18 @@ The ES8311 is a low‑power mono audio codec with a 24‑bit multi‑bit delta�
    Replace `/dev/ttyUSB0` with the serial port of your device.  The monitor will display log messages tagged with `BT_MIC`.
 
 5. **Pair with Mac mini** – On the Mac, open **System Settings → Bluetooth**, find `M5StickS3‑Mic` in the list of devices and click **Connect**.  After pairing, the device should appear in **System Settings → Sound → Input** as an audio input source.  Selecting it will route microphone audio from the Stick S3 into your Mac.  Because the HFP profile is limited to 8 kHz CVSD audio the quality is suitable for voice but not hi‑fidelity recording (Espressif’s HFP client API notes that CVSD is the default codec【750023267507510†L294-L303】).
+
+## Development checks
+
+Run these checks from the repository root after installing and activating the pinned ESP‑IDF version used by CI (currently `v5.5.4`):
+
+```
+idf.py set-target esp32s3
+idf.py build
+idf.py -p <PORT> flash monitor
+```
+
+Replace `<PORT>` with the serial port for the connected Stick S3, such as `/dev/ttyUSB0`, `/dev/cu.usbmodem*`, or `COM3`.  The GitHub Actions workflow runs the ESP32‑S3 configuration and build steps automatically on pushes and pull requests.  Hardware audio and Bluetooth validation still requires a physical M5StickS3 and a host audio gateway, so CI cannot verify microphone capture, speaker monitoring, pairing, or SCO audio routing end to end.
 
 ## Limitations and further work
 
