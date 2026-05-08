@@ -2,8 +2,9 @@
  * Basic ES8311 codec initialisation.  The purpose of this file is
  * to provide a small set of helper functions sufficient for
  * recording and playback on the M5Stack Stick S3.  It resets the
- * ES8311 and configures it for I2S master mode, 16 bit samples and
- * the desired sampling rate.  More detailed control (e.g. mic
+ * ES8311 and configures it for I2S slave mode, 16-bit samples and
+ * the desired sampling rate.  The ESP32-S3 I2S peripheral is the clock
+ * master and drives MCLK/BCLK/LRCLK.  More detailed control (e.g. mic
  * gain, de‑emphasis filters, power management) can be achieved
  * using the full Espressif codec framework.
  */
@@ -15,7 +16,14 @@
 
 static const char *TAG_CODEC = "ES8311";
 
-// Write a single 8‑bit value to a codec register
+#define ES8311_CLK_MANAGER_REG          0x0B
+#define ES8311_CLK_12M288_TO_16K        0x1B
+#define ES8311_CLK_12M288_TO_8K         0x3B
+#define ES8311_CLK_12M288_TO_48K        0x00
+#define ES8311_I2S_MODE_REG             0x0D
+#define ES8311_I2S_SLAVE_MODE           0x00
+
+// Write a single 8-bit value to a codec register
 static esp_err_t es8311_write_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t reg, uint8_t val)
 {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -58,20 +66,20 @@ esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
     ret |= es8311_write_reg(i2c_num, i2c_addr, 0x02, 0x10); // Start internal bias
     ret |= es8311_write_reg(i2c_num, i2c_addr, 0x03, 0x00);
 
-    // Configure global settings: I2S master, MCLK from internal PLL
-    // Set system clock (MCLK) ratio for desired sample rate.  The
-    // ES8311 datasheet suggests 0x1b for 16 kHz with 12.288 MHz MCLK.
-    uint8_t clk_div = 0x1b;
-    if (sample_rate == 8000) clk_div = 0x3b;
-    else if (sample_rate == 16000) clk_div = 0x1b;
-    else if (sample_rate == 48000) clk_div = 0x00;
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x0B, clk_div);
+    // Keep the ES8311 in I2S slave mode.  The ESP32-S3 I2S master
+    // supplies a 12.288 MHz MCLK, so the codec clock divider is chosen
+    // for that MCLK frequency and the requested audio sample rate.
+    uint8_t clk_div = ES8311_CLK_12M288_TO_16K;
+    if (sample_rate == 8000) clk_div = ES8311_CLK_12M288_TO_8K;
+    else if (sample_rate == 16000) clk_div = ES8311_CLK_12M288_TO_16K;
+    else if (sample_rate == 48000) clk_div = ES8311_CLK_12M288_TO_48K;
+    ret |= es8311_write_reg(i2c_num, i2c_addr, ES8311_CLK_MANAGER_REG, clk_div);
 
-    // Set I2S format: 16‑bit I2S, left justified off
+    // Set I2S format: 16-bit I2S, left justified off
     ret |= es8311_write_reg(i2c_num, i2c_addr, 0x11, 0x10); // ADC word length 16 bits
     ret |= es8311_write_reg(i2c_num, i2c_addr, 0x12, 0x10); // DAC word length 16 bits
-    // Select I2S mode (no DSP) and slave mode; the ESP32 provides clock
-    ret |= es8311_write_reg(i2c_num, i2c_addr, 0x0D, 0x00);
+    // Select I2S mode (no DSP) and slave mode; the ESP32-S3 provides clocks.
+    ret |= es8311_write_reg(i2c_num, i2c_addr, ES8311_I2S_MODE_REG, ES8311_I2S_SLAVE_MODE);
 
     // Enable DAC and ADC
     ret |= es8311_write_reg(i2c_num, i2c_addr, 0x14, 0x1a); // Enable DAC, headphone output
