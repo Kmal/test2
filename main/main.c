@@ -30,6 +30,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -44,6 +45,7 @@
 #include "esp_bt_main.h"
 #include "esp_hf_client_api.h"
 #include "es8311.h"
+#include "status_ui.h"
 
 // Tag used for log messages
 static const char *TAG = "BT_MIC";
@@ -81,12 +83,18 @@ static const char *TAG = "BT_MIC";
 #define PCM_CHUNK_SIZE   320
 
 static esp_bd_addr_t peer_addr = {0};
-static bool slc_connected = false;
+static bool hfp_slc_connected = false;
+static bool hfp_audio_connected = false;
+static bool bt_ready = false;
 
 /* Forward declarations */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len);
 static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param);
+static void clear_pairing_button_cb(void *ctx);
+static void toggle_monitoring_button_cb(void *ctx);
+static void toggle_discoverable_button_cb(void *ctx);
+static esp_err_t set_discoverable_mode(bool enabled);
 
 /* Initialise the I2S peripheral for full‑duplex operation with the
  * ES8311 codec.  The codec will generate MCLK and BCLK when
@@ -152,6 +160,86 @@ static void codec_init(void)
     ESP_LOGI(TAG, "Codec initialised");
 }
 
+
+static esp_err_t set_discoverable_mode(bool enabled)
+{
+    if (!bt_ready) {
+        ESP_LOGW(TAG, "Bluetooth is not ready; discoverable change ignored");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_bt_scan_mode_t scan_mode = enabled ? ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE
+                                           : ESP_BT_SCAN_MODE_CONNECTABLE;
+    esp_err_t err = esp_bt_gap_set_scan_mode(scan_mode);
+    if (err == ESP_OK) {
+        status_ui_set_discoverable_enabled(enabled);
+        if (enabled && !hfp_slc_connected && !hfp_audio_connected) {
+            status_ui_set_state(STATUS_UI_STATE_DISCOVERABLE);
+        }
+    } else {
+        ESP_LOGE(TAG, "failed to update discoverable mode: %s", esp_err_to_name(err));
+        status_ui_set_state(STATUS_UI_STATE_ERROR);
+    }
+    return err;
+}
+
+static void clear_pairing_button_cb(void *ctx)
+{
+    (void)ctx;
+
+    if (!bt_ready) {
+        ESP_LOGW(TAG, "Bluetooth is not ready; clear pairing ignored");
+        return;
+    }
+
+    int bond_count = esp_bt_gap_get_bond_device_num();
+    if (bond_count <= 0) {
+        ESP_LOGI(TAG, "No bonded devices to remove");
+    } else {
+        esp_bd_addr_t *bonded_devices = calloc(bond_count, sizeof(esp_bd_addr_t));
+        if (bonded_devices == NULL) {
+            ESP_LOGE(TAG, "Unable to allocate bonded device list");
+            status_ui_set_state(STATUS_UI_STATE_ERROR);
+            return;
+        }
+
+        int listed_devices = bond_count;
+        esp_err_t err = esp_bt_gap_get_bond_device_list(&listed_devices, bonded_devices);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Unable to read bonded device list: %s", esp_err_to_name(err));
+            free(bonded_devices);
+            status_ui_set_state(STATUS_UI_STATE_ERROR);
+            return;
+        }
+
+        for (int i = 0; i < listed_devices; ++i) {
+            err = esp_bt_gap_remove_bond_device(bonded_devices[i]);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Unable to remove bonded device %d: %s", i, esp_err_to_name(err));
+            }
+        }
+        ESP_LOGI(TAG, "Removed %d bonded device(s)", listed_devices);
+        free(bonded_devices);
+    }
+
+    memset(peer_addr, 0, sizeof(peer_addr));
+    hfp_slc_connected = false;
+    hfp_audio_connected = false;
+    set_discoverable_mode(true);
+}
+
+static void toggle_monitoring_button_cb(void *ctx)
+{
+    (void)ctx;
+    status_ui_set_monitoring_enabled(!status_ui_get_monitoring_enabled());
+}
+
+static void toggle_discoverable_button_cb(void *ctx)
+{
+    (void)ctx;
+    set_discoverable_mode(!status_ui_get_discoverable_enabled());
+}
+
 /* Bluetooth GAP callback.  Logs pairing and discovery events.  When
  * pairing completes the remote address is stored to allow explicit
  * connections if required.
@@ -163,8 +251,10 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
         if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
             ESP_LOGI(TAG, "Paired with %02x:%02x:%02x:%02x:%02x:%02x", param->auth_cmpl.bd_addr[0], param->auth_cmpl.bd_addr[1], param->auth_cmpl.bd_addr[2], param->auth_cmpl.bd_addr[3], param->auth_cmpl.bd_addr[4], param->auth_cmpl.bd_addr[5]);
             memcpy(peer_addr, param->auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
+            status_ui_set_state(STATUS_UI_STATE_PAIRED);
         } else {
             ESP_LOGW(TAG, "Authentication failed");
+            status_ui_set_state(STATUS_UI_STATE_ERROR);
         }
         break;
     }
@@ -183,14 +273,32 @@ static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_p
     switch(event) {
     case ESP_HF_CLIENT_CONNECTION_STATE_EVT:
         ESP_LOGI(TAG, "HFP connection state: %d", param->conn_stat.state);
-        if (param->conn_stat.state == ESP_HF_CONNECTION_STATE_CONNECTED) {
+        if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_CONNECTED ||
+            param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
             memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+            status_ui_set_state(STATUS_UI_STATE_PAIRED);
+        }
+        if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
+            hfp_slc_connected = true;
+            status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
+        } else if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED) {
+            hfp_slc_connected = false;
+            hfp_audio_connected = false;
+            if (status_ui_get_discoverable_enabled()) {
+                status_ui_set_state(STATUS_UI_STATE_DISCOVERABLE);
+            }
         }
         break;
     case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         ESP_LOGI(TAG, "HFP audio state: %d", param->audio_stat.state);
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
-            slc_connected = true;
+            hfp_audio_connected = true;
+            status_ui_set_state(STATUS_UI_STATE_AUDIO_STREAMING);
+        } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
+            hfp_audio_connected = false;
+            if (hfp_slc_connected) {
+                status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
+            }
         }
         break;
     default:
@@ -238,6 +346,10 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
  */
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len)
 {
+    if (!status_ui_get_monitoring_enabled()) {
+        return;
+    }
+
     size_t bytes_written;
     i2s_write(I2S_PORT, data, len, &bytes_written, portMAX_DELAY);
     (void)bytes_written;
@@ -246,6 +358,14 @@ static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len)
 void app_main(void)
 {
     esp_err_t ret;
+    const status_ui_button_handlers_t status_handlers = {
+        .clear_pairing = clear_pairing_button_cb,
+        .toggle_monitoring = toggle_monitoring_button_cb,
+        .toggle_discoverable = toggle_discoverable_button_cb,
+    };
+
+    ESP_ERROR_CHECK(status_ui_init(&status_handlers));
+    status_ui_set_state(STATUS_UI_STATE_BOOTING);
 
     // Initialize NVS for Bluetooth
     ret = nvs_flash_init();
@@ -272,7 +392,8 @@ void app_main(void)
     // Set device name and enable discoverable/connectable mode
     ESP_ERROR_CHECK(esp_bt_dev_set_device_name("M5StickS3-Mic"));
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(gap_callback));
-    ESP_ERROR_CHECK(esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE));
+    bt_ready = true;
+    ESP_ERROR_CHECK(set_discoverable_mode(true));
 
     // Initialize HFP client
     ESP_ERROR_CHECK(esp_hf_client_register_callback(hfp_event_handler));
@@ -290,7 +411,7 @@ void app_main(void)
         // If a service level connection exists and audio is not yet
         // connected, request to open the audio channel.  Once open
         // the audio callbacks will be invoked.
-        if (peer_addr[0] != 0 && slc_connected) {
+        if (peer_addr[0] != 0 && hfp_slc_connected && !hfp_audio_connected) {
             // Connect the audio channel if not already done.  The
             // return value will be ESP_HF_CLIENT_SUCCESS if the
             // operation was accepted.  The state is updated via the

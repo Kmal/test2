@@ -21,6 +21,21 @@ The ES8311 is a low‑power mono audio codec with a 24‑bit multi‑bit delta�
 * **I²S audio capture** – The firmware configures the ESP32‑S3’s I²S peripheral in full‑duplex mode (16 kHz, 16‑bit, mono).  Audio is read from the ES8311’s ADC and down‑sampled to 8 kHz on‑the‑fly before being handed to the Bluetooth stack via the HFP outgoing data callback.  Incoming audio from the remote device is written to the codec’s DAC so you can monitor the audio.
 * **ES8311 driver** – A minimal driver (`es8311.c`) performs a soft reset, sets the sample rate and enables the ADC and DAC.  For advanced features (volume control, mic gain, etc.) you can use the `esp_codec_dev` component; its README explains how the codec is abstracted via `audio_codec_ctrl_if_t` and `audio_codec_data_if_t` interfaces and how to combine them into a `esp_codec_dev_handle_t`【705914580000106†L231-L298】.
 * **Bluetooth configuration** – Only classic Bluetooth (BR/EDR) is enabled.  The firmware registers a Hands‑Free client, sets the device name to `M5StickS3‑Mic` and makes the device discoverable/connectable.  Voice‑over‑HCI is selected so that SCO audio flows through the application layer; this allows the microphone data to be provided by the outgoing data callback【60199267661565†L468-L517】.  The service level connection (SLC) is automatically negotiated when the host pairs with the device, and the audio connection is opened once the SLC is established.
+* **Status UI** – `main/status_ui.c` and `main/status_ui.h` keep user-facing state indication and button polling separate from Bluetooth/audio logic.  The module currently reports the states `booting`, `discoverable`, `paired`, `HFP connected`, `audio streaming` and `error` through ESP-IDF logging, so the firmware can build without display hardware or display components.  The same API can later be backed by an LCD/OLED implementation without changing the HFP callbacks.
+
+## Buttons and status output
+
+The lightweight status module configures active-low GPIO inputs with internal pull-ups and dispatches button events back to `main.c` through callbacks.  The default assignments are:
+
+| Function | Default GPIO | Firmware action |
+| --- | ---: | --- |
+| Clear pairing | GPIO37 | Removes all bonded Bluetooth devices, clears the cached peer address and returns the unit to discoverable mode. |
+| Toggle monitoring output | GPIO39 | Enables/disables routing incoming HFP audio to the ES8311 DAC.  Microphone capture and Bluetooth streaming are unaffected. |
+| Toggle discoverable mode | GPIO35 | Switches between connectable/discoverable and connectable-only scan modes. |
+
+Override the button pins at compile time by defining `STATUS_UI_BUTTON_CLEAR_PAIRING_GPIO`, `STATUS_UI_BUTTON_TOGGLE_MONITORING_GPIO` or `STATUS_UI_BUTTON_TOGGLE_DISCOVERABLE_GPIO` for the `main` component if your board wiring differs.
+
+No additional component is required for the default log-based status output.  If you add an on-device display, use ESP-IDF's LCD/LVGL stack; the recommended managed component source is Espressif's component registry, for example `idf.py add-dependency "espressif/esp_lvgl_port^2"` for LVGL integration, plus the appropriate `esp_lcd` panel driver for the display hardware.  Keep that display-specific code behind the `status_ui` API so Bluetooth and audio code remain independent from optional UI dependencies.
 
 ## Building and flashing
 
@@ -31,10 +46,14 @@ The ES8311 is a low‑power mono audio codec with a 24‑bit multi‑bit delta�
    bluetooth_mic/
      ├── CMakeLists.txt
      ├── main/
+     │   ├── CMakeLists.txt
      │   ├── main.c
+     │   ├── status_ui.c
+     │   ├── status_ui.h
      │   ├── es8311.c
      │   └── es8311.h
-     ├── sdkconfig.defaults
+     ├── config/
+     │   └── sdkconfig.defaults
      └── README.md
    ```
 
