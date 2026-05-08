@@ -34,7 +34,7 @@ The official M5Stack StickS3 schematic and pin map show the ES8311 audio codec o
 
 ## Implementation notes
 
-* **I²S audio capture** – The firmware configures the ESP32‑S3’s I²S peripheral in full‑duplex mode (16 kHz, 16‑bit, mono).  Audio is read from the ES8311’s ADC and down‑sampled to 8 kHz on‑the‑fly before being handed to the Bluetooth stack via the HFP outgoing data callback.  Incoming audio from the remote device is written to the codec’s DAC so you can monitor the audio.
+* **I²S audio capture** – The firmware configures the ESP32‑S3’s I²S peripheral in full‑duplex mode (16 kHz, 16‑bit, mono).  Audio is read from the ES8311’s ADC, passed through a tiny fixed‑point low‑pass FIR, and decimated 2:1 to 8 kHz before being handed to the Bluetooth stack via the HFP outgoing data callback.  Incoming audio from the remote device is written to the codec’s DAC so you can monitor the audio.
 * **ES8311 driver** – A minimal driver (`es8311.c`) performs a soft reset, sets the sample rate and enables the ADC and DAC.  For advanced features (volume control, mic gain, etc.) you can use the `esp_codec_dev` component; its README explains how the codec is abstracted via `audio_codec_ctrl_if_t` and `audio_codec_data_if_t` interfaces and how to combine them into a `esp_codec_dev_handle_t`【705914580000106†L231-L298】.
 * **Bluetooth configuration** – Only classic Bluetooth (BR/EDR) is enabled.  The firmware registers a Hands‑Free client, sets the device name to `M5StickS3‑Mic` and makes the device discoverable/connectable.  Voice‑over‑HCI is selected so that SCO audio flows through the application layer; this allows the microphone data to be provided by the outgoing data callback【60199267661565†L468-L517】.  The service level connection (SLC) is automatically negotiated when the host pairs with the device, and the audio connection is opened once the SLC is established.
 
@@ -46,12 +46,15 @@ The official M5Stack StickS3 schematic and pin map show the ES8311 audio codec o
    ```
    bluetooth_mic/
      ├── CMakeLists.txt
+     ├── config/
+     │   └── sdkconfig.defaults
      ├── main/
+     │   ├── CMakeLists.txt
      │   ├── main.c
-     │   ├── board_sticks3.h
+     │   ├── audio_resample.c
+     │   ├── audio_resample.h
      │   ├── es8311.c
      │   └── es8311.h
-     ├── sdkconfig.defaults
      └── README.md
    ```
 
@@ -74,6 +77,8 @@ The official M5Stack StickS3 schematic and pin map show the ES8311 audio codec o
    Replace `/dev/ttyUSB0` with the serial port of your device.  The monitor will display log messages tagged with `BT_MIC`.
 
 5. **Pair with Mac mini** – On the Mac, open **System Settings → Bluetooth**, find `M5StickS3‑Mic` in the list of devices and click **Connect**.  After pairing, the device should appear in **System Settings → Sound → Input** as an audio input source.  Selecting it will route microphone audio from the Stick S3 into your Mac.  Because the HFP profile is limited to 8 kHz CVSD audio the quality is suitable for voice but not hi‑fidelity recording (Espressif’s HFP client API notes that CVSD is the default codec【750023267507510†L294-L303】).
+
+6. **Compare input recordings** – To confirm the anti‑aliasing improvement, record the same spoken phrase on the Mac with the `M5StickS3‑Mic` selected in **System Settings → Sound → Input** before and after flashing this firmware.  Use the same microphone distance and input gain, then listen for reduced harshness on sibilants and consonants in the post‑filter recording.
 
 ## Limitations and further work
 
