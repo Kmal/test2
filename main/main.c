@@ -46,6 +46,7 @@
 #include "esp_hf_client_api.h"
 #include "audio_resample.h"
 #include "es8311.h"
+#include "board_sticks3.h"
 
 // Tag used for log messages
 static const char *TAG = "BT_MIC";
@@ -106,40 +107,42 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len);
 static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param);
 
-/* Initialise the I2S peripheral for full‑duplex operation with the
- * ES8311 codec.  The codec will generate MCLK and BCLK when
- * operating in master mode; however the Stick S3 routes MCLK to
- * GPIO48 which is capable of output.  The selected configuration
- * matches the codec defaults (16 kHz sampling, 16 bit, mono).
+/* Initialise the I2S peripheral for full-duplex operation with the
+ * ES8311 codec.  The ESP32-S3 is the I2S master in this firmware: it
+ * drives MCLK, BCLK, and LRCLK/WS, and the ES8311 is configured as an
+ * I2S slave by es8311_init().  fixed_mclk is set to 12.288 MHz so the
+ * ES8311 clock-divider register used for 16 kHz audio sees the MCLK
+ * frequency it expects; APLL is enabled for stable MCLK output.
+ * mclk_multiple is left at 256 for IDF bookkeeping, but fixed_mclk is
+ * the board-level clock source selection.
  */
 static void i2s_init(void)
 {
     i2s_config_t i2s_config = {
         .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX,
-        .sample_rate = I2S_SAMPLE_RATE,
-        .bits_per_sample = I2S_BITS,
-        .channel_format = I2S_CHANNEL_FMT,
+        .sample_rate = BOARD_I2S_SAMPLE_RATE,
+        .bits_per_sample = BOARD_I2S_BITS,
+        .channel_format = BOARD_I2S_CHANNEL_FMT,
         .communication_format = I2S_COMM_FORMAT_I2S_MSB,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 8,
         .dma_buf_len = 128,
-        .use_apll = false,
+        .use_apll = true,
         .tx_desc_auto_clear = true,
-        .fixed_mclk = 0,
+        .fixed_mclk = BOARD_I2S_MCLK_HZ,
         .mclk_multiple = I2S_MCLK_MULTIPLE_256
     };
     i2s_pin_config_t pin_config = {
-        .bck_io_num = I2S_BCK_IO,
-        .ws_io_num = I2S_WS_IO,
-        .data_out_num = I2S_DO_IO,
-        .data_in_num = I2S_DI_IO,
-        .mck_io_num = I2S_MCLK_IO,
+        .bck_io_num = BOARD_I2S_BCK_IO,
+        .ws_io_num = BOARD_I2S_WS_IO,
+        .data_out_num = BOARD_I2S_DO_IO,
+        .data_in_num = BOARD_I2S_DI_IO,
+        .mck_io_num = BOARD_I2S_MCLK_IO,
     };
 
-    ESP_ERROR_CHECK(i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL));
-    ESP_ERROR_CHECK(i2s_set_pin(I2S_PORT, &pin_config));
-    // Enable built‑in ADC/DAC interface if necessary; we leave MCLK
-    // generation to the I2S peripheral by enabling APLL usage
+    ESP_ERROR_CHECK(i2s_driver_install(BOARD_I2S_PORT, &i2s_config, 0, NULL));
+    ESP_ERROR_CHECK(i2s_set_pin(BOARD_I2S_PORT, &pin_config));
+    // ESP32-S3 I2S master drives MCLK/BCLK/LRCLK for the ES8311 slave.
     ESP_LOGI(TAG, "I2S initialised");
 }
 
@@ -152,21 +155,21 @@ static void codec_init(void)
 {
     i2c_config_t i2c_cfg = {
         .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_SDA_IO,
+        .sda_io_num = BOARD_I2C_SDA_IO,
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_io_num = I2C_SCL_IO,
+        .scl_io_num = BOARD_I2C_SCL_IO,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = 400000,
     };
-    ESP_ERROR_CHECK(i2c_param_config(I2C_PORT, &i2c_cfg));
-    ESP_ERROR_CHECK(i2c_driver_install(I2C_PORT, i2c_cfg.mode, 0, 0, 0));
+    ESP_ERROR_CHECK(i2c_param_config(BOARD_I2C_PORT, &i2c_cfg));
+    ESP_ERROR_CHECK(i2c_driver_install(BOARD_I2C_PORT, i2c_cfg.mode, 0, 0, 0));
 
     // Configure the ES8311 codec using a minimal driver.  The helper
     // function defined in es8311.c performs a soft reset, sets the
     // sample rate and enables both ADC and DAC.  For more advanced
     // control the espressif/esp_codec_dev component can be used
     // instead【705914580000106†L231-L298】.
-    ESP_ERROR_CHECK(es8311_init(I2C_PORT, ES8311_ADDR, I2S_PORT, I2S_SAMPLE_RATE));
+    ESP_ERROR_CHECK(es8311_init(BOARD_I2C_PORT, BOARD_ES8311_ADDR, BOARD_I2S_PORT, BOARD_I2S_SAMPLE_RATE));
     ESP_LOGI(TAG, "Codec initialised");
 }
 
@@ -299,7 +302,7 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len)
 {
     size_t bytes_written;
-    i2s_write(I2S_PORT, data, len, &bytes_written, portMAX_DELAY);
+    i2s_write(BOARD_I2S_PORT, data, len, &bytes_written, portMAX_DELAY);
     (void)bytes_written;
 }
 
