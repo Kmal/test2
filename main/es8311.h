@@ -1,9 +1,5 @@
 /*
- * Minimal ES8311 codec driver for the M5Stack Stick S3. Configuration is
- * performed over I2C while audio data is exchanged over I2S. This header
- * exposes a simple initialisation function that resets the codec, sets the
- * sample rate, and enables both ADC and DAC paths.
- * Minimal ES8311 codec driver for the M5Stack Stick S3.  The ES8311 is a
+ * Minimal ES8311 codec driver for the M5Stack Stick S3. The ES8311 is a
  * low-power mono audio codec with an ADC, DAC, analog microphone PGA,
  * digital volume controls, mute controls and power-management registers.
  * Configuration is performed over I2C while audio data is exchanged via
@@ -38,11 +34,11 @@ typedef enum {
 /**
  * @brief Initialise the ES8311 codec.
  *
- * This function performs a soft reset, configures clock dividers for
- * MCLK = sample_rate * 256, sets both serial ports to 16-bit I2S, selects
- * the Mic1 differential input, enables the ADC/DAC paths, and logs the
- * selected microphone gain and ADC/DAC volume values. The I2S peripheral
- * should be configured before calling this function.
+ * This function performs a soft reset, configures the clock divider for a
+ * 12.288 MHz MCLK, sets both serial ports to 16-bit I2S slave mode, enables
+ * the ADC/DAC paths, applies default microphone gain and DAC volume values,
+ * and unmutes the DAC. The I2S peripheral should be configured before calling
+ * this function.
  *
  * @param i2c_num      I2C port used to communicate with the codec
  * @param i2c_addr     7-bit I2C address of the codec (M5StickS3: 0x18)
