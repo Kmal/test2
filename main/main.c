@@ -50,28 +50,28 @@ static const char *TAG = "BT_MIC";
 
 /* I2S and I2C pin definitions for the M5Stack Stick S3.  The
  * board’s schematic maps the ES8311 codec to the following pins:
- *   - BCLK (bit‑clock)  → GPIO47
- *   - LRCLK (word‑select) → GPIO0
- *   - DAC data (SDO) → GPIO2
- *   - ADC data (SDI) → GPIO1
- *   - MCLK → GPIO48
- *   - I2C SDA → GPIO8
- *   - I2C SCL → GPIO18
+ *   - MCLK → GPIO18
+ *   - ADC data from ES8311 DOUT → GPIO14
+ *   - BCLK (bit-clock) → GPIO17
+ *   - LRCLK (word-select) → GPIO15
+ *   - DAC data to ES8311 DIN → GPIO16
+ *   - I2C SCL → GPIO48
+ *   - I2C SDA → GPIO47
  */
 #define I2S_PORT         I2S_NUM_0
 #define I2S_SAMPLE_RATE  16000
 #define I2S_BITS         I2S_BITS_PER_SAMPLE_16BIT
 #define I2S_CHANNEL_FMT  I2S_CHANNEL_FMT_ONLY_LEFT
 
-#define I2S_BCK_IO       47
-#define I2S_WS_IO        0
-#define I2S_DO_IO        2
-#define I2S_DI_IO        1
-#define I2S_MCLK_IO      48
+#define I2S_BCK_IO       17
+#define I2S_WS_IO        15
+#define I2S_DO_IO        16
+#define I2S_DI_IO        14
+#define I2S_MCLK_IO      18
 
 #define I2C_PORT         I2C_NUM_0
-#define I2C_SDA_IO       8
-#define I2C_SCL_IO       18
+#define I2C_SDA_IO       47
+#define I2C_SCL_IO       48
 #define ES8311_ADDR      0x18
 
 // Buffer size used when reading from the codec.  A small buffer
@@ -88,11 +88,10 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len);
 static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param);
 
-/* Initialise the I2S peripheral for full‑duplex operation with the
- * ES8311 codec.  The codec will generate MCLK and BCLK when
- * operating in master mode; however the Stick S3 routes MCLK to
- * GPIO48 which is capable of output.  The selected configuration
- * matches the codec defaults (16 kHz sampling, 16 bit, mono).
+/* Initialise the I2S peripheral for full-duplex operation with the
+ * ES8311 codec.  The Stick S3 schematic routes MCLK/BCLK/LRCK from
+ * the ESP32-S3 to the codec, so the ESP32-S3 is the I2S master and
+ * the ES8311 is the I2S slave.
  */
 static void i2s_init(void)
 {
@@ -120,8 +119,8 @@ static void i2s_init(void)
 
     ESP_ERROR_CHECK(i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL));
     ESP_ERROR_CHECK(i2s_set_pin(I2S_PORT, &pin_config));
-    // Enable built‑in ADC/DAC interface if necessary; we leave MCLK
-    // generation to the I2S peripheral by enabling APLL usage
+    // MCLK generation is left to the I2S peripheral; the codec is configured
+    // separately over I2C in es8311_init().
     ESP_LOGI(TAG, "I2S initialised");
 }
 
