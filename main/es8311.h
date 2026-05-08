@@ -1,4 +1,8 @@
 /*
+ * Minimal ES8311 codec driver for the M5Stack Stick S3. Configuration is
+ * performed over I2C while audio data is exchanged over I2S. This header
+ * exposes a simple initialisation function that resets the codec, sets the
+ * sample rate, and enables both ADC and DAC paths.
  * Minimal ES8311 codec driver for the M5Stack Stick S3.  The ES8311 is a
  * low-power mono audio codec with an ADC, DAC, analog microphone PGA,
  * digital volume controls, mute controls and power-management registers.

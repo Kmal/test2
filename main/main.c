@@ -1,32 +1,9 @@
 /*
- * Main firmware entry point for the M5Stack Stick S3 wireless microphone
- * implementation.  This example uses the ESP‑IDF classic Bluetooth stack
- * to implement a Hands‑Free Profile (HFP) client.  When paired with a
- * computer (e.g. a Mac mini) the device advertises itself as a
- * Bluetooth headset and streams microphone audio from the on‑board
- * ES8311 codec over SCO.  The microphone audio is read from the
- * codec via the I2S peripheral and supplied to the HFP stack via a
- * data callback.  Incoming audio from the remote side is optionally
- * written back to the codec’s DAC for monitoring.
- *
- * Hardware assumptions:
- *  - The Stick S3 contains an ESP32‑S3 module and an ES8311 codec.
- *  - The codec is connected over I2C for configuration and I2S for
- *    audio data.  The board provides a MEMS microphone connected to
- *    the codec’s ADC and an 8 Ω speaker connected to the DAC.  The
- *    CNX Software article describes these features, noting that the
- *    ES8311 codec provides 24‑bit resolution, a built‑in microphone
- *    with 65 dB SNR, and a speaker amplifier【412301115246439†L40-L69】.
- *
- * The Bluetooth stack is configured to expose a Hands‑Free client,
- * which acts as the headset role.  When a host (the audio gateway) is
- * paired and the audio channel is opened, the HFP layer will fetch
- * audio samples via the outgoing data callback implemented below.
- *
- * Note:  This firmware is meant as a starting point.  Additional
- * features such as button handling, volume control and automatic
- * pairing can be added as required.  It is also recommended to fine
- * tune the ES8311 register settings for optimum audio performance.
+ * Main firmware entry point for the M5Stack Stick S3 wireless microphone.
+ * The firmware exposes a Bluetooth Hands-Free Profile client and feeds
+ * captured ES8311 microphone samples to the HFP outgoing data callback.
+ * Incoming HFP audio is optionally written back to the codec DAC for
+ * monitoring.
  */
 
 #include <stdbool.h>
@@ -257,6 +234,9 @@ static void i2s_init(void)
         .mck_io_num = BOARD_I2S_MCLK_IO,
     };
 
+    ESP_ERROR_CHECK(i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL));
+    ESP_ERROR_CHECK(i2s_set_pin(I2S_PORT, &pin_config));
+    // Generate MCLK from the I2S peripheral using the configured pin map.
     ESP_ERROR_CHECK(i2s_driver_install(BOARD_I2S_PORT, &i2s_config, 0, NULL));
     ESP_ERROR_CHECK(i2s_set_pin(BOARD_I2S_PORT, &pin_config));
     // ESP32-S3 I2S master drives MCLK/BCLK/LRCLK for the ES8311 slave.
@@ -264,9 +244,7 @@ static void i2s_init(void)
 }
 
 /* Initialise the I2C bus and configure the ES8311 codec into
- * simultaneous record/playback mode.  The component registry notes
- * that the ES8311 features high performance ADC and DAC with 24‑bit
- * resolution and sampling frequencies from 8 kHz to 96 kHz【320084825420146†L32-L42】.
+ * simultaneous record/playback mode.
  */
 static void codec_init(void)
 {
@@ -281,6 +259,8 @@ static void codec_init(void)
     ESP_ERROR_CHECK(i2c_param_config(BOARD_I2C_PORT, &i2c_cfg));
     ESP_ERROR_CHECK(i2c_driver_install(BOARD_I2C_PORT, i2c_cfg.mode, 0, 0, 0));
 
+    // Configure the ES8311 codec using the local minimal driver.
+    ESP_ERROR_CHECK(es8311_init(I2C_PORT, ES8311_ADDR, I2S_PORT, I2S_SAMPLE_RATE));
     // Configure the ES8311 codec using a minimal driver.  The helper
     // function defined in es8311.c performs a soft reset, sets the
     // sample rate and enables both ADC and DAC.  For more advanced

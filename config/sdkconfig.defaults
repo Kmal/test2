@@ -5,7 +5,7 @@
 ## microphone streams over HFP.  Voice over HCI is selected to
 ## route SCO audio through the application layer (rather than
 ## directly via PCM pins) so that microphone samples can be
-## provided via the outgoing data callback【60199267661565†L468-L517】.
+## provided via the outgoing data callback.
 
 CONFIG_BT_ENABLED=y
 CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y
