@@ -1,15 +1,22 @@
 /*
- * Board constants for the M5Stack Stick S3.
+ * Board constants for the M5Stack StickS3.
  *
- * Verified against the official M5Stack StickS3 schematic/pin map:
- *   MCLK=GPIO18, DAC data/DDAC=GPIO14, BCLK=GPIO17, LRCK=GPIO15,
- *   ADC data/DADC=GPIO16, I2C SCL=GPIO48, I2C SDA=GPIO47.
+ * Verified against the official M5Stack StickS3 documentation, schematic, and
+ * pin map. The StickS3 controller is ESP32-S3-PICO-1-N8R8, which does not
+ * support Bluetooth Classic / BR/EDR; Classic Bluetooth HFP code must not be
+ * enabled for this board.
  *
- * Status buttons are active-low GPIO inputs with internal pull-ups.
+ * Audio codec pins:
+ *   ES8311 I2C address=0x18, MCLK=GPIO18, DAC data/DDAC=GPIO14,
+ *   BCLK=GPIO17, LRCK=GPIO15, ADC data/DADC=GPIO16,
+ *   I2C SCL=GPIO48, I2C SDA=GPIO47.
  *
- * Note that this differs from an earlier working assumption that used
- * BCLK=GPIO47, LRCLK=GPIO0, DAC data=GPIO2, ADC data=GPIO1,
- * MCLK=GPIO48, I2C SDA=GPIO8, and I2C SCL=GPIO18.
+ * Other documented I2C devices on the shared bus:
+ *   BMI270=0x68, M5PM1=0x6e.
+ *
+ * User keys are active-low GPIO inputs with internal pull-ups:
+ *   KEY1=GPIO11, KEY2=GPIO12. GPIO35, GPIO37, and GPIO39 are not status
+ *   buttons; GPIO39 is LCD MOSI in the official pin map.
  */
 
 #pragma once
@@ -34,10 +41,11 @@
 #define BOARD_I2C_SDA_IO       47
 #define BOARD_I2C_SCL_IO       48
 #define BOARD_ES8311_ADDR      0x18
+#define BOARD_BMI270_ADDR      0x68
+#define BOARD_M5PM1_ADDR       0x6e
 
 #define BOARD_PCM_CHUNK_SIZE   320
 
-#define BOARD_BUTTON_CLEAR_PAIRING_GPIO       GPIO_NUM_37
-#define BOARD_BUTTON_TOGGLE_MONITORING_GPIO   GPIO_NUM_39
-#define BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO GPIO_NUM_35
-#define BOARD_BUTTON_ACTIVE_LEVEL             0
+#define BOARD_BUTTON_KEY1_GPIO     GPIO_NUM_11
+#define BOARD_BUTTON_KEY2_GPIO     GPIO_NUM_12
+#define BOARD_BUTTON_ACTIVE_LEVEL  0

@@ -1,0 +1,38 @@
+{
+  "soc": "ESP32-S3-PICO-1-N8R8",
+  "bluetooth_classic_supported": false,
+  "i2s": {
+    "mclk_hz": 12288000,
+    "sample_rate_hz": 16000,
+    "bits": "I2S_BITS_PER_SAMPLE_16BIT",
+    "pins": {
+      "mclk": 18,
+      "dout": 14,
+      "bclk": 17,
+      "lrck": 15,
+      "din": 16
+    }
+  },
+  "i2c": {
+    "sda": 47,
+    "scl": 48,
+    "devices": {
+      "es8311": 24,
+      "bmi270": 104,
+      "m5pm1": 110
+    }
+  },
+  "buttons": {
+    "key1": 11,
+    "key2": 12,
+    "forbidden": [35, 37, 39]
+  },
+  "lcd": {
+    "mosi": 39
+  },
+  "ir": {
+    "tx": 46,
+    "rx": 42,
+    "rx_requires_speaker_amp_off": true
+  }
+}

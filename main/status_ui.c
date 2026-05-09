@@ -20,8 +20,8 @@ static const char *TAG = "STATUS_UI";
 
 static status_ui_button_handlers_t s_handlers;
 static status_ui_state_t s_state = STATUS_UI_STATE_BOOTING;
-static bool s_monitoring_enabled = true;
-static bool s_discoverable_enabled = false;
+static bool s_monitoring_enabled = false;
+static bool s_service_enabled = false;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
@@ -43,14 +43,10 @@ const char *status_ui_state_name(status_ui_state_t state)
     switch (state) {
     case STATUS_UI_STATE_BOOTING:
         return "booting";
-    case STATUS_UI_STATE_DISCOVERABLE:
-        return "discoverable";
-    case STATUS_UI_STATE_PAIRED:
-        return "paired";
-    case STATUS_UI_STATE_HFP_CONNECTED:
-        return "HFP connected";
-    case STATUS_UI_STATE_AUDIO_STREAMING:
-        return "audio streaming";
+    case STATUS_UI_STATE_NO_TRANSPORT:
+        return "no transport selected";
+    case STATUS_UI_STATE_READY:
+        return "ready";
     case STATUS_UI_STATE_ERROR:
         return "error";
     default:
@@ -99,19 +95,19 @@ bool status_ui_get_monitoring_enabled(void)
     return enabled;
 }
 
-void status_ui_set_discoverable_enabled(bool enabled)
+void status_ui_set_service_enabled(bool enabled)
 {
     portENTER_CRITICAL(&s_state_mux);
-    s_discoverable_enabled = enabled;
+    s_service_enabled = enabled;
     portEXIT_CRITICAL(&s_state_mux);
-    ESP_LOGI(TAG, "discoverable mode: %s", bool_label(enabled));
+    ESP_LOGI(TAG, "transport service: %s", bool_label(enabled));
 }
 
-bool status_ui_get_discoverable_enabled(void)
+bool status_ui_get_service_enabled(void)
 {
     bool enabled;
     portENTER_CRITICAL(&s_state_mux);
-    enabled = s_discoverable_enabled;
+    enabled = s_service_enabled;
     portEXIT_CRITICAL(&s_state_mux);
     return enabled;
 }
@@ -152,19 +148,14 @@ static void status_ui_button_task(void *arg)
 
     status_button_t buttons[] = {
         {
-            .gpio = BOARD_BUTTON_CLEAR_PAIRING_GPIO,
-            .name = "clear pairing",
-            .handler = s_handlers.clear_pairing,
+            .gpio = BOARD_BUTTON_KEY1_GPIO,
+            .name = "KEY1",
+            .handler = s_handlers.key1_pressed,
         },
         {
-            .gpio = BOARD_BUTTON_TOGGLE_MONITORING_GPIO,
-            .name = "toggle monitoring output",
-            .handler = s_handlers.toggle_monitoring,
-        },
-        {
-            .gpio = BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO,
-            .name = "toggle discoverable mode",
-            .handler = s_handlers.toggle_discoverable,
+            .gpio = BOARD_BUTTON_KEY2_GPIO,
+            .name = "KEY2",
+            .handler = s_handlers.key2_pressed,
         },
     };
 
@@ -191,9 +182,8 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
         memset(&s_handlers, 0, sizeof(s_handlers));
     }
 
-    uint64_t pin_mask = (1ULL << BOARD_BUTTON_CLEAR_PAIRING_GPIO) |
-                        (1ULL << BOARD_BUTTON_TOGGLE_MONITORING_GPIO) |
-                        (1ULL << BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
+    uint64_t pin_mask = (1ULL << BOARD_BUTTON_KEY1_GPIO) |
+                        (1ULL << BOARD_BUTTON_KEY2_GPIO);
     gpio_config_t io_conf = {
         .pin_bit_mask = pin_mask,
         .mode = GPIO_MODE_INPUT,
@@ -204,7 +194,7 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
 
     esp_err_t err = gpio_config(&io_conf);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to configure buttons: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "failed to configure StickS3 keys: %s", esp_err_to_name(err));
         status_ui_set_state(STATUS_UI_STATE_ERROR);
         return err;
     }
@@ -218,11 +208,10 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "status UI ready; buttons clear=%d monitor=%d discoverable=%d",
-             BOARD_BUTTON_CLEAR_PAIRING_GPIO,
-             BOARD_BUTTON_TOGGLE_MONITORING_GPIO,
-             BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
+    ESP_LOGI(TAG, "status UI ready; StickS3 keys KEY1=%d KEY2=%d",
+             BOARD_BUTTON_KEY1_GPIO, BOARD_BUTTON_KEY2_GPIO);
     ESP_LOGI(TAG, "status: %s", status_ui_state_name(status_ui_get_state()));
     ESP_LOGI(TAG, "monitoring output: %s", bool_label(status_ui_get_monitoring_enabled()));
+    ESP_LOGI(TAG, "transport service: %s", bool_label(status_ui_get_service_enabled()));
     return ESP_OK;
 }
