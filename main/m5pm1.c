@@ -61,3 +61,27 @@ esp_err_t m5pm1_gpio_set_drive(i2c_port_t port, uint8_t addr, uint8_t gpio, bool
 {
     return m5pm1_update_bit(port, addr, M5PM1_REG_GPIO_DRV, gpio, push_pull);
 }
+
+
+esp_err_t m5pm1_enable_lcd_power(i2c_port_t port, uint8_t addr)
+{
+    const uint8_t gpio2_mask = (uint8_t)(1U << 2);
+    esp_err_t err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_FUNC0, gpio2_mask, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_MODE, gpio2_mask, gpio2_mask);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_DRV, gpio2_mask, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_OUT, gpio2_mask, gpio2_mask);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    return register_bus_write_u8(port, addr, M5PM1_REG_I2C_CFG, 0x00);
+}

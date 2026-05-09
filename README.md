@@ -1,12 +1,12 @@
 # M5Stack StickS3 Bluetooth LE GATT PCM microphone firmware
 
-This repository contains ESP-IDF firmware for M5Stack StickS3 board bring-up, source-gated ES8311 audio-codec initialization, documented StickS3 key polling, a functional Bluetooth LE GATT PCM microphone transport, and validation tooling.
+This repository contains ESP-IDF firmware for M5Stack StickS3 board bring-up, source-gated ES8311 audio-codec initialization, documented StickS3 key polling, an onboard LCD debug UI, a functional Bluetooth LE GATT PCM microphone transport, and validation tooling.
 
 ## Current status
 
 The previous project description claimed that StickS3 could expose a Classic Bluetooth Hands-Free Profile (HFP) microphone. That claim was incorrect for StickS3: the board uses ESP32-S3-PICO-1-N8R8, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. Classic Bluetooth HFP is therefore not a valid StickS3 transport.
 
-The default firmware selects `CONFIG_APP_TRANSPORT_BLE_GATT_PCM`, initializes documented StickS3 status peripherals, initializes the shared I2C bus, probes M5PM1, brings up a capture-only audio profile for the ES8311, starts a custom Bluetooth Low Energy GATT service, and sends framed 16 kHz, 16-bit mono PCM microphone samples as notifications. The capture-only profile keeps the ESP32-S3 I2S TX path, ES8311 DAC path, and speaker amplifier disabled. The legacy HFP source is quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, which is unavailable for `esp32s3`.
+The default firmware selects `CONFIG_APP_TRANSPORT_BLE_GATT_PCM`, initializes documented StickS3 status peripherals, starts the onboard ST7789P3 LCD debug dashboard, initializes the shared I2C bus, probes M5PM1, brings up a capture-only audio profile for the ES8311, starts a custom Bluetooth Low Energy GATT service, and sends framed 16 kHz, 16-bit mono PCM microphone samples as notifications. The capture-only profile keeps the ESP32-S3 I2S TX path, ES8311 DAC path, and speaker amplifier disabled. The legacy HFP source is quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, which is unavailable for `esp32s3`.
 
 The selected transport is a custom Bluetooth LE GATT PCM stream. It is functional for validation and host applications, but it is not a standard operating-system Bluetooth or USB microphone class. See `docs/transport-feasibility.md`.
 
@@ -28,7 +28,12 @@ The selected transport is a custom Bluetooth LE GATT PCM stream. It is functiona
 | M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Probed by default; L3B/speaker writes remain blocked until source-backed polarity/sequence is verified. |
 | User key 1 | GPIO11 | Input | `BOARD_BUTTON_KEY1_GPIO` | Official StickS3 `KEY1`, active-low with pull-up. |
 | User key 2 | GPIO12 | Input | `BOARD_BUTTON_KEY2_GPIO` | Official StickS3 `KEY2`, active-low with pull-up. |
-| LCD MOSI | GPIO39 | ESP32-S3 -> LCD | N/A | Must not be configured as a status button. |
+| LCD MOSI | GPIO39 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_MOSI_GPIO` | Must not be configured as a status button. |
+| LCD SCLK | GPIO40 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_SCLK_GPIO` | SPI clock for the onboard 135x240 LCD; firmware uses SPI3_HOST at 40 MHz. |
+| LCD RS/DC | GPIO45 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_DC_GPIO` | Display data/command select. |
+| LCD CS | GPIO41 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_CS_GPIO` | Display chip select. |
+| LCD reset | GPIO21 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_RST_GPIO` | Display reset. |
+| LCD backlight | GPIO38 | ESP32-S3 -> LCD backlight | `BOARD_LCD_BL_GPIO` | Active-high backlight enable. |
 
 The current audio clock profile is explicit: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock register value `0x1B`. For the ESP-IDF legacy I2S driver path, fixed MCLK is the source of truth; `mclk_multiple` is driver bookkeeping and not treated as proof that MCLK equals 256 × Fs. Hardware acceptance must measure GPIO18/GPIO17/GPIO15 before claiming physical audio success.
 
@@ -36,13 +41,15 @@ The current audio clock profile is explicit: 16 kHz mono PCM, 16-bit samples, fi
 
 The status module polls only documented StickS3 keys: GPIO11 (`KEY1`) and GPIO12 (`KEY2`). GPIO35, GPIO37, and GPIO39 are not used as buttons. Pressing either key is logged; the BLE GATT PCM transport remains enabled.
 
-Status states are `booting`, `no transport selected`, `ready`, and `error`; the default BLE GATT PCM transport enters `ready` after audio and network startup. The API in `main/status_ui.h` can later be backed by display hardware without changing board constants.
+When `CONFIG_APP_STATUS_UI_LCD` is enabled, the same status module initializes the onboard ST7789P3 135x240 display using the source-backed 52x40 controller RAM gap and renders a debug dashboard with the firmware state, BLE service state, monitoring state, 16 kHz PCM rate, key press counters, uptime, and configured BLE device name. LCD initialization is non-fatal: if the panel cannot be initialized, button polling and transport startup continue with log-only status output.
+
+Status states are `booting`, `no transport selected`, `ready`, and `error`; the default BLE GATT PCM transport enters `ready` after audio and network startup.
 
 ## Audio output, speaker amplifier, and IR
 
 Local speaker monitoring is disabled in the default firmware. The StickS3 includes an AW8737 amplifier and M5PM1 speaker-control function (`PYG3_SPK_Pulse`), but the exact M5PM1 command sequence must be verified from official protocol/library sources before implementing speaker control. StickS3 documentation notes that IR reception requires the speaker amplifier to be off.
 
-The code includes bit-preserving M5PM1 GPIO helpers and source-gated stubs for L3B audio power and speaker pulse control. Those stubs return `ESP_ERR_NOT_SUPPORTED` until the enable polarity and safe register sequence are verified; the default Bluetooth LE GATT PCM boot path does not require those blocked writes.
+The code includes bit-preserving M5PM1 GPIO helpers, a source-backed LCD power sequence for the debug dashboard, and source-gated stubs for audio-output L3B and speaker pulse control. The audio-output stubs return `ESP_ERR_NOT_SUPPORTED` until the enable polarity and safe register sequence are verified for that feature; the default Bluetooth LE GATT PCM boot path does not require those blocked audio writes.
 
 ## Source layout
 
@@ -59,7 +66,7 @@ The code includes bit-preserving M5PM1 GPIO helpers and source-gated stubs for L
 * `main/audio_resample.*` contains fixed-point audio resampling helpers retained for future transport work.
 * `main/audio_pipeline.*` contains a host-testable transport-neutral PCM pipeline for future transports.
 * `main/button_state.*` contains a host-testable two-key debounce/state helper.
-* `main/status_ui.*` owns GPIO11/GPIO12 polling and logged status/feature state.
+* `main/status_ui.*` owns GPIO11/GPIO12 polling plus the optional ST7789P3 LCD debug dashboard.
 * `main/board_sticks3.h` is the board-specific pin and audio constant map.
 * `config/sdkconfig.defaults` captures StickS3-safe SDK defaults with no Classic Bluetooth HFP enabled.
 * `tools/check_*.py` validates board facts, transport config, audio clock/safety policy, and docs consistency.

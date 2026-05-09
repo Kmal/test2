@@ -67,6 +67,20 @@ def main() -> int:
     errors += require(defines, "BOARD_BUTTON_KEY1_GPIO", manifest["buttons"]["key1"])
     errors += require(defines, "BOARD_BUTTON_KEY2_GPIO", manifest["buttons"]["key2"])
 
+    lcd = manifest["lcd"]
+    errors += require(defines, "BOARD_LCD_H_RES", lcd["width"])
+    errors += require(defines, "BOARD_LCD_V_RES", lcd["height"])
+    errors += require(defines, "BOARD_LCD_MOSI_GPIO", lcd["mosi"])
+    errors += require(defines, "BOARD_LCD_SCLK_GPIO", lcd["sclk"])
+    errors += require(defines, "BOARD_LCD_DC_GPIO", lcd["dc"])
+    errors += require(defines, "BOARD_LCD_CS_GPIO", lcd["cs"])
+    errors += require(defines, "BOARD_LCD_RST_GPIO", lcd["rst"])
+    errors += require(defines, "BOARD_LCD_BL_GPIO", lcd["bl"])
+    errors += require(defines, "BOARD_LCD_PIXEL_CLOCK_HZ", lcd["pixel_clock_hz"])
+    errors += require(defines, "BOARD_LCD_X_GAP", lcd["x_gap"])
+    errors += require(defines, "BOARD_LCD_Y_GAP", lcd["y_gap"])
+    errors += require(defines, "BOARD_LCD_HOST", lcd["host"])
+
     forbidden = set(manifest["buttons"]["forbidden"])
     for name, value in defines.items():
         if name.startswith("BOARD_BUTTON_") and name.endswith("_GPIO") and isinstance(value, int):

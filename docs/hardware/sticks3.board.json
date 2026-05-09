@@ -36,7 +36,19 @@
     ]
   },
   "lcd": {
-    "mosi": 39
+    "model": "ST7789P3",
+    "width": 135,
+    "height": 240,
+    "mosi": 39,
+    "sclk": 40,
+    "dc": 45,
+    "cs": 41,
+    "rst": 21,
+    "bl": 38,
+    "pixel_clock_hz": 40000000,
+    "host": "SPI3_HOST",
+    "x_gap": 52,
+    "y_gap": 40
   },
   "ir": {
     "tx": 46,

@@ -48,3 +48,16 @@ config APP_BLE_GATT_PCM_DEVICE_NAME
 endif
 
 endmenu
+
+menu "StickS3 status UI"
+
+config APP_STATUS_UI_LCD
+    bool "Render debug status on the onboard ST7789P3 LCD"
+    default y
+    help
+        Initialize the StickS3 onboard 135x240 ST7789P3 LCD and render a
+        small debug dashboard with firmware state, transport service state,
+        monitoring state, sample rate, key press counters, and uptime. If LCD
+        initialization fails, button polling and transport startup continue.
+
+endmenu
