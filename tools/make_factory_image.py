@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUILD_DIR = ROOT / "build"
-DEFAULT_OUTPUT_NAME = "m5sticks3_bluetooth_mic-factory.bin"
+DEFAULT_OUTPUT_NAME = "m5sticks3_bluetooth_mic.bin"
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Output image path (default: <build-dir>/m5sticks3_bluetooth_mic-factory.bin)",
+        help="Output image path (default: <build-dir>/m5sticks3_bluetooth_mic.bin)",
     )
     parser.add_argument(
         "--chip",
