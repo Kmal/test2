@@ -60,8 +60,8 @@ typedef enum {
  *
  * @return ESP_OK on success, or an error code on failure
  */
-esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port, int sample_rate);
-esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
+esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port, int sample_rate);
+esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port,
                               es8311_profile_t profile, int sample_rate);
 
 /**
