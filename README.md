@@ -88,6 +88,14 @@ The code includes bit-preserving M5PM1 GPIO helpers, a source-backed LCD power s
    idf.py -p <PORT> flash monitor
    ```
 
+4. To produce a complete factory-style image for provisioning or release, merge the ESP-IDF flash artifacts after a successful build:
+
+   ```sh
+   python3 tools/make_factory_image.py
+   ```
+
+   The script reads `build/flash_args`, verifies the referenced bootloader, partition table, app, and any other ESP-IDF flash artifacts exist, and writes `build/m5sticks3_bluetooth_mic-factory.bin`. Flash the merged image at offset `0x0` with the same ESP-IDF/esptool environment used for the build.
+
 The monitor displays firmware logs tagged with `STICKS3_APP`, `BOARD_AUDIO`, `BOARD_I2C`, `BOARD_I2S`, `ES8311`, `M5PM1`, `STATUS_UI`, and `BLE_GATT_PCM`. It will state that the Bluetooth LE GATT PCM microphone transport is running. Connect with a BLE central/custom host app to device `M5StickS3-Mic`, discover service UUID `0xFFF0`, and subscribe to characteristic UUID `0xFFF1`. Each notification starts with a small `M5S3` header followed by little-endian 16-bit mono PCM payload bytes.
 
 ## CI and local validation
@@ -103,9 +111,10 @@ python3 tools/check_audio_safety.py
 tests/host/run_host_tests.sh
 idf.py set-target esp32s3
 idf.py build
+python3 tools/make_factory_image.py
 ```
 
-The local environment must provide ESP-IDF for the `idf.py` commands. Host tests do not require ESP-IDF.
+The local environment must provide ESP-IDF and esptool for the `idf.py` and factory-image commands. Host tests do not require ESP-IDF.
 
 ## Limitations and further work
 
