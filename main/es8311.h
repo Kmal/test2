@@ -3,9 +3,10 @@
  * firmware. The ES8311 is a low-power mono audio codec with an ADC, DAC,
  * analog microphone PGA, digital volume controls, mute controls and
  * power-management registers. This driver intentionally implements only the
- * project-tested StickS3 subset: 12.288 MHz MCLK, 16-bit I2S slave mode, and
- * the sample rates handled by es8311_init(). Configuration is performed over
- * I2C while audio data is exchanged via the I2S bus.
+ * project-tested StickS3 subset: fixed 12.288 MHz MCLK, 16-bit I2S slave
+ * mode, ADC-only no-transport profile, and a full-duplex compatibility
+ * profile. Configuration is performed over I2C while audio data is exchanged
+ * via the I2S bus.
  */
 
 #pragma once
@@ -34,13 +35,23 @@ typedef enum {
 } es8311_mic_gain_t;
 
 /**
+ * @brief ES8311 initialization profiles.
+ *
+ * ADC-only is used by the StickS3 no-transport firmware so the microphone
+ * path can be brought up without enabling the DAC/speaker-monitoring path.
+ * Full-duplex preserves the historical behavior for non-StickS3 legacy code.
+ */
+typedef enum {
+    ES8311_PROFILE_ADC_ONLY = 0,
+    ES8311_PROFILE_FULL_DUPLEX,
+} es8311_profile_t;
+
+/**
  * @brief Initialise the ES8311 codec.
  *
- * This function performs a soft reset, configures the clock divider for a
- * 12.288 MHz MCLK, sets both serial ports to 16-bit I2S slave mode, enables
- * the ADC/DAC paths, applies default microphone gain and DAC volume values,
- * and unmutes the DAC. The I2S peripheral should be configured before calling
- * this function.
+ * Compatibility wrapper for the historical full-duplex behavior. New StickS3
+ * code should call es8311_init_profile() so no-transport boot can select the
+ * ADC-only profile and keep DAC/speaker output disabled.
  *
  * @param i2c_num      I2C port used to communicate with the codec
  * @param i2c_addr     7-bit I2C address of the codec (M5StickS3: 0x18)
@@ -50,6 +61,8 @@ typedef enum {
  * @return ESP_OK on success, or an error code on failure
  */
 esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port, int sample_rate);
+esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
+                              es8311_profile_t profile, int sample_rate);
 
 /**
  * @brief Set the analog microphone PGA gain.

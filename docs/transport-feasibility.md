@@ -29,4 +29,4 @@ A replacement transport must be selected before the firmware can honestly claim 
 
 ## Local speaker output requirement
 
-Local speaker monitoring is **deferred**. If the selected transport requires output monitoring, implement verified M5PM1 speaker amplifier control before exposing monitoring as a product feature. If the selected transport is microphone-only, remove or keep disabled monitoring UI actions.
+Local speaker monitoring is **deferred**. The default no-transport firmware uses capture-only I2S and an ES8311 ADC-only profile; it does not enable I2S TX, unmute the DAC, or pulse the speaker amplifier. If the selected transport requires output monitoring, implement verified M5PM1 speaker amplifier control before exposing monitoring as a product feature. If the selected transport is microphone-only, remove or keep disabled monitoring UI actions. Legacy HFP code is historical and is not authoritative for StickS3 audio bring-up.
