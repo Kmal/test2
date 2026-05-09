@@ -3,10 +3,10 @@
  *
  * The previous application attempted to expose a Classic Bluetooth HFP
  * microphone. That transport is incompatible with StickS3 because ESP32-S3
- * does not support Bluetooth Classic / BR/EDR. Until a StickS3-compatible
- * transport is selected, this firmware initializes the documented status
- * peripherals and a capture-only ES8311 audio profile while keeping local
- * speaker/DAC output disabled.
+ * does not support Bluetooth Classic / BR/EDR. The default StickS3-compatible
+ * transport is now a Bluetooth Low Energy GATT PCM stream. The firmware
+ * initializes the documented status peripherals and a capture-only ES8311 audio profile while
+ * keeping local speaker/DAC output disabled.
  */
 
 #include <stdbool.h>
@@ -29,18 +29,22 @@
 #include "transport_hfp_legacy.h"
 #endif
 
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#include "transport_ble_gatt_pcm.h"
+#endif
+
 static const char *TAG = "STICKS3_APP";
 
 static void key1_pressed_cb(void *ctx)
 {
     (void)ctx;
-    ESP_LOGI(TAG, "KEY1 pressed; no transport action is assigned until a StickS3-compatible transport is selected");
+    ESP_LOGI(TAG, "KEY1 pressed; BLE GATT PCM transport remains enabled");
 }
 
 static void key2_pressed_cb(void *ctx)
 {
     (void)ctx;
-    ESP_LOGI(TAG, "KEY2 pressed; no transport action is assigned until a StickS3-compatible transport is selected");
+    ESP_LOGI(TAG, "KEY2 pressed; BLE GATT PCM transport remains enabled");
 }
 
 void app_main(void)
@@ -71,9 +75,16 @@ void app_main(void)
     ESP_ERROR_CHECK(board_audio_init(&audio_config));
 
     status_ui_set_monitoring_enabled(false);
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+    ESP_ERROR_CHECK(transport_ble_gatt_pcm_start());
+    status_ui_set_service_enabled(true);
+    status_ui_set_state(STATUS_UI_STATE_READY);
+    ESP_LOGI(TAG, "Bluetooth LE GATT PCM microphone transport is running");
+#else
     status_ui_set_service_enabled(false);
     status_ui_set_state(STATUS_UI_STATE_NO_TRANSPORT);
     ESP_LOGW(TAG, "No StickS3-compatible audio transport is selected; see docs/transport-feasibility.md");
+#endif
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate no-transport StickS3 audio safety policy."""
+"""Validate default StickS3 audio safety policy."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ def main() -> int:
     errors: list[str] = []
     main_text = MAIN.read_text(encoding="utf-8")
     if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" not in main_text:
-        errors.append("main.c must use BOARD_AUDIO_PROFILE_CAPTURE_ONLY for no-transport boot")
+        errors.append("main.c must use BOARD_AUDIO_PROFILE_CAPTURE_ONLY for default boot")
     if ".require_audio_power_enable = false" not in main_text:
-        errors.append("no-transport boot must not require source-blocked M5PM1 L3B writes")
+        errors.append("default boot must not require source-blocked M5PM1 L3B writes")
 
     i2s_text = BOARD_I2S.read_text(encoding="utf-8")
     if "mode = I2S_MODE_MASTER | I2S_MODE_RX" not in i2s_text:

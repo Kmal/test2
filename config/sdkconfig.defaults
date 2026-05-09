@@ -2,11 +2,12 @@
 ##
 ## The StickS3 uses ESP32-S3-PICO-1-N8R8. ESP32-S3 does not support
 ## Bluetooth Classic / BR/EDR, so Classic Bluetooth HFP and SCO-over-HCI are
-## not enabled in the StickS3 defaults. A StickS3-compatible audio transport is
-## intentionally deferred and must be selected through Kconfig after a product
-## transport decision is documented.
+## not enabled in the StickS3 defaults. The default functional transport is a
+## custom Bluetooth Low Energy GATT PCM stream so the board can deliver
+## captured microphone samples without unsupported Classic Bluetooth HFP.
 
-CONFIG_APP_TRANSPORT_NONE=y
+CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y
+CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME="M5StickS3-Mic"
 
 ## Increase the number of I2S DMA buffers for lower latency when an audio
 ## transport is implemented.

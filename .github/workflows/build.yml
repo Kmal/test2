@@ -42,7 +42,7 @@ jobs:
         run: tests/host/run_host_tests.sh
 
   esp-idf-build:
-    name: Build StickS3 no-transport firmware
+    name: Build StickS3 BLE GATT PCM firmware
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -63,7 +63,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: sticks3-board-support-build
+          name: sticks3-ble-gatt-pcm-build
           path: |
             build/*.bin
             build/*.elf

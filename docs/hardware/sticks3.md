@@ -34,7 +34,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a no-transport board-support application. It initializes status UI, initializes the shared I2C bus, probes M5PM1, configures the ESP32-S3 I2S peripheral for capture-only RX, and initializes the ES8311 ADC-only profile. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+The current default firmware is a Bluetooth LE GATT PCM microphone application. It initializes status UI, initializes the shared I2C bus, probes M5PM1, configures the ESP32-S3 I2S peripheral for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Mic`, exposes custom BLE service UUID `0xFFF0`, and sends framed 16 kHz, 16-bit mono PCM notifications on characteristic UUID `0xFFF1`. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ## Shared I2C bus
 
@@ -61,7 +61,7 @@ StickS3 documentation identifies M5PM1 `G2` as `PYG2_L3B_EN`, but this repositor
 - the safe GPIO/function/mode/drive/output register order,
 - and reset/default behavior.
 
-Therefore `board_audio_power_enable()` is source-gated and returns `ESP_ERR_NOT_SUPPORTED`. No runtime L3B write is performed in no-transport mode. Future implementation must use bit-preserving M5PM1 helpers and document the exact source-backed sequence.
+Therefore `board_audio_power_enable()` is source-gated and returns `ESP_ERR_NOT_SUPPORTED`. No runtime L3B write is performed in the default Bluetooth LE GATT PCM mode. Future implementation must use bit-preserving M5PM1 helpers and document the exact source-backed sequence.
 
 ## Button notes
 

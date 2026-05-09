@@ -14,7 +14,7 @@
     },
     "bclk_hz": 512000,
     "lrck_hz": 16000,
-    "profile": "capture-only no-transport default; full-duplex is opt-in"
+    "profile": "capture-only BLE GATT PCM default; full-duplex is opt-in"
   },
   "i2c": {
     "sda": 47,

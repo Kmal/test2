@@ -2,7 +2,7 @@ menu "StickS3 application transport"
 
 choice APP_TRANSPORT
     prompt "Application audio transport"
-    default APP_TRANSPORT_NONE
+    default APP_TRANSPORT_BLE_GATT_PCM
     help
         Select the audio transport used by the application. The StickS3 uses
         ESP32-S3, which does not support Bluetooth Classic / BR/EDR, so the
@@ -11,9 +11,21 @@ choice APP_TRANSPORT
 config APP_TRANSPORT_NONE
     bool "No working audio transport selected"
     help
-        Truthful default while a StickS3-compatible transport decision is
-        deferred. The firmware initializes board status but does not claim to
-        provide microphone transport.
+        Board bring-up only. The firmware initializes board status but does
+        not claim to provide microphone transport.
+
+config APP_TRANSPORT_BLE_GATT_PCM
+    bool "Bluetooth LE GATT PCM microphone transport"
+    select BT_ENABLED
+    select BT_BLUEDROID_ENABLED
+    select BT_BLE_ENABLED
+    select BT_GATTS_ENABLE
+    help
+        Start a custom Bluetooth Low Energy GATT service and send framed
+        16 kHz, 16-bit mono PCM from the ES8311 microphone as notifications.
+        This is a functional Bluetooth transport for validation and custom
+        host applications, not a standard Bluetooth Classic HFP or OS-native
+        microphone profile.
 
 config APP_TRANSPORT_HFP_LEGACY
     bool "Legacy Classic Bluetooth HFP transport (not StickS3/ESP32-S3)"
@@ -26,5 +38,13 @@ config APP_TRANSPORT_HFP_LEGACY
         do not enable this for M5Stack StickS3.
 
 endchoice
+
+if APP_TRANSPORT_BLE_GATT_PCM
+
+config APP_BLE_GATT_PCM_DEVICE_NAME
+    string "BLE PCM device name"
+    default "M5StickS3-Mic"
+
+endif
 
 endmenu

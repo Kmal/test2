@@ -15,6 +15,11 @@ set(APP_SRCS
 )
 set(APP_PRIV_REQUIRES driver esp_system nvs_flash)
 
+if(CONFIG_APP_TRANSPORT_BLE_GATT_PCM)
+    list(APPEND APP_SRCS "transport_ble_gatt_pcm.c")
+    list(APPEND APP_PRIV_REQUIRES bt)
+endif()
+
 if(CONFIG_APP_TRANSPORT_HFP_LEGACY)
     list(APPEND APP_SRCS "transport_hfp_legacy.c")
     list(APPEND APP_PRIV_REQUIRES bt)

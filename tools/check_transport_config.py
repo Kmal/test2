@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that StickS3 defaults do not claim Classic Bluetooth HFP support."""
+"""Validate that StickS3 defaults select BLE GATT PCM and not Classic HFP."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ SDKCONFIG_DEFAULTS = ROOT / "config" / "sdkconfig.defaults"
 KCONFIG = ROOT / "main" / "Kconfig.projbuild"
 
 FORBIDDEN_ENABLED = {
+    "CONFIG_APP_TRANSPORT_WIFI_UDP_PCM=y": "the default transport must be Bluetooth, not Wi-Fi",
     "CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y": "ESP32-S3 cannot use BR/EDR-only Classic Bluetooth",
     "CONFIG_BT_HFP_CLIENT_ENABLE=y": "HFP client is Classic Bluetooth and is not a StickS3 default",
     "CONFIG_BT_SCO_DATA_PATH_HCI=y": "SCO-over-HCI is only relevant to Classic Bluetooth HFP",
@@ -26,7 +27,11 @@ def main() -> int:
 
     kconfig = KCONFIG.read_text(encoding="utf-8") if KCONFIG.exists() else ""
     if "APP_TRANSPORT_NONE" not in kconfig:
-        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_NONE for the deferred transport state")
+        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_NONE for explicit board-only fallback")
+    if "APP_TRANSPORT_BLE_GATT_PCM" not in kconfig:
+        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_PCM for the default StickS3 transport")
+    if "CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y" not in defaults:
+        errors.append("config/sdkconfig.defaults must select BLE GATT PCM as the functional StickS3 transport")
     if "APP_TRANSPORT_HFP_LEGACY" not in kconfig:
         errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_HFP_LEGACY if legacy HFP code remains")
     if "depends on !IDF_TARGET_ESP32S3" not in kconfig:
