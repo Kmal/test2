@@ -47,6 +47,7 @@
 #define BOARD_I2C_SDA_IO       47
 #define BOARD_I2C_SCL_IO       48
 #define BOARD_I2C_CLK_HZ       400000
+#define BOARD_M5PM1_I2C_CLK_HZ 100000
 #define BOARD_ES8311_ADDR      0x18
 #define BOARD_BMI270_ADDR      0x68
 #define BOARD_M5PM1_ADDR       0x6e
