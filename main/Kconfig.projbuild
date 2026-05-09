@@ -40,7 +40,7 @@ if APP_TRANSPORT_BLE_GATT_PCM
 
 config APP_BLE_GATT_PCM_DEVICE_NAME
     string "BLE PCM device name"
-    default "M5StickS3-Mic"
+    default "M5StickS3-Meter"
 
 endif
 
@@ -53,8 +53,51 @@ config APP_STATUS_UI_LCD
     default y
     help
         Initialize the StickS3 onboard 135x240 ST7789P3 LCD and render a
-        small debug dashboard with firmware state, transport service state,
-        monitoring state, sample rate, key press counters, and uptime. If LCD
-        initialization fails, button polling and transport startup continue.
+        small debug dashboard or sound-meter VU display. If LCD initialization
+        fails, button polling and transport startup continue.
+
+config APP_STATUS_UI_LCD_REFRESH_MS
+    int "LCD refresh period in ms"
+    default 100
+    range 50 2000
+    depends on APP_STATUS_UI_LCD
+
+endmenu
+
+menu "StickS3 sound meter"
+
+config APP_SOUND_METER_ENABLE
+    bool "Enable sound level meter application"
+    depends on APP_TRANSPORT_BLE_GATT_PCM
+    default y
+
+config APP_SOUND_METER_WINDOW_MS
+    int "Sound meter analysis window in milliseconds"
+    default 100
+    range 20 1000
+
+config APP_SOUND_METER_TELEMETRY_HZ
+    int "BLE sound telemetry rate in Hz"
+    default 10
+    range 1 50
+
+config APP_SOUND_METER_DBFS_FLOOR
+    int "VU meter floor in dBFS"
+    default -60
+    range -120 -1
+
+config APP_SOUND_METER_LOUD_DBFS
+    int "Loud threshold in dBFS"
+    default -12
+    range -60 0
+
+config APP_SOUND_METER_CALIBRATION_WINDOWS
+    int "Calibration analysis windows"
+    default 30
+    range 1 300
+
+config APP_SOUND_METER_ENABLE_PCM_DEBUG
+    bool "Allow raw PCM debug streaming mode"
+    default n
 
 endmenu

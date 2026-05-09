@@ -14,7 +14,7 @@ A replacement transport must be selected before the firmware can honestly claim 
 
 ## Current decision
 
-**Decision: Selected for this repository state.** The default StickS3-compatible transport is a custom Bluetooth LE GATT PCM stream. The firmware advertises as `M5StickS3-Mic`, exposes custom BLE service UUID `0xFFF0`, and sends framed 16 kHz, 16-bit mono PCM microphone audio as notifications on characteristic UUID `0xFFF1`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
+**Decision: Selected for this repository state.** The default StickS3-compatible product is a custom Bluetooth LE sound-level meter. The firmware advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends compact RMS/peak/VU/clipping telemetry notifications on characteristic UUID `0xFFF2`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1`, one-byte control writes on `0xFFF3`, and status reads/notifications on `0xFFF4`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
 
 ## Candidate matrix
 
@@ -22,7 +22,7 @@ A replacement transport must be selected before the firmware can honestly claim 
 | --- | --- | --- |
 | Classic Bluetooth HFP | Rejected for StickS3 | ESP32-S3 does not support Bluetooth Classic / BR/EDR. |
 | USB Audio device | Unknown / candidate | Must be verified against official ESP-IDF TinyUSB/UAC support and product requirement for wired operation. |
-| Bluetooth LE GATT PCM streaming | Selected | Uses BLE advertising plus a custom GATT service/notify characteristic; requires a custom BLE central/host receiver and is not an OS-standard microphone class. |
+| Bluetooth LE sound-level telemetry | Selected | Uses BLE advertising plus custom GATT notify characteristics for sound-level metrics and optional PCM debug; requires a custom BLE central/host receiver and is not an OS-standard microphone class. |
 | BLE custom GATT audio/control | Unknown / candidate | Would require a custom host app and is not a standard OS microphone by itself. |
 | BLE Audio | Unknown | Must not be selected until official ESP-IDF documentation confirms exact ESP32-S3 support and required roles. |
 | Retarget to Classic-BT-capable ESP32 board | Candidate only if product stops being StickS3 | Would require renaming board docs, constants, and CI target. |
