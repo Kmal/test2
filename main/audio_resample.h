@@ -1,15 +1,16 @@
 /*
  * Lightweight fixed-point audio resampling helpers for HFP voice audio.
  *
- * The HFP SCO path expects 8 kHz, 16-bit, mono PCM.  The ES8311 is
- * captured at 16 kHz, so microphone samples must be low-pass filtered
- * before the 2:1 decimation step to avoid folding high-frequency energy
- * back into the narrow-band voice signal.
+ * The ES8311 codec runs at 16 kHz, 16-bit, mono PCM.  Narrow-band HFP
+ * CVSD audio is 8 kHz, so microphone samples must be low-pass filtered
+ * before 2:1 decimation and incoming monitoring audio must be expanded
+ * back to 16 kHz before it is written to the codec stream.
  */
 
 #pragma once
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 /* Compile-time audio format and decimator constants. */
@@ -35,6 +36,17 @@ typedef struct {
 } audio_resample_decimator_t;
 
 /**
+ * @brief Persistent state for the 2:1 narrow-band monitoring expander.
+ *
+ * The expander inserts one linearly interpolated sample between each pair of
+ * adjacent 8 kHz samples so the stream can be written to the 16 kHz codec.
+ */
+typedef struct {
+    int16_t previous_sample;
+    bool has_previous_sample;
+} audio_resample_expander_t;
+
+/**
  * @brief Reset the decimator history and phase.
  */
 void audio_resample_decimator_reset(audio_resample_decimator_t *decimator);
@@ -54,3 +66,24 @@ size_t audio_resample_decimate_2to1(audio_resample_decimator_t *decimator,
                                     size_t input_samples,
                                     int16_t *output,
                                     size_t output_capacity);
+
+/**
+ * @brief Reset the expander history.
+ */
+void audio_resample_expander_reset(audio_resample_expander_t *expander);
+
+/**
+ * @brief Expand 16-bit mono PCM by 2:1 using linear interpolation.
+ *
+ * @param expander Persistent expander state across callback invocations.
+ * @param input Source PCM samples at AUDIO_RESAMPLE_OUTPUT_RATE_HZ.
+ * @param input_samples Number of int16_t samples in @p input.
+ * @param output Destination PCM buffer at AUDIO_RESAMPLE_INPUT_RATE_HZ.
+ * @param output_capacity Capacity of @p output in int16_t samples.
+ * @return Number of output samples written.
+ */
+size_t audio_resample_expand_2to1(audio_resample_expander_t *expander,
+                                  const int16_t *input,
+                                  size_t input_samples,
+                                  int16_t *output,
+                                  size_t output_capacity);

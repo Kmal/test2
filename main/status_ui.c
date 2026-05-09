@@ -22,6 +22,7 @@ static status_ui_button_handlers_t s_handlers;
 static status_ui_state_t s_state = STATUS_UI_STATE_BOOTING;
 static bool s_monitoring_enabled = true;
 static bool s_discoverable_enabled = false;
+static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
     gpio_num_t gpio;
@@ -59,39 +60,60 @@ const char *status_ui_state_name(status_ui_state_t state)
 
 void status_ui_set_state(status_ui_state_t state)
 {
-    if (s_state == state) {
-        return;
+    bool changed = false;
+    portENTER_CRITICAL(&s_state_mux);
+    if (s_state != state) {
+        s_state = state;
+        changed = true;
     }
+    portEXIT_CRITICAL(&s_state_mux);
 
-    s_state = state;
-    ESP_LOGI(TAG, "status: %s", status_ui_state_name(state));
+    if (changed) {
+        ESP_LOGI(TAG, "status: %s", status_ui_state_name(state));
+    }
 }
 
 status_ui_state_t status_ui_get_state(void)
 {
-    return s_state;
+    status_ui_state_t state;
+    portENTER_CRITICAL(&s_state_mux);
+    state = s_state;
+    portEXIT_CRITICAL(&s_state_mux);
+    return state;
 }
 
 void status_ui_set_monitoring_enabled(bool enabled)
 {
+    portENTER_CRITICAL(&s_state_mux);
     s_monitoring_enabled = enabled;
+    portEXIT_CRITICAL(&s_state_mux);
     ESP_LOGI(TAG, "monitoring output: %s", bool_label(enabled));
 }
 
 bool status_ui_get_monitoring_enabled(void)
 {
-    return s_monitoring_enabled;
+    bool enabled;
+    portENTER_CRITICAL(&s_state_mux);
+    enabled = s_monitoring_enabled;
+    portEXIT_CRITICAL(&s_state_mux);
+    return enabled;
 }
 
 void status_ui_set_discoverable_enabled(bool enabled)
 {
+    portENTER_CRITICAL(&s_state_mux);
     s_discoverable_enabled = enabled;
+    portEXIT_CRITICAL(&s_state_mux);
     ESP_LOGI(TAG, "discoverable mode: %s", bool_label(enabled));
 }
 
 bool status_ui_get_discoverable_enabled(void)
 {
-    return s_discoverable_enabled;
+    bool enabled;
+    portENTER_CRITICAL(&s_state_mux);
+    enabled = s_discoverable_enabled;
+    portEXIT_CRITICAL(&s_state_mux);
+    return enabled;
 }
 
 static bool button_is_pressed(gpio_num_t gpio)
@@ -200,7 +222,7 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
              BOARD_BUTTON_CLEAR_PAIRING_GPIO,
              BOARD_BUTTON_TOGGLE_MONITORING_GPIO,
              BOARD_BUTTON_TOGGLE_DISCOVERABLE_GPIO);
-    ESP_LOGI(TAG, "status: %s", status_ui_state_name(s_state));
-    ESP_LOGI(TAG, "monitoring output: %s", bool_label(s_monitoring_enabled));
+    ESP_LOGI(TAG, "status: %s", status_ui_state_name(status_ui_get_state()));
+    ESP_LOGI(TAG, "monitoring output: %s", bool_label(status_ui_get_monitoring_enabled()));
     return ESP_OK;
 }

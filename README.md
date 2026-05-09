@@ -19,7 +19,7 @@ The project uses ESP-IDF, the ESP32-S3 I2S/I2C peripherals, a minimal ES8311 cod
 | I2C SCL | GPIO48 | ESP32-S3 -> ES8311 | `BOARD_I2C_SCL_IO` | ES8311 control bus clock. |
 | ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Used by the minimal codec driver. |
 
-The firmware configures the ESP32-S3 as the I2S master at 16 kHz, 16-bit, mono. HFP narrow-band audio is 8 kHz, so microphone samples are low-pass filtered and decimated 2:1 before they are returned from the HFP outgoing data callback.
+The firmware configures the ESP32-S3 as the I2S master at 16 kHz, 16-bit, mono. HFP narrow-band CVSD audio is 8 kHz, so microphone samples are low-pass filtered and decimated 2:1 before they are returned from the HFP outgoing data callback. Incoming CVSD monitoring audio is expanded back to 16 kHz before it is written to the ES8311 DAC. If the Bluetooth stack negotiates mSBC/Wide Band Speech, callbacks are treated as 16 kHz PCM and are passed through without the narrow-band resampler.
 
 ## Buttons and status output
 
@@ -27,7 +27,7 @@ The status module polls active-low button GPIOs with internal pull-ups and repor
 
 | Function | GPIO | Firmware action |
 | --- | ---: | --- |
-| Clear pairing / boot peer reset | GPIO37 | Removes bonded devices, clears the saved peer from NVS, clears in-memory connection state, and re-enables discoverable mode. Holding this button at boot clears the saved peer from NVS. |
+| Clear pairing / boot peer reset | GPIO37 | Requests active SCO/HFP disconnects, clears the saved peer from NVS, removes bonded devices, and re-enables discoverable mode. Holding this button at boot clears the saved peer from NVS. |
 | Toggle monitoring output | GPIO39 | Enables or disables writing incoming HFP audio to the ES8311 DAC. Microphone capture and Bluetooth streaming are unaffected. |
 | Toggle discoverable mode | GPIO35 | Switches between connectable/discoverable and connectable-only scan modes. |
 
@@ -35,36 +35,23 @@ Status states are `booting`, `discoverable`, `paired`, `HFP connected`, `audio s
 
 ## Pairing and reconnect behavior
 
-On successful Bluetooth authentication, the firmware stores the peer Bluetooth address in NVS under the `bt_peer` namespace. On startup, if a saved non-empty peer address exists, the firmware waits briefly and makes one `esp_hf_client_connect()` attempt to that saved peer. If the peer is unavailable or rejects the connection, initiate the connection from the host or reboot to retry the startup reconnect attempt.
+On successful HFP service-level connection (SLC), the firmware stores the peer Bluetooth address in NVS under the `bt_peer` namespace. Authentication still updates the in-memory peer address so the current pairing flow can continue, but NVS is only rewritten when the SLC peer differs from the saved peer. On startup, if a saved non-empty peer address exists, the firmware waits briefly and makes one `esp_hf_client_connect()` attempt to that saved peer. If the peer is unavailable or rejects the connection, initiate the connection from the host or reboot to retry the startup reconnect attempt.
 
-Clearing pairing removes all bonded devices reported by ESP-IDF, erases the saved peer address, clears the in-memory HFP/audio connection state, and returns the device to discoverable mode.
+Clearing pairing requests active audio and HFP disconnects before erasing the saved peer and removing all bonded devices reported by ESP-IDF. In-memory HFP/audio flags are then left to settle through the corresponding ESP-IDF disconnect events while a clear-pairing request suppresses automatic audio reconnect attempts.
 
-## Project tree
+## Source layout
 
-```text
-.
-├── .github/
-│   └── workflows/
-│       └── build.yml
-├── CMakeLists.txt
-├── README.md
-├── config/
-│   └── sdkconfig.defaults
-└── main/
-    ├── CMakeLists.txt
-    ├── audio_resample.c
-    ├── audio_resample.h
-    ├── board_sticks3.h
-    ├── es8311.c
-    ├── es8311.h
-    ├── main.c
-    ├── status_ui.c
-    └── status_ui.h
-```
+* `main/main.c` contains application startup, Bluetooth GAP/HFP lifecycle handling, reconnect logic, and HFP audio callbacks.
+* `main/es8311.*` implements the minimal ES8311 codec setup used by this firmware.
+* `main/audio_resample.*` contains fixed-point CVSD narrow-band decimation and monitoring expansion helpers.
+* `main/status_ui.*` owns button polling and logged status/feature state.
+* `main/board_sticks3.h` is the board-specific pin and audio constant map.
+* `config/sdkconfig.defaults` captures the intended Bluetooth and I2S SDK defaults.
+* `.github/workflows/build.yml` builds the firmware with the supported ESP-IDF version in CI.
 
 ## Building and flashing
 
-1. Install and activate ESP-IDF for ESP32-S3 development.
+1. Install and activate ESP-IDF `v5.5.4` for ESP32-S3 development. Other ESP-IDF versions may need Bluetooth Kconfig or I2S API updates.
 2. From the repository root, select the target and build:
 
    ```sh
@@ -80,7 +67,7 @@ Clearing pairing removes all bonded devices reported by ESP-IDF, erases the save
 
 Replace `<PORT>` with the serial port for your board, such as `/dev/ttyUSB0`, `/dev/cu.usbmodem*`, or `COM3`. The monitor displays firmware logs tagged with `BT_MIC` and `STATUS_UI`.
 
-The authoritative SDK defaults file is `config/sdkconfig.defaults`; root `CMakeLists.txt` points ESP-IDF to that file. It enables classic Bluetooth, HFP client support, SCO audio over HCI, and the intended I2S DMA buffer defaults.
+The authoritative SDK defaults file is `config/sdkconfig.defaults`; root `CMakeLists.txt` points ESP-IDF to that file. It enables classic Bluetooth, HFP client support, SCO audio over HCI, and the intended I2S DMA buffer defaults. The CI workflow currently validates ESP-IDF `v5.5.4`; other ESP-IDF releases can rename Bluetooth Kconfig options or require migration to newer I2S APIs.
 
 ## CI and local validation
 
@@ -98,7 +85,7 @@ Hardware validation still requires a physical M5Stack Stick S3 and a host audio 
 ## Limitations and further work
 
 * HFP is designed for voice calls. The default narrow-band CVSD path is suitable for speech, not high-fidelity recording.
-* Optional mSBC/Wide Band Speech can improve voice quality only if both sides support it and the ESP-IDF Bluetooth configuration enables it.
+* CVSD narrow-band audio is explicitly resampled between the 8 kHz SCO stream and the 16 kHz ES8311 stream. If ESP-IDF negotiates mSBC/Wide Band Speech, the firmware treats the HFP callbacks as 16 kHz PCM and bypasses the narrow-band resampler; this still depends on both peers and the ESP-IDF Bluetooth configuration supporting WBS.
 * The minimal ES8311 driver performs the setup needed by this firmware. Advanced controls such as volume, microphone gain, and richer power management should be added in the local driver or through Espressif's codec framework.
 * The firmware does not currently monitor battery state.
 
