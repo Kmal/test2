@@ -12,6 +12,16 @@
 #define REGISTER_BUS_TIMEOUT_MS 1000
 #define REGISTER_BUS_MAX_DEVICES 8
 
+static uint32_t register_bus_device_speed_hz(uint8_t dev_addr)
+{
+    /*
+     * M5PM1 powers up in 100 kHz I2C mode. Keep its handle at that rate
+     * until a dedicated M5PM1 initialization path explicitly changes both
+     * the PMIC configuration and the host device speed.
+     */
+    return (dev_addr == BOARD_M5PM1_ADDR) ? BOARD_M5PM1_I2C_CLK_HZ : BOARD_I2C_CLK_HZ;
+}
+
 static const char *TAG = "REG_BUS";
 
 typedef struct {
@@ -51,7 +61,7 @@ static esp_err_t register_bus_get_device(i2c_port_t port, uint8_t dev_addr, i2c_
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = dev_addr,
-        .scl_speed_hz = BOARD_I2C_CLK_HZ,
+        .scl_speed_hz = register_bus_device_speed_hz(dev_addr),
     };
 
     for (size_t i = 0; i < REGISTER_BUS_MAX_DEVICES; ++i) {

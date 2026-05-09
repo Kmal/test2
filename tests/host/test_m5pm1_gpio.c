@@ -29,6 +29,22 @@ static void test_invalid_gpio_rejected(void)
     ASSERT_EQ(ESP_ERR_INVALID_ARG, m5pm1_gpio_set_mode(I2C_NUM_0, 0x6e, 8, true));
 }
 
+static void test_drive_push_pull_clears_open_drain_bit(void)
+{
+    fake_register_bus_reset();
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_GPIO_DRV, 0xFF);
+    ASSERT_EQ(ESP_OK, m5pm1_gpio_set_drive(I2C_NUM_0, 0x6e, 2, true));
+    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_DRV, 0xFB));
+}
+
+static void test_drive_open_drain_sets_open_drain_bit(void)
+{
+    fake_register_bus_reset();
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_GPIO_DRV, 0x00);
+    ASSERT_EQ(ESP_OK, m5pm1_gpio_set_drive(I2C_NUM_0, 0x6e, 2, false));
+    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_DRV, 0x04));
+}
+
 static void test_read_failure_aborts_write(void)
 {
     fake_register_bus_reset();
@@ -49,7 +65,7 @@ static void test_lcd_power_sequence_matches_source_backed_order(void)
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_FUNC0, 0xCF));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_MODE, 0x04));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_DRV, 0xFB));
-    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x04));
+    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x00));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_I2C_CFG, 0x00));
 }
 
@@ -58,6 +74,8 @@ int main(void)
     test_function_preserves_unrelated_fields();
     test_output_preserves_unrelated_bits();
     test_invalid_gpio_rejected();
+    test_drive_push_pull_clears_open_drain_bit();
+    test_drive_open_drain_sets_open_drain_bit();
     test_read_failure_aborts_write();
     test_lcd_power_sequence_matches_source_backed_order();
     puts("m5pm1_gpio tests passed");
