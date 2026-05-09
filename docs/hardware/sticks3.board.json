@@ -11,7 +11,10 @@
       "bclk": 17,
       "lrck": 15,
       "din": 16
-    }
+    },
+    "bclk_hz": 512000,
+    "lrck_hz": 16000,
+    "profile": "capture-only no-transport default; full-duplex is opt-in"
   },
   "i2c": {
     "sda": 47,
@@ -20,12 +23,17 @@
       "es8311": 24,
       "bmi270": 104,
       "m5pm1": 110
-    }
+    },
+    "clk_hz": 400000
   },
   "buttons": {
     "key1": 11,
     "key2": 12,
-    "forbidden": [35, 37, 39]
+    "forbidden": [
+      35,
+      37,
+      39
+    ]
   },
   "lcd": {
     "mosi": 39
@@ -34,5 +42,9 @@
     "tx": 46,
     "rx": 42,
     "rx_requires_speaker_amp_off": true
+  },
+  "m5pm1": {
+    "l3b_enable_sequence_verified": false,
+    "speaker_pulse_sequence_verified": false
   }
 }

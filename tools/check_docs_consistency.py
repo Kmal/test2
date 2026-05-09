@@ -30,6 +30,10 @@ def main() -> int:
         "GPIO11",
         "GPIO12",
         "GPIO39",
+        "12.288 MHz",
+        "16 kHz",
+        "capture-only",
+        "ESP_ERR_NOT_SUPPORTED",
     ]
     errors: list[str] = []
     for doc in DOCS:

@@ -1,0 +1,83 @@
+#include "fake_register_bus.h"
+#include "register_bus.h"
+
+#include <string.h>
+
+#define MAX_OPS 256
+static uint8_t s_regs[128][256];
+static fake_bus_op_t s_ops[MAX_OPS];
+static size_t s_op_count;
+static esp_err_t s_fail_next_read;
+static esp_err_t s_fail_next_write;
+
+void fake_register_bus_reset(void)
+{
+    memset(s_regs, 0, sizeof(s_regs));
+    memset(s_ops, 0, sizeof(s_ops));
+    s_op_count = 0;
+    s_fail_next_read = ESP_OK;
+    s_fail_next_write = ESP_OK;
+}
+
+void fake_register_bus_set_reg(uint8_t addr, uint8_t reg, uint8_t value) { s_regs[addr & 0x7f][reg] = value; }
+void fake_register_bus_fail_next_read(esp_err_t err) { s_fail_next_read = err; }
+void fake_register_bus_fail_next_write(esp_err_t err) { s_fail_next_write = err; }
+size_t fake_register_bus_op_count(void) { return s_op_count; }
+const fake_bus_op_t *fake_register_bus_op(size_t index) { return index < s_op_count ? &s_ops[index] : NULL; }
+
+int fake_register_bus_has_write(uint8_t addr, uint8_t reg, uint8_t value)
+{
+    for (size_t i = 0; i < s_op_count; ++i) {
+        if (s_ops[i].type == FAKE_BUS_OP_WRITE && s_ops[i].addr == addr && s_ops[i].reg == reg && s_ops[i].value == value) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void record(fake_bus_op_type_t type, uint8_t addr, uint8_t reg, uint8_t value)
+{
+    if (s_op_count < MAX_OPS) {
+        s_ops[s_op_count++] = (fake_bus_op_t){.type = type, .addr = addr, .reg = reg, .value = value};
+    }
+}
+
+esp_err_t register_bus_write_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t value)
+{
+    (void)port;
+    if (s_fail_next_write != ESP_OK) {
+        esp_err_t err = s_fail_next_write;
+        s_fail_next_write = ESP_OK;
+        return err;
+    }
+    record(FAKE_BUS_OP_WRITE, dev_addr, reg, value);
+    s_regs[dev_addr & 0x7f][reg] = value;
+    return ESP_OK;
+}
+
+esp_err_t register_bus_read_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t *value)
+{
+    (void)port;
+    if (value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_fail_next_read != ESP_OK) {
+        esp_err_t err = s_fail_next_read;
+        s_fail_next_read = ESP_OK;
+        return err;
+    }
+    *value = s_regs[dev_addr & 0x7f][reg];
+    record(FAKE_BUS_OP_READ, dev_addr, reg, *value);
+    return ESP_OK;
+}
+
+esp_err_t register_bus_update_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t mask, uint8_t value)
+{
+    uint8_t current = 0;
+    esp_err_t err = register_bus_read_u8(port, dev_addr, reg, &current);
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint8_t next = (current & (uint8_t)~mask) | (value & mask);
+    return register_bus_write_u8(port, dev_addr, reg, next);
+}

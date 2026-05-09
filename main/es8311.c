@@ -10,6 +10,7 @@
  */
 
 #include "es8311.h"
+#include "register_bus.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -92,40 +93,20 @@ static esp_err_t es8311_clock_divider_for_rate(int sample_rate, uint8_t *clk_div
     }
 }
 
-// Write a single 8-bit value to a codec register.
+// Write a single 8-bit value to a codec register via the shared StickS3 I2C bus.
 static esp_err_t es8311_write_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t reg, uint8_t val)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (i2c_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, val, true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(ES8311_I2C_TIMEOUT_MS));
-    i2c_cmd_link_delete(cmd);
+    esp_err_t err = register_bus_write_u8(i2c_num, i2c_addr, reg, val);
     if (err != ESP_OK) {
         ESP_LOGE(TAG_CODEC, "I2C write reg 0x%02x failed: %s", reg, esp_err_to_name(err));
     }
     return err;
 }
 
-// Read a single 8-bit value from a codec register.
+// Read a single 8-bit value from a codec register via the shared StickS3 I2C bus.
 static esp_err_t es8311_read_reg(i2c_port_t i2c_num, uint8_t i2c_addr, uint8_t reg, uint8_t *val)
 {
-    if (val == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (i2c_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (i2c_addr << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, val, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(i2c_num, cmd, pdMS_TO_TICKS(ES8311_I2C_TIMEOUT_MS));
-    i2c_cmd_link_delete(cmd);
+    esp_err_t err = register_bus_read_u8(i2c_num, i2c_addr, reg, val);
     if (err != ESP_OK) {
         ESP_LOGE(TAG_CODEC, "I2C read reg 0x%02x failed: %s", reg, esp_err_to_name(err));
     }
@@ -140,6 +121,11 @@ static esp_err_t es8311_write_reg_checked(i2c_port_t i2c_num, uint8_t i2c_addr,
         return err;
     }
 
+    /*
+     * Conservative verification policy: only registers used by the existing
+     * project sequence are read back, and future source-audited ES8311 tables
+     * must classify any volatile/write-only registers before adding checks.
+     */
     uint8_t readback = 0;
     err = es8311_read_reg(i2c_num, i2c_addr, reg, &readback);
     if (err != ESP_OK) {
@@ -169,15 +155,20 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
 }
 
 /*
- * The sequence below follows the ES8311 user guide/datasheet register map:
- * reset, MCLK/LRCK/BCLK dividers, I2S 16-bit serial ports, analog Mic1 PGA,
- * ADC/DAC volume, mute controls, equalizer bypass and power-up registers.
- * It is for the Stick S3 schematic where the ESP32-S3 drives MCLK/BCLK/LRCK
- * and the ES8311 is at I2C address 0x18 with Mic1 and differential DAC output.
+ * The sequence below is the project's current minimal ES8311 programming
+ * sequence for StickS3. It supports an ADC-only profile for no-transport boot
+ * and a full-duplex compatibility profile for quarantined legacy code. Future
+ * changes must classify ES8311 registers as exact-readback-safe, masked,
+ * volatile, or write-only before adding stricter hardware verification.
  */
-esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port, int sample_rate)
+esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
+                              es8311_profile_t profile, int sample_rate)
 {
     (void)i2s_port; // The codec is configured over I2C; I2S is configured by the caller.
+
+    if (profile != ES8311_PROFILE_ADC_ONLY && profile != ES8311_PROFILE_FULL_DUPLEX) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     uint8_t clk_div = 0;
     esp_err_t ret = es8311_clock_divider_for_rate(sample_rate, &clk_div);
@@ -185,7 +176,9 @@ esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
         return ret;
     }
 
-    ESP_LOGI(TAG_CODEC, "Initialising ES8311 at I2C 0x%02x (sample_rate=%d)", i2c_addr, sample_rate);
+    ESP_LOGI(TAG_CODEC, "Initialising ES8311 at I2C 0x%02x (sample_rate=%d, profile=%s)",
+             i2c_addr, sample_rate,
+             profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" : "full-duplex");
 
     ret = es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_ASSERT);
     if (ret != ESP_OK) {
@@ -205,11 +198,22 @@ esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_FORMAT, ES8311_FORMAT_16BIT));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_I2S_MODE, ES8311_I2S_SLAVE_MODE));
     ret = es8311_first_error(ret, es8311_set_mic_gain(i2c_num, i2c_addr, ES8311_DEFAULT_MIC_GAIN));
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_POWER, ES8311_DAC_POWER_UP));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_DAC_POWER, ES8311_ADC_DAC_POWER_UP));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_POWER, ES8311_ADC_POWER_UP));
-    ret = es8311_first_error(ret, es8311_set_dac_volume(i2c_num, i2c_addr, ES8311_DAC_DEFAULT_VOLUME));
-    ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, false));
+
+    if (profile == ES8311_PROFILE_FULL_DUPLEX) {
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_POWER, ES8311_DAC_POWER_UP));
+        ret = es8311_first_error(ret, es8311_set_dac_volume(i2c_num, i2c_addr, ES8311_DAC_DEFAULT_VOLUME));
+        ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, false));
+    } else {
+        /*
+         * StickS3 no-transport mode is capture-only. Keep the DAC path muted
+         * and avoid powering it up until a source-backed monitoring/playback
+         * feature explicitly requests the speaker path.
+         */
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_POWER, ES8311_DAC_POWER_DOWN));
+        ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, true));
+    }
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG_CODEC, "ES8311 initialised");
@@ -217,6 +221,11 @@ esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
         ESP_LOGE(TAG_CODEC, "ES8311 initialisation failed: %s", esp_err_to_name(ret));
     }
     return ret;
+}
+
+esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port, int sample_rate)
+{
+    return es8311_init_profile(i2c_num, i2c_addr, i2s_port, ES8311_PROFILE_FULL_DUPLEX, sample_rate);
 }
 
 esp_err_t es8311_set_mic_gain(i2c_port_t i2c_num, uint8_t i2c_addr, es8311_mic_gain_t gain)
