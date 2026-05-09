@@ -110,9 +110,13 @@ static void test_custom_config_and_calibration(void)
     ASSERT_TRUE(audio_calibration_ready(&cal));
     ASSERT_TRUE(audio_calibration_finalize(&cal));
     ASSERT_TRUE(cal.valid);
+    ASSERT_TRUE(!cal.active);
     ASSERT_EQ(metrics.rms_dbfs_q8, cal.noise_floor_dbfs_q8);
     ASSERT_EQ(metrics.rms_dbfs_q8 + 6 * 256, cal.quiet_threshold_dbfs_q8);
     ASSERT_EQ(metrics.rms_dbfs_q8 + 25 * 256, cal.loud_threshold_dbfs_q8);
+    audio_calibration_add_window(&cal, &metrics);
+    ASSERT_TRUE(cal.valid);
+    ASSERT_EQ(2, cal.collected_windows);
 }
 
 static void test_ready_boundary_and_reset(void)

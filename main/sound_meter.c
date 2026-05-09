@@ -149,11 +149,6 @@ static void begin_calibration_if_needed(const app_runtime_state_t *runtime)
 static bool handle_calibration_window(const audio_level_metrics_t *metrics, const app_runtime_state_t *runtime)
 {
     if (runtime->app_mode != APP_MODE_CALIBRATION) {
-        portENTER_CRITICAL(&s_mux);
-        if (!s_calibration.active) {
-            s_calibration.valid = false;
-        }
-        portEXIT_CRITICAL(&s_mux);
         return false;
     }
 
