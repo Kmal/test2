@@ -60,7 +60,7 @@ For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MC
 
 ## M5PM1 L3B audio power sequence
 
-The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The default capture-only boot now enables that rail before ES8311 register access by configuring M5PM1 GPIO2 as a normal output, push-pull drive, and low output using the same tested GPIO-helper path as LCD/L3B setup. M5PM1 powers up in 100 kHz I2C mode, so the shared register-bus cache keeps the M5PM1 device handle at 100 kHz while other devices can use the board-default 400 kHz speed. The separate M5PM1 identity probe remains optional, but an L3B power-enable failure is fail-fast because ES8311 I2C access will not be reliable while the audio rail is unavailable.
+The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The default capture-only boot now enables that rail before ES8311 register access by configuring M5PM1 GPIO2 as a normal output, push-pull drive, and high output using the same tested GPIO-helper path as LCD/L3B setup. M5PM1 powers up in 100 kHz I2C mode, so the shared register-bus cache keeps the M5PM1 device handle at 100 kHz while other devices can use the board-default 400 kHz speed. The separate M5PM1 identity probe remains optional, but an L3B power-enable failure is fail-fast because ES8311 I2C access will not be reliable while the audio rail is unavailable.
 
 This L3B enable sequence is not treated as evidence that local speaker output is safe. Speaker-amplifier pulse/control remains blocked and returns `ESP_ERR_NOT_SUPPORTED` until its exact source-backed M5PM1/AW8737 sequence is documented and tested.
 

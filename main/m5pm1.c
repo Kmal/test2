@@ -67,8 +67,8 @@ static esp_err_t m5pm1_configure_l3b_enable(i2c_port_t port, uint8_t addr)
 {
     /*
      * StickS3 schematic and pin map route M5PM1/PY G2 to PYG2_L3B_EN.
-     * Configure GPIO2 as a normal output, push-pull drive, and low output;
-     * this matches the official StickS3 L3B enable sequence used before LCD setup.
+     * Configure GPIO2 as a normal output, push-pull drive, and high output;
+     * this matches the official M5GFX StickS3 L3B/LCD power-on sequence.
      */
     esp_err_t err = m5pm1_gpio_set_function(port, addr, 2, 0);
     if (err != ESP_OK) {
@@ -82,7 +82,7 @@ static esp_err_t m5pm1_configure_l3b_enable(i2c_port_t port, uint8_t addr)
     if (err != ESP_OK) {
         return err;
     }
-    return m5pm1_gpio_set_output(port, addr, 2, false);
+    return m5pm1_gpio_set_output(port, addr, 2, true);
 }
 
 esp_err_t m5pm1_enable_l3b_power(i2c_port_t port, uint8_t addr)
