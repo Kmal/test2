@@ -8,7 +8,7 @@ This repository contains ESP-IDF firmware for M5Stack StickS3 board bring-up, so
 
 The previous project description claimed that StickS3 could expose a Classic Bluetooth Hands-Free Profile (HFP) microphone. That claim was incorrect for StickS3: the board uses ESP32-S3-PICO-1-N8R8, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. Classic Bluetooth HFP is therefore not a valid StickS3 transport.
 
-The default firmware selects `CONFIG_APP_TRANSPORT_BLE_GATT_PCM`, initializes documented StickS3 status peripherals, starts the onboard ST7789P3 LCD debug dashboard, initializes the shared I2C bus, probes M5PM1, brings up a capture-only audio profile for the ES8311, starts a custom Bluetooth Low Energy GATT service, and sends framed 16 kHz, 16-bit mono PCM microphone samples as notifications. The capture-only profile keeps the ESP32-S3 I2S TX path, ES8311 DAC path, and speaker amplifier disabled. The legacy HFP source is quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, which is unavailable for `esp32s3`.
+The default firmware selects `CONFIG_APP_TRANSPORT_BLE_GATT_PCM`, initializes documented StickS3 status peripherals, starts the onboard ST7789P3 LCD debug dashboard, initializes the shared I2C bus, skips the optional M5PM1 audio probe, brings up a capture-only audio profile for the ES8311, starts a custom Bluetooth Low Energy GATT service, and sends framed 16 kHz, 16-bit mono PCM microphone samples as notifications. The capture-only profile keeps the ESP32-S3 I2S TX path, ES8311 DAC path, and speaker amplifier disabled. The legacy HFP source is quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, which is unavailable for `esp32s3`.
 
 The selected transport is a custom Bluetooth LE GATT PCM stream. It is functional for validation and host applications, but it is not a standard operating-system Bluetooth or USB microphone class. See `docs/transport-feasibility.md`.
 
@@ -27,7 +27,7 @@ The selected transport is a custom Bluetooth LE GATT PCM stream. It is functiona
 | I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock, currently 400 kHz. |
 | ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
 | BMI270 I2C address | `0x68` | N/A | `BOARD_BMI270_ADDR` | Documented but intentionally unused by current firmware. |
-| M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Probed by default; L3B/speaker writes remain blocked until source-backed polarity/sequence is verified. |
+| M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Optional for default capture-only audio; LCD power may probe it, and L3B/speaker writes remain blocked until source-backed polarity/sequence is verified. |
 | User key 1 | GPIO11 | Input | `BOARD_BUTTON_KEY1_GPIO` | Official StickS3 `KEY1`, active-low with pull-up. |
 | User key 2 | GPIO12 | Input | `BOARD_BUTTON_KEY2_GPIO` | Official StickS3 `KEY2`, active-low with pull-up. |
 | LCD MOSI | GPIO39 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_MOSI_GPIO` | Must not be configured as a status button. |
@@ -45,7 +45,7 @@ The status module polls only documented StickS3 keys: GPIO11 (`KEY1`) and GPIO12
 
 When `CONFIG_APP_STATUS_UI_LCD` is enabled, the same status module initializes the onboard ST7789P3 135x240 display using the source-backed 52x40 controller RAM gap and renders a debug dashboard with the firmware state, BLE service state, monitoring state, 16 kHz PCM rate, key press counters, uptime, and configured BLE device name. LCD initialization is non-fatal: if the panel cannot be initialized, button polling and transport startup continue with log-only status output.
 
-Status states are `booting`, `no transport selected`, `ready`, and `error`; the default BLE GATT PCM transport enters `ready` after audio and network startup.
+Status states are `booting`, `no transport selected`, `ready`, and `error`; the default BLE GATT PCM transport enters `ready` after audio and network startup. If audio or BLE startup fails, firmware enters `error` and stays alive for diagnostics instead of aborting into a reset loop.
 
 ## Audio output, speaker amplifier, and IR
 
