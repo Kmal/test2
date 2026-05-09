@@ -62,12 +62,19 @@ jobs:
       - name: Build firmware
         run: idf.py build
 
+      - name: Create 0x0 factory image
+        run: |
+          python3 tools/make_factory_image.py
+          sha256sum build/m5sticks3_bluetooth_mic.bin > build/m5sticks3_bluetooth_mic.bin.sha256
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         if: success()
         with:
           name: sticks3-ble-gatt-pcm-build
           path: |
+            build/m5sticks3_bluetooth_mic.bin
+            build/m5sticks3_bluetooth_mic.bin.sha256
             build/*.bin
             build/*.elf
             build/*.map
