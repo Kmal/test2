@@ -11,11 +11,12 @@ CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME="M5StickS3-Mic"
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 
-## The firmware still uses the ESP-IDF legacy I2S driver because it supports
-## the board bring-up path shared with the host tests. Keep its deprecation
-## banner out of CI logs until the audio driver is migrated to the channel API.
-CONFIG_I2S_SUPPRESS_DEPRECATE_WARN=y
-
 ## Prefer a larger ATT MTU so framed PCM notifications can carry useful audio
 ## payloads when the central also negotiates a larger MTU.
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
+
+## StickS3 uses ESP32-S3-PICO-1-N8R8 with 8MB flash and 8MB octal PSRAM.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y

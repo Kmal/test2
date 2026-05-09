@@ -13,7 +13,7 @@ set(APP_SRCS
     "audio_pipeline.c"
     "button_state.c"
 )
-set(APP_REQUIRES driver esp_system nvs_flash esp_lcd bt)
+set(APP_REQUIRES esp_system nvs_flash esp_lcd bt esp_driver_i2c esp_driver_i2s esp_driver_gpio esp_driver_spi)
 
 if(CONFIG_APP_TRANSPORT_BLE_GATT_PCM)
     list(APPEND APP_SRCS "transport_ble_gatt_pcm.c")

@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include "esp_err.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 
 #ifdef __cplusplus
 extern "C" {

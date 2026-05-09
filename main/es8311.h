@@ -14,8 +14,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
-#include "driver/i2c.h"
-#include "driver/i2s.h"
+#include "driver/i2c_master.h"
+#include "driver/i2s_types.h"
 
 /**
  * @brief Analog microphone PGA gain values for ES8311 register 0x14.

@@ -77,7 +77,7 @@ void app_main(void)
     const board_audio_config_t audio_config = {
         .profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY,
         .probe_m5pm1 = false,
-        .require_audio_power_enable = false,
+        .require_audio_power_enable = true,
     };
     ret = board_audio_init(&audio_config);
     if (ret != ESP_OK) {
