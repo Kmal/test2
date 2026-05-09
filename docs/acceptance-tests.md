@@ -19,6 +19,7 @@ Host tests cover pure C helpers, ES8311 register sequencing through a fake regis
 ## ESP-IDF acceptance
 
 - Positive `esp32s3` build for the selected StickS3-compatible transport.
+- `python3 tools/make_factory_image.py` produces `build/m5sticks3_bluetooth_mic-factory.bin` from the same `build/flash_args` that ESP-IDF uses for flashing, so release/provisioning flows receive a complete merged image.
 - Legacy Classic Bluetooth HFP must remain blocked for `esp32s3`.
 - The default Bluetooth LE GATT PCM profile must use capture-only I2S RX and the ES8311 ADC-only profile.
 - M5PM1 L3B and speaker-control writes must remain blocked unless their source-backed polarity/sequence is documented and tested.

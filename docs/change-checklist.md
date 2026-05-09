@@ -11,6 +11,7 @@ For every hardware or transport change, update or explicitly confirm:
 - CMake files when source layout changes
 - CI workflow when commands change
 - Static validation scripts and tests
+- Factory-image generation flow and `tools/make_factory_image.py` when build or flash artifacts change
 - `tests/host/run_host_tests.sh` when host tests/fakes change
 
 ## No-invention hardware write policy
