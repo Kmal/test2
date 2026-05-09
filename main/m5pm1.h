@@ -11,6 +11,7 @@ extern "C" {
 
 #define M5PM1_REG_DEVICE_ID     0x00
 #define M5PM1_REG_DEVICE_MODEL  0x01
+#define M5PM1_REG_I2C_CFG       0x09
 #define M5PM1_REG_GPIO_MODE     0x10
 #define M5PM1_REG_GPIO_OUT      0x11
 #define M5PM1_REG_GPIO_DRV      0x13
@@ -28,6 +29,7 @@ esp_err_t m5pm1_gpio_set_function(i2c_port_t port, uint8_t addr, uint8_t gpio, u
 esp_err_t m5pm1_gpio_set_mode(i2c_port_t port, uint8_t addr, uint8_t gpio, bool output);
 esp_err_t m5pm1_gpio_set_output(i2c_port_t port, uint8_t addr, uint8_t gpio, bool high);
 esp_err_t m5pm1_gpio_set_drive(i2c_port_t port, uint8_t addr, uint8_t gpio, bool push_pull);
+esp_err_t m5pm1_enable_lcd_power(i2c_port_t port, uint8_t addr);
 
 #ifdef __cplusplus
 }

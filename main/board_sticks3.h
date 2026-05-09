@@ -20,6 +20,10 @@
  * User keys are active-low GPIO inputs with internal pull-ups:
  *   KEY1=GPIO11, KEY2=GPIO12. GPIO35, GPIO37, and GPIO39 are not status
  *   buttons; GPIO39 is LCD MOSI in the official pin map.
+ *
+ * LCD pins for the onboard ST7789P3 panel:
+ *   MOSI=GPIO39, SCLK=GPIO40, RS/DC=GPIO45, CS=GPIO41, RST=GPIO21,
+ *   BL=GPIO38, resolution=135x240.
  */
 
 #pragma once
@@ -55,3 +59,19 @@
 #define BOARD_BUTTON_KEY1_GPIO     GPIO_NUM_11
 #define BOARD_BUTTON_KEY2_GPIO     GPIO_NUM_12
 #define BOARD_BUTTON_ACTIVE_LEVEL  0
+
+#define BOARD_LCD_HOST         SPI3_HOST
+#define BOARD_LCD_PIXEL_CLOCK_HZ 40000000
+#define BOARD_LCD_H_RES        135
+#define BOARD_LCD_V_RES        240
+#define BOARD_LCD_MOSI_GPIO    GPIO_NUM_39
+#define BOARD_LCD_SCLK_GPIO    GPIO_NUM_40
+#define BOARD_LCD_DC_GPIO      GPIO_NUM_45
+#define BOARD_LCD_CS_GPIO      GPIO_NUM_41
+#define BOARD_LCD_RST_GPIO     GPIO_NUM_21
+#define BOARD_LCD_BL_GPIO      GPIO_NUM_38
+#define BOARD_LCD_BL_ON_LEVEL  1
+#define BOARD_LCD_X_GAP        52
+#define BOARD_LCD_Y_GAP        40
+#define BOARD_LCD_CMD_BITS     8
+#define BOARD_LCD_PARAM_BITS   8
