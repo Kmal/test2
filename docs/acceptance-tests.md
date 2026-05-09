@@ -23,7 +23,7 @@ Host tests cover pure C helpers, ES8311 register sequencing through a fake regis
 - The ESP-IDF GitHub Actions job must create `build/m5sticks3_bluetooth_mic.bin`, write `build/m5sticks3_bluetooth_mic.bin.sha256`, and upload both files so successful workflow runs provide a ready-to-flash factory artifact.
 - Legacy Classic Bluetooth HFP must remain blocked for `esp32s3`.
 - The default Bluetooth LE GATT PCM profile must use capture-only I2S RX and the ES8311 ADC-only profile.
-- M5PM1 L3B audio-rail writes must follow the documented/tested GPIO2 sequence: GPIO function, output mode, push-pull drive, and low output at the PMIC's 100 kHz power-up I2C speed; speaker-amplifier pulse/control writes remain blocked unless their source-backed sequence is documented and tested.
+- M5PM1 L3B audio-rail writes must follow the documented/tested GPIO2 sequence: GPIO function, output mode, push-pull drive, and high output at the PMIC's 100 kHz power-up I2C speed; speaker-amplifier pulse/control writes remain blocked unless their source-backed sequence is documented and tested.
 
 ## Hardware smoke acceptance
 
