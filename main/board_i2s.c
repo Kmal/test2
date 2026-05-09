@@ -29,7 +29,7 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
         .sample_rate = clock->sample_rate_hz,
         .bits_per_sample = BOARD_I2S_BITS,
         .channel_format = BOARD_I2S_CHANNEL_FMT,
-        .communication_format = I2S_COMM_FORMAT_I2S_MSB,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 8,
         .dma_buf_len = 128,

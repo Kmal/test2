@@ -17,9 +17,6 @@ config APP_TRANSPORT_NONE
 config APP_TRANSPORT_BLE_GATT_PCM
     bool "Bluetooth LE GATT PCM microphone transport"
     select BT_ENABLED
-    select BT_BLUEDROID_ENABLED
-    select BT_BLE_ENABLED
-    select BT_GATTS_ENABLE
     help
         Start a custom Bluetooth Low Energy GATT service and send framed
         16 kHz, 16-bit mono PCM from the ES8311 microphone as notifications.

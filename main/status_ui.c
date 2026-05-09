@@ -13,7 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#ifdef CONFIG_APP_STATUS_UI_LCD
+#if CONFIG_APP_STATUS_UI_LCD
 #include "board_i2c.h"
 #include "m5pm1.h"
 #include "driver/spi_master.h"
@@ -28,7 +28,7 @@
 #define STATUS_UI_TASK_STACK 2048
 #define STATUS_UI_TASK_PRIORITY 5
 
-#ifdef CONFIG_APP_STATUS_UI_LCD
+#if CONFIG_APP_STATUS_UI_LCD
 #define STATUS_UI_LCD_TASK_STACK 4096
 #define STATUS_UI_LCD_TASK_PRIORITY 4
 #define STATUS_UI_LCD_REFRESH_MS 1000
@@ -55,7 +55,7 @@ static uint32_t s_key1_press_count = 0;
 static uint32_t s_key2_press_count = 0;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
-#ifdef CONFIG_APP_STATUS_UI_LCD
+#if CONFIG_APP_STATUS_UI_LCD
 static esp_lcd_panel_io_handle_t s_panel_io;
 static esp_lcd_panel_handle_t s_panel;
 static uint16_t *s_framebuffer;
@@ -225,7 +225,7 @@ static void status_ui_button_task(void *arg)
     }
 }
 
-#ifdef CONFIG_APP_STATUS_UI_LCD
+#if CONFIG_APP_STATUS_UI_LCD
 static const uint8_t *glyph_rows(char c)
 {
     static const uint8_t blank[7] = {0, 0, 0, 0, 0, 0, 0};
@@ -600,7 +600,7 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
         return ESP_ERR_NO_MEM;
     }
 
-#ifdef CONFIG_APP_STATUS_UI_LCD
+#if CONFIG_APP_STATUS_UI_LCD
     err = status_ui_lcd_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "LCD debug UI disabled: %s", esp_err_to_name(err));

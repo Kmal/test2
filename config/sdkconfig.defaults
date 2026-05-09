@@ -8,8 +8,14 @@
 
 CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y
 CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME="M5StickS3-Mic"
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
 
-## Increase the number of I2S DMA buffers for lower latency when an audio
-## transport is implemented.
-CONFIG_I2S_RX_DMA_BUF_COUNT=8
-CONFIG_I2S_TX_DMA_BUF_COUNT=8
+## The firmware still uses the ESP-IDF legacy I2S driver because it supports
+## the board bring-up path shared with the host tests. Keep its deprecation
+## banner out of CI logs until the audio driver is migrated to the channel API.
+CONFIG_I2S_SUPPRESS_DEPRECATE_WARN=y
+
+## Prefer a larger ATT MTU so framed PCM notifications can carry useful audio
+## payloads when the central also negotiates a larger MTU.
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
