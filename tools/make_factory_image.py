@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--chip",
         default="esp32s3",
-        help="esptool chip name to pass to merge_bin (default: esp32s3)",
+        help="esptool chip name to pass to merge-bin (default: esp32s3)",
     )
     parser.add_argument(
         "--esptool",
@@ -86,7 +86,7 @@ def esptool_command(args: argparse.Namespace, flash_args: Path, output: Path) ->
         [
             "--chip",
             args.chip,
-            "merge_bin",
+            "merge-bin",
             "-o",
             str(output),
             f"@{flash_args.name}",
@@ -110,7 +110,7 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except subprocess.CalledProcessError as exc:
-        print(f"error: esptool merge_bin failed with exit code {exc.returncode}", file=sys.stderr)
+        print(f"error: esptool merge-bin failed with exit code {exc.returncode}", file=sys.stderr)
         return exc.returncode
 
     print(f"Factory flash image written to {output}")

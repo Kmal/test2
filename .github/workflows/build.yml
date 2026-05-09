@@ -51,21 +51,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install ESP-IDF v6.0.1
-        uses: espressif/install-esp-idf-action@v1
+      - name: Build firmware and 0x0 factory image
+        uses: espressif/esp-idf-ci-action@v1
         with:
-          version: v6.0.1
-
-      - name: Select ESP32-S3 target
-        run: idf.py set-target esp32s3
-
-      - name: Build firmware
-        run: idf.py build
-
-      - name: Create 0x0 factory image
-        run: |
-          python3 tools/make_factory_image.py
-          sha256sum build/m5sticks3_bluetooth_mic.bin > build/m5sticks3_bluetooth_mic.bin.sha256
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          command: |
+            idf.py set-target esp32s3
+            idf.py build
+            python3 tools/make_factory_image.py
+            sha256sum build/m5sticks3_bluetooth_mic.bin > build/m5sticks3_bluetooth_mic.bin.sha256
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7

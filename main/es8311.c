@@ -161,7 +161,7 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
  * changes must classify ES8311 registers as exact-readback-safe, masked,
  * volatile, or write-only before adding stricter hardware verification.
  */
-esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port,
+esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port,
                               es8311_profile_t profile, int sample_rate)
 {
     (void)i2s_port; // The codec is configured over I2C; I2S is configured by the caller.
@@ -223,7 +223,7 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i
     return ret;
 }
 
-esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i2s_port, int sample_rate)
+esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port, int sample_rate)
 {
     return es8311_init_profile(i2c_num, i2c_addr, i2s_port, ES8311_PROFILE_FULL_DUPLEX, sample_rate);
 }
