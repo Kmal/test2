@@ -1,9 +1,11 @@
 /*
- * Minimal ES8311 codec driver for the M5Stack Stick S3. The ES8311 is a
- * low-power mono audio codec with an ADC, DAC, analog microphone PGA,
- * digital volume controls, mute controls and power-management registers.
- * Configuration is performed over I2C while audio data is exchanged via
- * the I2S bus.
+ * Minimal ES8311 codec driver for the M5Stack StickS3 board-support
+ * firmware. The ES8311 is a low-power mono audio codec with an ADC, DAC,
+ * analog microphone PGA, digital volume controls, mute controls and
+ * power-management registers. This driver intentionally implements only the
+ * project-tested StickS3 subset: 12.288 MHz MCLK, 16-bit I2S slave mode, and
+ * the sample rates handled by es8311_init(). Configuration is performed over
+ * I2C while audio data is exchanged via the I2S bus.
  */
 
 #pragma once

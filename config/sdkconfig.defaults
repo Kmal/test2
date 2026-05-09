@@ -1,21 +1,14 @@
-## Default SDK configuration for the Bluetooth microphone project
+## Default SDK configuration for the StickS3 board-support project
 ##
-## Enabling only classic Bluetooth and the Hands‑Free profile
-## reduces memory consumption and ensures that the
-## microphone streams over HFP.  Voice over HCI is selected to
-## route SCO audio through the application layer (rather than
-## directly via PCM pins) so that microphone samples can be
-## provided via the outgoing data callback.
+## The StickS3 uses ESP32-S3-PICO-1-N8R8. ESP32-S3 does not support
+## Bluetooth Classic / BR/EDR, so Classic Bluetooth HFP and SCO-over-HCI are
+## not enabled in the StickS3 defaults. A StickS3-compatible audio transport is
+## intentionally deferred and must be selected through Kconfig after a product
+## transport decision is documented.
 
-CONFIG_BT_ENABLED=y
-CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y
-CONFIG_BT_BLE_ENABLED=n
-CONFIG_BT_SCO_DATA_PATH_HCI=y
-CONFIG_BT_HFP_CLIENT_ENABLE=y
+CONFIG_APP_TRANSPORT_NONE=y
 
-# Release memory reserved for BLE (not used)
-CONFIG_BTDM_CTRL_BLE_MAX_CONN=0
-
-## Increase the number of I2S DMA buffers for lower latency
+## Increase the number of I2S DMA buffers for lower latency when an audio
+## transport is implemented.
 CONFIG_I2S_RX_DMA_BUF_COUNT=8
 CONFIG_I2S_TX_DMA_BUF_COUNT=8
