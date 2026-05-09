@@ -28,7 +28,7 @@ Host tests cover pure C helpers, ES8311 register sequencing through a fake regis
 ## Hardware smoke acceptance
 
 - I2C probe sees ES8311 at `0x18`.
-- I2C probe sees M5PM1 at `0x6e`.
+- I2C probe sees M5PM1 at `0x6e` only when LCD power, optional board-presence probing, or future audio-output features require it; default capture-only audio must not require M5PM1 presence.
 - I2C probe sees BMI270 at `0x68` if IMU support or optional board-presence probing is in scope.
 - GPIO18 MCLK measures 12.288 MHz for the current fixed MCLK profile.
 - GPIO17 BCLK measures the documented 512 kHz target for 16 kHz, 16-bit mono capture.
@@ -42,7 +42,8 @@ Host tests cover pure C helpers, ES8311 register sequencing through a fake regis
 ## Failure-path acceptance
 
 - If shared I2C initialization fails, no M5PM1, I2S, or ES8311 operation should run.
-- If M5PM1 probe fails, I2S and ES8311 operations should not run.
+- If optional M5PM1 probing is disabled for default capture-only audio, M5PM1 probe failure must not block I2S or ES8311 initialization.
+- If a future profile explicitly requires M5PM1 probing and the probe fails, I2S and ES8311 operations should not run.
 - If a source-backed audio-power enable step is later required and fails, I2S and ES8311 operations should not run.
 - If I2S initialization fails, ES8311 initialization should not run.
 - Production cleanup currently logs failures and avoids guessed power-disable writes.

@@ -19,6 +19,10 @@ def main() -> int:
         errors.append("main.c must use BOARD_AUDIO_PROFILE_CAPTURE_ONLY for default boot")
     if ".require_audio_power_enable = false" not in main_text:
         errors.append("default boot must not require source-blocked M5PM1 L3B writes")
+    if ".probe_m5pm1 = false" not in main_text:
+        errors.append("default capture-only boot must not require optional M5PM1 presence")
+    if "ESP_ERROR_CHECK(board_audio_init" in main_text:
+        errors.append("audio init failures must not reboot-loop the board")
 
     i2s_text = BOARD_I2S.read_text(encoding="utf-8")
     if "mode = I2S_MODE_MASTER | I2S_MODE_RX" not in i2s_text:

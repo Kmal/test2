@@ -47,6 +47,13 @@ static void key2_pressed_cb(void *ctx)
     ESP_LOGI(TAG, "KEY2 pressed; BLE GATT PCM transport remains enabled");
 }
 
+static void app_idle_forever(void)
+{
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 void app_main(void)
 {
 #if CONFIG_APP_TRANSPORT_HFP_LEGACY
@@ -69,14 +76,26 @@ void app_main(void)
 
     const board_audio_config_t audio_config = {
         .profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY,
-        .probe_m5pm1 = true,
+        .probe_m5pm1 = false,
         .require_audio_power_enable = false,
     };
-    ESP_ERROR_CHECK(board_audio_init(&audio_config));
+    ret = board_audio_init(&audio_config);
+    if (ret != ESP_OK) {
+        status_ui_set_service_enabled(false);
+        status_ui_set_state(STATUS_UI_STATE_ERROR);
+        ESP_LOGE(TAG, "audio initialisation failed: %s; staying alive for diagnostics", esp_err_to_name(ret));
+        app_idle_forever();
+    }
 
     status_ui_set_monitoring_enabled(false);
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
-    ESP_ERROR_CHECK(transport_ble_gatt_pcm_start());
+    ret = transport_ble_gatt_pcm_start();
+    if (ret != ESP_OK) {
+        status_ui_set_service_enabled(false);
+        status_ui_set_state(STATUS_UI_STATE_ERROR);
+        ESP_LOGE(TAG, "BLE GATT PCM transport failed to start: %s; staying alive for diagnostics", esp_err_to_name(ret));
+        app_idle_forever();
+    }
     status_ui_set_service_enabled(true);
     status_ui_set_state(STATUS_UI_STATE_READY);
     ESP_LOGI(TAG, "Bluetooth LE GATT PCM microphone transport is running");
@@ -86,8 +105,6 @@ void app_main(void)
     ESP_LOGW(TAG, "No StickS3-compatible audio transport is selected; see docs/transport-feasibility.md");
 #endif
 
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    app_idle_forever();
 #endif
 }

@@ -50,6 +50,15 @@ static void test_capture_only_order(void)
     ASSERT_TRUE(strcmp(fake.log, "i2c>probe>i2s-rx>codec-adc>") == 0);
 }
 
+static void test_capture_only_skips_optional_m5pm1_probe(void)
+{
+    fake_audio_t fake = {.fail_probe = ESP_FAIL};
+    board_audio_ops_t o = ops(&fake);
+    board_audio_config_t cfg = {.profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY, .probe_m5pm1 = false, .require_audio_power_enable = false};
+    ASSERT_EQ(ESP_OK, board_audio_init_with_ops(&cfg, &o));
+    ASSERT_TRUE(strcmp(fake.log, "i2c>i2s-rx>codec-adc>") == 0);
+}
+
 static void test_power_gate_order_when_required(void)
 {
     fake_audio_t fake = {0};
@@ -71,6 +80,7 @@ static void test_failure_aborts_later_steps_and_cleans_up(void)
 int main(void)
 {
     test_capture_only_order();
+    test_capture_only_skips_optional_m5pm1_probe();
     test_power_gate_order_when_required();
     test_failure_aborts_later_steps_and_cleans_up();
     puts("board_audio tests passed");
