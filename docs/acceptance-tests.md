@@ -20,7 +20,7 @@ Host tests cover pure C helpers, ES8311 register sequencing through a fake regis
 
 - Positive `esp32s3` build for the selected StickS3-compatible transport.
 - Legacy Classic Bluetooth HFP must remain blocked for `esp32s3`.
-- The no-transport profile must use capture-only I2S RX and the ES8311 ADC-only profile.
+- The default Bluetooth LE GATT PCM profile must use capture-only I2S RX and the ES8311 ADC-only profile.
 - M5PM1 L3B and speaker-control writes must remain blocked unless their source-backed polarity/sequence is documented and tested.
 
 ## Hardware smoke acceptance
@@ -31,9 +31,9 @@ Host tests cover pure C helpers, ES8311 register sequencing through a fake regis
 - GPIO18 MCLK measures 12.288 MHz for the current fixed MCLK profile.
 - GPIO17 BCLK measures the documented 512 kHz target for 16 kHz, 16-bit mono capture.
 - GPIO15 LRCK/WS measures 16 kHz.
-- No-transport boot leaves the I2S TX path, ES8311 DAC, and speaker amplifier disabled.
+- Default Bluetooth LE GATT PCM boot leaves the I2S TX path, ES8311 DAC, and speaker amplifier disabled.
 - Microphone capture produces nonzero PCM under sound input after source-backed audio power/clock/codec setup is complete.
-- Selected transport delivers microphone audio to the host.
+- Selected BLE GATT PCM transport delivers framed microphone notifications to a BLE central subscribed to service UUID `0xFFF0`, characteristic UUID `0xFFF1`.
 - Speaker output works only if monitoring is in scope and M5PM1 amplifier control is implemented from source-backed evidence.
 - IR receive is tested with speaker amplifier disabled if IR support is in scope.
 

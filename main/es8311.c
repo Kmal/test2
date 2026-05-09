@@ -156,7 +156,7 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
 
 /*
  * The sequence below is the project's current minimal ES8311 programming
- * sequence for StickS3. It supports an ADC-only profile for no-transport boot
+ * sequence for StickS3. It supports an ADC-only profile for default capture boot
  * and a full-duplex compatibility profile for quarantined legacy code. Future
  * changes must classify ES8311 registers as exact-readback-safe, masked,
  * volatile, or write-only before adding stricter hardware verification.
@@ -207,7 +207,7 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, i2s_port_t i
         ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, false));
     } else {
         /*
-         * StickS3 no-transport mode is capture-only. Keep the DAC path muted
+         * StickS3 Bluetooth LE GATT PCM mode is capture-only. Keep the DAC path muted
          * and avoid powering it up until a source-backed monitoring/playback
          * feature explicitly requests the speaker path.
          */

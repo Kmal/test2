@@ -14,7 +14,7 @@ A replacement transport must be selected before the firmware can honestly claim 
 
 ## Current decision
 
-**Decision: Deferred.** No replacement transport is selected in this repository state. The firmware builds a truthful board-initialization/status application for StickS3 and keeps the Classic Bluetooth HFP path quarantined as legacy non-StickS3 code.
+**Decision: Selected for this repository state.** The default StickS3-compatible transport is a custom Bluetooth LE GATT PCM stream. The firmware advertises as `M5StickS3-Mic`, exposes custom BLE service UUID `0xFFF0`, and sends framed 16 kHz, 16-bit mono PCM microphone audio as notifications on characteristic UUID `0xFFF1`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
 
 ## Candidate matrix
 
@@ -22,11 +22,11 @@ A replacement transport must be selected before the firmware can honestly claim 
 | --- | --- | --- |
 | Classic Bluetooth HFP | Rejected for StickS3 | ESP32-S3 does not support Bluetooth Classic / BR/EDR. |
 | USB Audio device | Unknown / candidate | Must be verified against official ESP-IDF TinyUSB/UAC support and product requirement for wired operation. |
-| Wi-Fi audio streaming | Unknown / candidate | Hardware-compatible in principle, but requires a host protocol/app and latency/security design. |
+| Bluetooth LE GATT PCM streaming | Selected | Uses BLE advertising plus a custom GATT service/notify characteristic; requires a custom BLE central/host receiver and is not an OS-standard microphone class. |
 | BLE custom GATT audio/control | Unknown / candidate | Would require a custom host app and is not a standard OS microphone by itself. |
 | BLE Audio | Unknown | Must not be selected until official ESP-IDF documentation confirms exact ESP32-S3 support and required roles. |
 | Retarget to Classic-BT-capable ESP32 board | Candidate only if product stops being StickS3 | Would require renaming board docs, constants, and CI target. |
 
 ## Local speaker output requirement
 
-Local speaker monitoring is **deferred**. The default no-transport firmware uses capture-only I2S and an ES8311 ADC-only profile; it does not enable I2S TX, unmute the DAC, or pulse the speaker amplifier. If the selected transport requires output monitoring, implement verified M5PM1 speaker amplifier control before exposing monitoring as a product feature. If the selected transport is microphone-only, remove or keep disabled monitoring UI actions. Legacy HFP code is historical and is not authoritative for StickS3 audio bring-up.
+Local speaker monitoring is **deferred**. The default BLE GATT PCM firmware uses capture-only I2S and an ES8311 ADC-only profile; it does not enable I2S TX, unmute the DAC, or pulse the speaker amplifier. If the selected transport requires output monitoring, implement verified M5PM1 speaker amplifier control before exposing monitoring as a product feature. If the selected transport is microphone-only, remove or keep disabled monitoring UI actions. Legacy HFP code is historical and is not authoritative for StickS3 audio bring-up.

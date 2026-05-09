@@ -6,9 +6,9 @@
  * support Bluetooth Classic / BR/EDR; Classic Bluetooth HFP code must not be
  * enabled for this board.
  *
- * Audio codec pins (the no-transport runtime uses the ADC/RX path only; GPIO14 is
- * physically available for DAC data but is not driven until a full-duplex
- * profile is selected):
+ * Audio codec pins (the default Bluetooth LE GATT PCM runtime uses the ADC/RX
+ * path only; GPIO14 is physically available for DAC data but is not driven
+ * until a full-duplex profile is selected):
  *
  *   ES8311 I2C address=0x18, MCLK=GPIO18, DAC data/DDAC=GPIO14,
  *   BCLK=GPIO17, LRCK=GPIO15, ADC data/DADC=GPIO16,
