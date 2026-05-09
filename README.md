@@ -103,6 +103,8 @@ The code includes bit-preserving M5PM1 GPIO helpers, a source-backed LCD power s
    esptool.py --chip esp32s3 -p <PORT> write_flash 0x0 build/m5sticks3_bluetooth_mic.bin
    ```
 
+   GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256`, so workflow artifacts include a ready-to-flash `0x0` image for each successful build.
+
 The monitor displays firmware logs tagged with `STICKS3_APP`, `BOARD_AUDIO`, `BOARD_I2C`, `BOARD_I2S`, `ES8311`, `M5PM1`, `STATUS_UI`, and `BLE_GATT_PCM`. It will state that the Bluetooth LE GATT PCM microphone transport is running. Connect with a BLE central/custom host app to device `M5StickS3-Mic`, discover service UUID `0xFFF0`, and subscribe to characteristic UUID `0xFFF1`. Each notification starts with a small `M5S3` header followed by little-endian 16-bit mono PCM payload bytes.
 
 ## CI and local validation
