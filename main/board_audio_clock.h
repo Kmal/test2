@@ -2,7 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "driver/i2s.h"
+#include "driver/i2s_types.h"
 
 #ifdef __cplusplus
 extern "C" {

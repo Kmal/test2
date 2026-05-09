@@ -28,15 +28,12 @@
 
 #pragma once
 
-#include "driver/i2c.h"
-#include "driver/i2s.h"
+#include "driver/i2c_master.h"
+#include "driver/i2s_types.h"
 #include "driver/gpio.h"
 
 #define BOARD_I2S_PORT         I2S_NUM_0
 #define BOARD_I2S_SAMPLE_RATE  16000
-#define BOARD_I2S_BITS         I2S_BITS_PER_SAMPLE_16BIT
-#define BOARD_I2S_CHANNEL_FMT  I2S_CHANNEL_FMT_ONLY_LEFT
-
 #define BOARD_I2S_MCLK_HZ      12288000
 #define BOARD_I2S_BCLK_HZ      512000
 #define BOARD_I2S_LRCK_HZ      BOARD_I2S_SAMPLE_RATE

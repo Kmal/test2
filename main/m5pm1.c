@@ -62,23 +62,36 @@ esp_err_t m5pm1_gpio_set_drive(i2c_port_t port, uint8_t addr, uint8_t gpio, bool
     return m5pm1_update_bit(port, addr, M5PM1_REG_GPIO_DRV, gpio, push_pull);
 }
 
+static esp_err_t m5pm1_configure_l3b_enable(i2c_port_t port, uint8_t addr)
+{
+    /*
+     * StickS3 schematic and pin map route M5PM1/PY G2 to PYG2_L3B_EN.
+     * Configure GPIO2 as a normal output, open-drain drive, and high output;
+     * this is the same source-backed L3B enable sequence used before LCD setup.
+     */
+    esp_err_t err = m5pm1_gpio_set_function(port, addr, 2, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = m5pm1_gpio_set_mode(port, addr, 2, true);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = m5pm1_gpio_set_drive(port, addr, 2, false);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return m5pm1_gpio_set_output(port, addr, 2, true);
+}
+
+esp_err_t m5pm1_enable_l3b_power(i2c_port_t port, uint8_t addr)
+{
+    return m5pm1_configure_l3b_enable(port, addr);
+}
 
 esp_err_t m5pm1_enable_lcd_power(i2c_port_t port, uint8_t addr)
 {
-    const uint8_t gpio2_mask = (uint8_t)(1U << 2);
-    esp_err_t err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_FUNC0, gpio2_mask, 0);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_MODE, gpio2_mask, gpio2_mask);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_DRV, gpio2_mask, 0);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = register_bus_update_u8(port, addr, M5PM1_REG_GPIO_OUT, gpio2_mask, gpio2_mask);
+    esp_err_t err = m5pm1_configure_l3b_enable(port, addr);
     if (err != ESP_OK) {
         return err;
     }

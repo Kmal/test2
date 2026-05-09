@@ -1,19 +1,21 @@
 #include "board_audio_power.h"
 
+#include "board_sticks3.h"
+#include "m5pm1.h"
+
 #include "esp_log.h"
 
 static const char *TAG = "BOARD_PWR";
 
 esp_err_t board_audio_power_enable(i2c_port_t port)
 {
-    (void)port;
-    /*
-     * Source gate: StickS3 documents M5PM1 G2 as PYG2_L3B_EN, but this
-     * repository does not yet contain enough source-backed evidence for the
-     * enable polarity and safe setup order. Do not guess register writes.
-     */
-    ESP_LOGW(TAG, "M5PM1 L3B audio power enable is blocked pending source-backed polarity/sequence evidence");
-    return ESP_ERR_NOT_SUPPORTED;
+    esp_err_t err = m5pm1_enable_l3b_power(port, BOARD_M5PM1_ADDR);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "M5PM1 L3B rail enabled for StickS3 ES8311 audio power");
+    } else {
+        ESP_LOGE(TAG, "M5PM1 L3B audio power enable failed: %s", esp_err_to_name(err));
+    }
+    return err;
 }
 
 esp_err_t board_speaker_amp_pulse(i2c_port_t port, uint8_t pulse_count)

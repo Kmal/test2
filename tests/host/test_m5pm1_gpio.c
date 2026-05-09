@@ -46,7 +46,7 @@ static void test_lcd_power_sequence_matches_source_backed_order(void)
     fake_register_bus_set_reg(0x6e, M5PM1_REG_GPIO_OUT, 0x00);
 
     ASSERT_EQ(ESP_OK, m5pm1_enable_lcd_power(I2C_NUM_0, 0x6e));
-    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_FUNC0, 0xFB));
+    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_FUNC0, 0xCF));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_MODE, 0x04));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_DRV, 0xFB));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x04));

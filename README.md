@@ -8,7 +8,7 @@ This repository contains ESP-IDF firmware for M5Stack StickS3 board bring-up, so
 
 The previous project description claimed that StickS3 could expose a Classic Bluetooth Hands-Free Profile (HFP) microphone. That claim was incorrect for StickS3: the board uses ESP32-S3-PICO-1-N8R8, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. Classic Bluetooth HFP is therefore not a valid StickS3 transport.
 
-The default firmware selects `CONFIG_APP_TRANSPORT_BLE_GATT_PCM`, initializes documented StickS3 status peripherals, starts the onboard ST7789P3 LCD debug dashboard, initializes the shared I2C bus, skips the optional M5PM1 audio probe, brings up a capture-only audio profile for the ES8311, starts a custom Bluetooth Low Energy GATT service, and sends framed 16 kHz, 16-bit mono PCM microphone samples as notifications. The capture-only profile keeps the ESP32-S3 I2S TX path, ES8311 DAC path, and speaker amplifier disabled. The legacy HFP source is quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, which is unavailable for `esp32s3`.
+The default firmware selects `CONFIG_APP_TRANSPORT_BLE_GATT_PCM`, initializes documented StickS3 status peripherals, starts the onboard ST7789P3 LCD debug dashboard, initializes the shared ESP-IDF v6 I2C master bus, skips the optional M5PM1 identity probe, enables the source-backed M5PM1 L3B audio rail, and brings up a capture-only audio profile for the ES8311, starts a custom Bluetooth Low Energy GATT service, and sends framed 16 kHz, 16-bit mono PCM microphone samples as notifications. The capture-only profile keeps the ESP32-S3 I2S TX path, ES8311 DAC path, and speaker amplifier disabled. The legacy HFP source is quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, which is unavailable for `esp32s3`.
 
 The selected transport is a custom Bluetooth LE GATT PCM stream. It is functional for validation and host applications, but it is not a standard operating-system Bluetooth or USB microphone class. See `docs/transport-feasibility.md`.
 
@@ -27,7 +27,7 @@ The selected transport is a custom Bluetooth LE GATT PCM stream. It is functiona
 | I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock, currently 400 kHz. |
 | ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
 | BMI270 I2C address | `0x68` | N/A | `BOARD_BMI270_ADDR` | Documented but intentionally unused by current firmware. |
-| M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Optional for default capture-only audio; LCD power may probe it, and L3B/speaker writes remain blocked until source-backed polarity/sequence is verified. |
+| M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Required for the source-backed L3B audio rail and LCD power sequence; the identity probe remains optional, and speaker-control writes remain blocked until source-backed. |
 | User key 1 | GPIO11 | Input | `BOARD_BUTTON_KEY1_GPIO` | Official StickS3 `KEY1`, active-low with pull-up. |
 | User key 2 | GPIO12 | Input | `BOARD_BUTTON_KEY2_GPIO` | Official StickS3 `KEY2`, active-low with pull-up. |
 | LCD MOSI | GPIO39 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_MOSI_GPIO` | Must not be configured as a status button. |
@@ -37,7 +37,7 @@ The selected transport is a custom Bluetooth LE GATT PCM stream. It is functiona
 | LCD reset | GPIO21 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_RST_GPIO` | Display reset. |
 | LCD backlight | GPIO38 | ESP32-S3 -> LCD backlight | `BOARD_LCD_BL_GPIO` | Active-high backlight enable. |
 
-The current audio clock profile is explicit: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock register value `0x1B`. For the ESP-IDF legacy I2S driver path, fixed MCLK is the source of truth; `mclk_multiple` is driver bookkeeping and not treated as proof that MCLK equals 256 × Fs. Hardware acceptance must measure GPIO18/GPIO17/GPIO15 before claiming physical audio success.
+The current audio clock profile is explicit: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock register value `0x1B`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. Hardware acceptance must measure GPIO18/GPIO17/GPIO15 before claiming physical audio success.
 
 ## Buttons and status output
 
@@ -51,18 +51,18 @@ Status states are `booting`, `no transport selected`, `ready`, and `error`; the 
 
 Local speaker monitoring is disabled in the default firmware. The StickS3 includes an AW8737 amplifier and M5PM1 speaker-control function (`PYG3_SPK_Pulse`), but the exact M5PM1 command sequence must be verified from official protocol/library sources before implementing speaker control. StickS3 documentation notes that IR reception requires the speaker amplifier to be off.
 
-The code includes bit-preserving M5PM1 GPIO helpers, a source-backed LCD power sequence for the debug dashboard, and source-gated stubs for audio-output L3B and speaker pulse control. The audio-output stubs return `ESP_ERR_NOT_SUPPORTED` until the enable polarity and safe register sequence are verified for that feature; the default Bluetooth LE GATT PCM boot path does not require those blocked audio writes.
+The code includes bit-preserving M5PM1 GPIO helpers, a tested source-backed GPIO2/L3B power sequence used before ES8311 access and LCD setup, and a source-gated speaker pulse stub. The speaker-control stub returns `ESP_ERR_NOT_SUPPORTED` until the exact M5PM1/AW8737 sequence is verified; the default Bluetooth LE GATT PCM boot path does not require speaker writes.
 
 ## Source layout
 
 * `CMakeLists.txt` names the ESP-IDF application binary `m5sticks3_bluetooth_mic_app.bin` so it is not confused with the merged factory image.
 * `main/main.c` contains StickS3 board bring-up and runtime transport selection.
 * `main/board_audio.*` owns testable board-audio sequencing and dependency injection.
-* `main/board_i2c.*` owns the single shared I2C bus for ES8311, M5PM1, and BMI270.
-* `main/board_i2s.*` owns capture-only versus full-duplex I2S profiles.
+* `main/board_i2c.*` owns the single shared ESP-IDF v6 I2C master bus for ES8311, M5PM1, and BMI270.
+* `main/board_i2s.*` owns capture-only versus full-duplex ESP-IDF v6 standard I2S channel profiles.
 * `main/board_audio_clock.*` documents the current fixed MCLK audio clock profile.
 * `main/m5pm1.*` implements source-backed, bit-preserving M5PM1 probe/GPIO helpers.
-* `main/board_audio_power.*` contains source-gated L3B and speaker-control stubs.
+* `main/board_audio_power.*` enables the source-backed M5PM1 L3B audio rail and keeps speaker-control blocked.
 * `main/transport_ble_gatt_pcm.*` implements the default BLE GATT PCM microphone stream.
 * `main/transport_hfp_legacy.*` quarantines the previous Classic Bluetooth HFP path; it is not available for StickS3/ESP32-S3.
 * `main/es8311.*` implements the minimal ES8311 codec setup used by this firmware, including ADC-only and full-duplex profiles.
@@ -77,7 +77,7 @@ The code includes bit-preserving M5PM1 GPIO helpers, a source-backed LCD power s
 
 ## Building and flashing
 
-1. Install and activate ESP-IDF `v5.5.4` for ESP32-S3 development.
+1. Install and activate ESP-IDF `v6.0.1` for ESP32-S3 development.
 2. From the repository root, select the target and build:
 
    ```sh
@@ -131,6 +131,5 @@ The local environment must provide ESP-IDF and esptool for the `idf.py` and fact
 * Classic Bluetooth HFP is incompatible with StickS3/ESP32-S3.
 * BLE Audio is not assumed feasible until official ESP-IDF documentation proves the exact ESP32-S3 support and required role.
 * Speaker monitoring is disabled until M5PM1 speaker-amplifier control is source-backed and implemented.
-* M5PM1 L3B audio power writes are blocked until the StickS3 polarity and safe sequence are verified.
 * BMI270 is documented but unused.
 * Hardware validation still requires a physical M5Stack StickS3.

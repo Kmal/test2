@@ -4,7 +4,7 @@
   "i2s": {
     "mclk_hz": 12288000,
     "sample_rate_hz": 16000,
-    "bits": "I2S_BITS_PER_SAMPLE_16BIT",
+    "bits": "I2S_DATA_BIT_WIDTH_16BIT",
     "pins": {
       "mclk": 18,
       "dout": 14,
@@ -14,7 +14,8 @@
     },
     "bclk_hz": 512000,
     "lrck_hz": 16000,
-    "profile": "capture-only BLE GATT PCM default; full-duplex is opt-in"
+    "profile": "capture-only BLE GATT PCM default; full-duplex is opt-in",
+    "mclk_multiple": 768
   },
   "i2c": {
     "sda": 47,
@@ -56,7 +57,7 @@
     "rx_requires_speaker_amp_off": true
   },
   "m5pm1": {
-    "l3b_enable_sequence_verified": false,
+    "l3b_enable_sequence_verified": true,
     "speaker_pulse_sequence_verified": false
   }
 }

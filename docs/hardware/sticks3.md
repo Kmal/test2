@@ -40,7 +40,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a Bluetooth LE GATT PCM microphone application. It initializes status UI, initializes the shared I2C bus as needed for the source-backed M5PM1 LCD power sequence, starts an onboard ST7789P3 135x240 debug dashboard when `CONFIG_APP_STATUS_UI_LCD` is enabled, skips the optional M5PM1 audio probe, configures the ESP32-S3 I2S peripheral for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Mic`, exposes custom BLE service UUID `0xFFF0`, and sends framed 16 kHz, 16-bit mono PCM notifications on characteristic UUID `0xFFF1`. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+The current default firmware is a Bluetooth LE GATT PCM microphone application. It initializes status UI, initializes the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence, starts an onboard ST7789P3 135x240 debug dashboard when `CONFIG_APP_STATUS_UI_LCD` is enabled, skips the optional M5PM1 audio probe, configures the ESP32-S3 I2S standard driver for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Mic`, exposes custom BLE service UUID `0xFFF0`, and sends framed 16 kHz, 16-bit mono PCM notifications on characteristic UUID `0xFFF1`. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ## Shared I2C bus
 
@@ -56,18 +56,13 @@ The current source-backed software profile is intentionally explicit:
 - LRCK/WS: GPIO15
 - ES8311 clock register value used by the current project sequence: `0x1B`
 
-For the ESP-IDF legacy I2S path, fixed MCLK is treated as the source of truth. `mclk_multiple` remains set to 256 for driver compatibility/bookkeeping and is not treated as proof that MCLK equals `256 * Fs`. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success.
+For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success.
 
-## M5PM1 L3B audio power evidence gate
+## M5PM1 L3B audio power sequence
 
-StickS3 documentation identifies M5PM1 `G2` as `PYG2_L3B_EN`, but this repository does not yet contain enough verified evidence for all of the following:
+The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The default capture-only boot now enables that rail before ES8311 register access by configuring M5PM1 GPIO2 as a normal output, open-drain drive, and high output using the same tested GPIO-helper path as LCD/L3B setup. The separate M5PM1 identity probe remains optional, but an L3B power-enable failure is fail-fast because ES8311 I2C access will not be reliable while the audio rail is unavailable.
 
-- whether firmware must actively drive `PYG2_L3B_EN` for the current ES8311 boot path,
-- the enable polarity,
-- the safe GPIO/function/mode/drive/output register order,
-- and reset/default behavior.
-
-Therefore `board_audio_power_enable()` is source-gated and returns `ESP_ERR_NOT_SUPPORTED`. The LCD debug dashboard has its own source-backed M5PM1 GPIO2/L3B enable sequence, based on M5Stack M5GFX StickS3 initialization, to power the display before ST7789P3 setup. That LCD power write is not treated as evidence that local audio output or speaker monitoring is safe; future audio-power implementation must still document the exact source-backed audio sequence.
+This L3B enable sequence is not treated as evidence that local speaker output is safe. Speaker-amplifier pulse/control remains blocked and returns `ESP_ERR_NOT_SUPPORTED` until its exact source-backed M5PM1/AW8737 sequence is documented and tested.
 
 ## Button notes
 
@@ -91,12 +86,11 @@ BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing thr
 
 ## Audio init failure policy
 
-`board_audio_init_with_ops()` initializes in this order: shared I2C, optional M5PM1 probe, optional source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet.
+`board_audio_init_with_ops()` initializes in this order: shared I2C, optional M5PM1 probe, required source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet.
 
 ## Unknowns / deferred decisions
 
 - Replacement audio transport for StickS3.
-- Exact source-backed M5PM1 L3B enable polarity and sequence.
 - Exact M5PM1 speaker amplifier command sequence.
 - Final safe button gesture UX beyond detecting `KEY1` and `KEY2` presses.
 - Whether BMI270 is needed by any future product feature.

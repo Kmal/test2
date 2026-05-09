@@ -2,7 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 
 typedef enum { FAKE_BUS_OP_READ, FAKE_BUS_OP_WRITE } fake_bus_op_type_t;
 typedef struct { fake_bus_op_type_t type; uint8_t addr; uint8_t reg; uint8_t value; } fake_bus_op_t;

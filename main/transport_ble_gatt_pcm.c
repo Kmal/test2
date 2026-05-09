@@ -2,7 +2,7 @@
 
 #include "board_audio_clock.h"
 #include "board_sticks3.h"
-#include "driver/i2s.h"
+#include "board_i2s.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -225,7 +225,7 @@ static void pcm_notify_task(void *arg)
         uint8_t *payload = notify_buf + header_bytes;
         const size_t payload_capacity = notify_capacity - header_bytes;
         size_t bytes_read = 0;
-        esp_err_t err = i2s_read(BOARD_I2S_PORT, payload, payload_capacity, &bytes_read, pdMS_TO_TICKS(100));
+        esp_err_t err = board_i2s_read(payload, payload_capacity, &bytes_read, pdMS_TO_TICKS(100));
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "I2S read failed: %s", esp_err_to_name(err));
             vTaskDelay(pdMS_TO_TICKS(10));

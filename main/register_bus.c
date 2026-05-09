@@ -1,24 +1,105 @@
 #include "register_bus.h"
 
-#include "freertos/FreeRTOS.h"
+#include "board_i2c.h"
+#include "board_sticks3.h"
+
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #define REGISTER_BUS_TIMEOUT_MS 1000
+#define REGISTER_BUS_MAX_DEVICES 8
 
 static const char *TAG = "REG_BUS";
 
+typedef struct {
+    bool in_use;
+    i2c_port_t port;
+    uint8_t dev_addr;
+    i2c_master_dev_handle_t handle;
+} register_bus_device_t;
+
+static register_bus_device_t s_devices[REGISTER_BUS_MAX_DEVICES];
+
+static esp_err_t register_bus_get_device(i2c_port_t port, uint8_t dev_addr, i2c_master_dev_handle_t *out_handle)
+{
+    if (out_handle == NULL || dev_addr > 0x7f) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = board_i2c_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    for (size_t i = 0; i < REGISTER_BUS_MAX_DEVICES; ++i) {
+        if (s_devices[i].in_use && s_devices[i].port == port && s_devices[i].dev_addr == dev_addr) {
+            *out_handle = s_devices[i].handle;
+            return ESP_OK;
+        }
+    }
+
+    i2c_master_bus_handle_t bus_handle = NULL;
+    err = i2c_master_get_bus_handle(port, &bus_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C bus handle lookup failed for port %d: %s", (int)port, esp_err_to_name(err));
+        return err;
+    }
+
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = dev_addr,
+        .scl_speed_hz = BOARD_I2C_CLK_HZ,
+    };
+
+    for (size_t i = 0; i < REGISTER_BUS_MAX_DEVICES; ++i) {
+        if (!s_devices[i].in_use) {
+            err = i2c_master_bus_add_device(bus_handle, &dev_cfg, &s_devices[i].handle);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "I2C add dev 0x%02x failed: %s", dev_addr, esp_err_to_name(err));
+                return err;
+            }
+            s_devices[i].in_use = true;
+            s_devices[i].port = port;
+            s_devices[i].dev_addr = dev_addr;
+            *out_handle = s_devices[i].handle;
+            return ESP_OK;
+        }
+    }
+
+    ESP_LOGE(TAG, "I2C device cache exhausted while adding dev 0x%02x", dev_addr);
+    return ESP_ERR_NO_MEM;
+}
+
+esp_err_t register_bus_probe(i2c_port_t port, uint8_t dev_addr)
+{
+    if (dev_addr > 0x7f) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = board_i2c_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    i2c_master_bus_handle_t bus_handle = NULL;
+    err = i2c_master_get_bus_handle(port, &bus_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return i2c_master_probe(bus_handle, dev_addr, REGISTER_BUS_TIMEOUT_MS);
+}
+
 esp_err_t register_bus_write_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t value)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, value, true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(REGISTER_BUS_TIMEOUT_MS));
-    i2c_cmd_link_delete(cmd);
+    i2c_master_dev_handle_t dev_handle = NULL;
+    esp_err_t err = register_bus_get_device(port, dev_addr, &dev_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t tx_buf[2] = {reg, value};
+    err = i2c_master_transmit(dev_handle, tx_buf, sizeof(tx_buf), REGISTER_BUS_TIMEOUT_MS);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C write dev 0x%02x reg 0x%02x failed: %s", dev_addr, reg, esp_err_to_name(err));
     }
@@ -31,16 +112,13 @@ esp_err_t register_bus_read_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, u
         return ESP_ERR_INVALID_ARG;
     }
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, value, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(REGISTER_BUS_TIMEOUT_MS));
-    i2c_cmd_link_delete(cmd);
+    i2c_master_dev_handle_t dev_handle = NULL;
+    esp_err_t err = register_bus_get_device(port, dev_addr, &dev_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = i2c_master_transmit_receive(dev_handle, &reg, 1, value, 1, REGISTER_BUS_TIMEOUT_MS);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C read dev 0x%02x reg 0x%02x failed: %s", dev_addr, reg, esp_err_to_name(err));
     }
