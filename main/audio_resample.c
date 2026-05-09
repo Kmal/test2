@@ -53,3 +53,37 @@ size_t audio_resample_decimate_2to1(audio_resample_decimator_t *decimator,
 
     return output_samples;
 }
+
+void audio_resample_expander_reset(audio_resample_expander_t *expander)
+{
+    memset(expander, 0, sizeof(*expander));
+}
+
+size_t audio_resample_expand_2to1(audio_resample_expander_t *expander,
+                                  const int16_t *input,
+                                  size_t input_samples,
+                                  int16_t *output,
+                                  size_t output_capacity)
+{
+    size_t output_samples = 0;
+
+    for (size_t i = 0; i < input_samples && output_samples < output_capacity; ++i) {
+        const int16_t current = input[i];
+
+        if (expander->has_previous_sample && output_samples < output_capacity) {
+            const int32_t interp = ((int32_t)expander->previous_sample + (int32_t)current) / 2;
+            output[output_samples++] = clamp_i32_to_i16(interp);
+        } else if (!expander->has_previous_sample && output_samples < output_capacity) {
+            output[output_samples++] = current;
+        }
+
+        if (output_samples < output_capacity) {
+            output[output_samples++] = current;
+        }
+
+        expander->previous_sample = current;
+        expander->has_previous_sample = true;
+    }
+
+    return output_samples;
+}

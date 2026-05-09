@@ -24,6 +24,7 @@
 #include "esp_bt.h"
 #include "esp_gap_bt_api.h"
 #include "esp_bt_main.h"
+#include "esp_bt_device.h"
 #include "esp_hf_client_api.h"
 #include "audio_resample.h"
 #include "es8311.h"
@@ -36,6 +37,8 @@ static const char *TAG = "BT_MIC";
 #define BT_PEER_NVS_NAMESPACE "bt_peer"
 #define BT_PEER_NVS_KEY       "addr"
 #define RECONNECT_BACKOFF_MS   3000
+#define HFP_I2S_READ_TIMEOUT_MS 20
+#define HFP_I2S_WRITE_TIMEOUT_MS 20
 
 // Buffer size used when reading from the codec.  A small buffer
 // reduces latency at the expense of CPU load.  HFP audio uses 8 kHz
@@ -54,11 +57,41 @@ static const char *TAG = "BT_MIC";
 #define HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL 0
 #endif
 
+typedef enum {
+    HFP_AUDIO_MODE_NONE = 0,
+    HFP_AUDIO_MODE_CVSD_NARROW_BAND,
+    HFP_AUDIO_MODE_MSBC_WIDE_BAND,
+} hfp_audio_mode_t;
+
+typedef struct {
+    audio_resample_decimator_t outgoing_decimator;
+    audio_resample_expander_t incoming_expander;
+    int64_t last_read_error_log_us;
+    int64_t last_write_error_log_us;
+    int64_t last_underfill_log_us;
+    uint32_t consecutive_underfills;
+} hfp_audio_cb_state_t;
+
+static portMUX_TYPE s_shared_state_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_hfp_audio_mux = portMUX_INITIALIZER_UNLOCKED;
+
 static esp_bd_addr_t peer_addr = {0};
 static bool bt_ready = false;
 static bool hfp_connected = false;
 static bool audio_connected = false;
 static bool audio_connect_pending = false;
+/*
+ * Set while the user-requested clear-pairing flow is in progress.  This lets
+ * the button handler suppress automatic reconnect attempts without pretending
+ * HFP/audio links have disconnected before ESP-IDF reports those events.
+ */
+static bool clear_pairing_requested = false;
+static hfp_audio_mode_t hfp_audio_mode = HFP_AUDIO_MODE_NONE;
+static hfp_audio_cb_state_t hfp_audio_cb_state = {
+    .last_read_error_log_us = -HFP_LOG_THROTTLE_US,
+    .last_write_error_log_us = -HFP_LOG_THROTTLE_US,
+    .last_underfill_log_us = -HFP_LOG_THROTTLE_US,
+};
 
 /* Forward declarations */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len);
@@ -80,6 +113,92 @@ static bool peer_addr_is_empty(const esp_bd_addr_t addr)
 {
     const esp_bd_addr_t empty = {0};
     return memcmp(addr, empty, sizeof(esp_bd_addr_t)) == 0;
+}
+
+static void shared_state_set_peer_addr(const esp_bd_addr_t addr)
+{
+    portENTER_CRITICAL(&s_shared_state_mux);
+    memcpy(peer_addr, addr, sizeof(esp_bd_addr_t));
+    portEXIT_CRITICAL(&s_shared_state_mux);
+}
+
+static void shared_state_clear_peer_addr(void)
+{
+    portENTER_CRITICAL(&s_shared_state_mux);
+    memset(peer_addr, 0, sizeof(peer_addr));
+    portEXIT_CRITICAL(&s_shared_state_mux);
+}
+
+static void shared_state_set_bt_ready(bool ready)
+{
+    portENTER_CRITICAL(&s_shared_state_mux);
+    bt_ready = ready;
+    portEXIT_CRITICAL(&s_shared_state_mux);
+}
+
+static bool shared_state_get_bt_ready(void)
+{
+    bool ready;
+    portENTER_CRITICAL(&s_shared_state_mux);
+    ready = bt_ready;
+    portEXIT_CRITICAL(&s_shared_state_mux);
+    return ready;
+}
+
+static hfp_audio_mode_t shared_state_get_audio_mode(void)
+{
+    hfp_audio_mode_t mode;
+    portENTER_CRITICAL(&s_shared_state_mux);
+    mode = hfp_audio_mode;
+    portEXIT_CRITICAL(&s_shared_state_mux);
+    return mode;
+}
+
+static bool shared_state_snapshot_for_audio_connect(esp_bd_addr_t addr)
+{
+    bool should_connect;
+    portENTER_CRITICAL(&s_shared_state_mux);
+    memcpy(addr, peer_addr, sizeof(esp_bd_addr_t));
+    should_connect = !peer_addr_is_empty(addr) && hfp_connected &&
+                     !audio_connected && !audio_connect_pending &&
+                     !clear_pairing_requested;
+    if (should_connect) {
+        audio_connect_pending = true;
+    }
+    portEXIT_CRITICAL(&s_shared_state_mux);
+    return should_connect;
+}
+
+static void shared_state_clear_audio_connect_pending(void)
+{
+    portENTER_CRITICAL(&s_shared_state_mux);
+    audio_connect_pending = false;
+    portEXIT_CRITICAL(&s_shared_state_mux);
+}
+
+static void hfp_audio_cb_state_reset(void)
+{
+    portENTER_CRITICAL(&s_hfp_audio_mux);
+    audio_resample_decimator_reset(&hfp_audio_cb_state.outgoing_decimator);
+    audio_resample_expander_reset(&hfp_audio_cb_state.incoming_expander);
+    hfp_audio_cb_state.last_read_error_log_us = -HFP_LOG_THROTTLE_US;
+    hfp_audio_cb_state.last_write_error_log_us = -HFP_LOG_THROTTLE_US;
+    hfp_audio_cb_state.last_underfill_log_us = -HFP_LOG_THROTTLE_US;
+    hfp_audio_cb_state.consecutive_underfills = 0;
+    portEXIT_CRITICAL(&s_hfp_audio_mux);
+}
+
+static const char *hfp_audio_mode_name(hfp_audio_mode_t mode)
+{
+    switch (mode) {
+    case HFP_AUDIO_MODE_CVSD_NARROW_BAND:
+        return "CVSD narrow-band 8 kHz";
+    case HFP_AUDIO_MODE_MSBC_WIDE_BAND:
+        return "mSBC wide-band 16 kHz";
+    case HFP_AUDIO_MODE_NONE:
+    default:
+        return "none";
+    }
 }
 
 static esp_err_t peer_store_save(const esp_bd_addr_t addr)
@@ -134,7 +253,7 @@ static esp_err_t peer_store_clear(void)
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(BT_PEER_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        memset(peer_addr, 0, sizeof(peer_addr));
+        shared_state_clear_peer_addr();
         return ESP_OK;
     }
     if (err != ESP_OK) {
@@ -152,7 +271,7 @@ static esp_err_t peer_store_clear(void)
     nvs_close(nvs);
 
     if (err == ESP_OK) {
-        memset(peer_addr, 0, sizeof(peer_addr));
+        shared_state_clear_peer_addr();
         ESP_LOGI(TAG, "Cleared saved Bluetooth peer");
     } else {
         ESP_LOGE(TAG, "Failed to clear Bluetooth peer: %s", esp_err_to_name(err));
@@ -237,7 +356,7 @@ static void codec_init(void)
 
 static esp_err_t set_discoverable_mode(bool enabled)
 {
-    if (!bt_ready) {
+    if (!shared_state_get_bt_ready()) {
         ESP_LOGW(TAG, "Bluetooth is not ready; discoverable change ignored");
         return ESP_ERR_INVALID_STATE;
     }
@@ -246,8 +365,12 @@ static esp_err_t set_discoverable_mode(bool enabled)
                                            : ESP_BT_SCAN_MODE_CONNECTABLE;
     esp_err_t err = esp_bt_gap_set_scan_mode(scan_mode);
     if (err == ESP_OK) {
+        bool connected;
+        portENTER_CRITICAL(&s_shared_state_mux);
+        connected = hfp_connected || audio_connected;
+        portEXIT_CRITICAL(&s_shared_state_mux);
         status_ui_set_discoverable_enabled(enabled);
-        if (enabled && !hfp_connected && !audio_connected) {
+        if (enabled && !connected) {
             status_ui_set_state(STATUS_UI_STATE_DISCOVERABLE);
         }
     } else {
@@ -260,9 +383,40 @@ static esp_err_t set_discoverable_mode(bool enabled)
 static void clear_pairing_button_cb(void *ctx)
 {
     (void)ctx;
-
-    if (!bt_ready) {
+    if (!shared_state_get_bt_ready()) {
         ESP_LOGW(TAG, "Bluetooth is not ready; clear pairing ignored");
+        return;
+    }
+
+    esp_bd_addr_t addr;
+    bool has_peer;
+    bool disconnect_audio;
+    bool disconnect_hfp;
+    portENTER_CRITICAL(&s_shared_state_mux);
+    memcpy(addr, peer_addr, sizeof(addr));
+    has_peer = !peer_addr_is_empty(addr);
+    disconnect_audio = audio_connected || audio_connect_pending;
+    disconnect_hfp = hfp_connected || has_peer;
+    clear_pairing_requested = true;
+    audio_connect_pending = false;
+    portEXIT_CRITICAL(&s_shared_state_mux);
+
+    if (disconnect_audio) {
+        esp_err_t err = esp_hf_client_disconnect_audio(addr);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Audio disconnect request during clear pairing failed: %s", esp_err_to_name(err));
+        }
+    }
+    if (disconnect_hfp && has_peer) {
+        esp_err_t err = esp_hf_client_disconnect(addr);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "HFP disconnect request during clear pairing failed: %s", esp_err_to_name(err));
+        }
+    }
+
+    esp_err_t err = peer_store_clear();
+    if (err != ESP_OK) {
+        status_ui_set_state(STATUS_UI_STATE_ERROR);
         return;
     }
 
@@ -276,16 +430,14 @@ static void clear_pairing_button_cb(void *ctx)
             status_ui_set_state(STATUS_UI_STATE_ERROR);
             return;
         }
-
         int listed_devices = bond_count;
-        esp_err_t err = esp_bt_gap_get_bond_device_list(&listed_devices, bonded_devices);
+        err = esp_bt_gap_get_bond_device_list(&listed_devices, bonded_devices);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Unable to read bonded device list: %s", esp_err_to_name(err));
             free(bonded_devices);
             status_ui_set_state(STATUS_UI_STATE_ERROR);
             return;
         }
-
         for (int i = 0; i < listed_devices; ++i) {
             err = esp_bt_gap_remove_bond_device(bonded_devices[i]);
             if (err != ESP_OK) {
@@ -295,16 +447,6 @@ static void clear_pairing_button_cb(void *ctx)
         ESP_LOGI(TAG, "Removed %d bonded device(s)", listed_devices);
         free(bonded_devices);
     }
-
-    esp_err_t err = peer_store_clear();
-    if (err != ESP_OK) {
-        status_ui_set_state(STATUS_UI_STATE_ERROR);
-        return;
-    }
-
-    hfp_connected = false;
-    audio_connected = false;
-    audio_connect_pending = false;
     ESP_ERROR_CHECK_WITHOUT_ABORT(set_discoverable_mode(true));
 }
 
@@ -320,99 +462,117 @@ static void toggle_discoverable_button_cb(void *ctx)
     set_discoverable_mode(!status_ui_get_discoverable_enabled());
 }
 
-/* Bluetooth GAP callback.  Logs pairing and discovery events.  When
- * pairing completes the remote address is stored to allow explicit
- * connections if required.
- */
 static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch(event) {
-    case ESP_BT_GAP_AUTH_CMPL_EVT: {
+    case ESP_BT_GAP_AUTH_CMPL_EVT:
         if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
             log_bd_addr("Paired with", param->auth_cmpl.bd_addr);
-            memcpy(peer_addr, param->auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
+            shared_state_set_peer_addr(param->auth_cmpl.bd_addr);
             status_ui_set_state(STATUS_UI_STATE_PAIRED);
-            peer_store_save(peer_addr);
         } else {
             ESP_LOGW(TAG, "Authentication failed");
             status_ui_set_state(STATUS_UI_STATE_ERROR);
         }
         break;
-    }
     default:
         break;
     }
 }
 
-/* Hands‑Free client event handler.  This callback processes HFP
- * events such as connection state and audio state changes.  When
- * audio becomes connected, the application may start feeding
- * microphone data via the outgoing data callback.
- */
+static void maybe_save_connected_peer(const esp_bd_addr_t addr)
+{
+    esp_bd_addr_t saved_addr;
+    if (peer_store_load(saved_addr) == ESP_OK && memcmp(saved_addr, addr, sizeof(esp_bd_addr_t)) == 0) {
+        log_bd_addr("Bluetooth peer already saved", addr);
+        return;
+    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(peer_store_save(addr));
+}
+
 static void hfp_event_handler(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param)
 {
     switch(event) {
-    case ESP_HF_CLIENT_CONNECTION_STATE_EVT:
+    case ESP_HF_CLIENT_CONNECTION_STATE_EVT: {
         ESP_LOGI(TAG, "HFP connection state: %d", param->conn_stat.state);
-        if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_CONNECTED ||
-            param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
-            memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+        const bool connected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_CONNECTED;
+        const bool slc_connected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED;
+        const bool disconnected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED;
+        if (connected || slc_connected) {
+            shared_state_set_peer_addr(param->conn_stat.remote_bda);
             status_ui_set_state(STATUS_UI_STATE_PAIRED);
         }
-        if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
+        portENTER_CRITICAL(&s_shared_state_mux);
+        hfp_connected = slc_connected;
+        if (slc_connected) {
+            memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+            clear_pairing_requested = false;
+        } else if (disconnected) {
+            audio_connected = false;
+            audio_connect_pending = false;
+            hfp_audio_mode = HFP_AUDIO_MODE_NONE;
+        }
+        portEXIT_CRITICAL(&s_shared_state_mux);
+        if (slc_connected) {
+            maybe_save_connected_peer(param->conn_stat.remote_bda);
             status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
-        } else if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED) {
+        } else if (disconnected) {
+            hfp_audio_cb_state_reset();
             if (status_ui_get_discoverable_enabled()) {
                 status_ui_set_state(STATUS_UI_STATE_DISCOVERABLE);
             }
         }
-
-        hfp_connected = param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED;
-        if (hfp_connected) {
-            memcpy(peer_addr, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
-        } else {
-            audio_connected = false;
-            audio_connect_pending = false;
-        }
         break;
-    case ESP_HF_CLIENT_AUDIO_STATE_EVT:
+    }
+    case ESP_HF_CLIENT_AUDIO_STATE_EVT: {
         ESP_LOGI(TAG, "HFP audio state: %d", param->audio_stat.state);
-        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
-            param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
-            status_ui_set_state(STATUS_UI_STATE_AUDIO_STREAMING);
-        } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
-            if (hfp_connected) {
-                status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
-            }
+        const bool cvsd_connected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED;
+        const bool msbc_connected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC;
+        const bool disconnected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED;
+        hfp_audio_mode_t mode = HFP_AUDIO_MODE_NONE;
+        if (cvsd_connected) {
+            mode = HFP_AUDIO_MODE_CVSD_NARROW_BAND;
+        } else if (msbc_connected) {
+            mode = HFP_AUDIO_MODE_MSBC_WIDE_BAND;
         }
-
-        audio_connected = param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
-                          param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC;
-        if (audio_connected || param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
+        bool still_hfp_connected;
+        portENTER_CRITICAL(&s_shared_state_mux);
+        audio_connected = cvsd_connected || msbc_connected;
+        if (audio_connected) {
+            hfp_audio_mode = mode;
+        } else if (disconnected) {
+            hfp_audio_mode = HFP_AUDIO_MODE_NONE;
+        }
+        if (audio_connected || disconnected) {
             audio_connect_pending = false;
         }
+        still_hfp_connected = hfp_connected;
+        portEXIT_CRITICAL(&s_shared_state_mux);
+        if (audio_connected || disconnected) {
+            hfp_audio_cb_state_reset();
+        }
+        if (audio_connected) {
+            ESP_LOGI(TAG, "HFP audio mode: %s", hfp_audio_mode_name(mode));
+            status_ui_set_state(STATUS_UI_STATE_AUDIO_STREAMING);
+        } else if (disconnected && still_hfp_connected) {
+            status_ui_set_state(STATUS_UI_STATE_HFP_CONNECTED);
+        }
         break;
+    }
     default:
         break;
     }
 }
 
-/* HFP outgoing data callback.  The HFP stack invokes this function
- * whenever it requires audio samples to send to the remote device.
- * The requested byte count is converted to an exact 8 kHz output sample
- * count, then enough 16 kHz microphone samples are read to satisfy that
- * request after 2:1 low-pass decimation.  Silence is appended only if
- * I2S returns an error or short read.
+/* HFP outgoing data callback.  CVSD SCO uses 8 kHz PCM, so the 16 kHz
+ * microphone stream is low-pass decimated 2:1.  mSBC/WBS callbacks use 16 kHz
+ * PCM and are passed through without the narrow-band decimator.
  */
 static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 {
     static int16_t input_pcm[BOARD_PCM_CHUNK_SIZE];
-    static int16_t output_pcm[BOARD_PCM_CHUNK_SIZE / AUDIO_RESAMPLE_DECIMATION_FACTOR];
-    static audio_resample_decimator_t decimator;
-    static int64_t last_read_error_log_us = -HFP_LOG_THROTTLE_US;
-    static int64_t last_underfill_log_us = -HFP_LOG_THROTTLE_US;
-    static uint32_t consecutive_underfills = 0;
-
+    static int16_t output_pcm[BOARD_PCM_CHUNK_SIZE];
+    const hfp_audio_mode_t mode = shared_state_get_audio_mode();
     const size_t requested_output_samples = len / sizeof(int16_t);
     size_t output_samples_written = 0;
     size_t bytes_written = 0;
@@ -422,69 +582,69 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
     if ((len % sizeof(int16_t)) != 0) {
         ESP_LOGW(TAG, "HFP requested odd byte count: %u", (unsigned int)len);
     }
-
     while (output_samples_written < requested_output_samples) {
         const size_t remaining_output_samples = requested_output_samples - output_samples_written;
-        size_t input_samples_needed = remaining_output_samples * AUDIO_RESAMPLE_DECIMATION_FACTOR;
+        size_t input_samples_needed = remaining_output_samples;
+        if (mode == HFP_AUDIO_MODE_CVSD_NARROW_BAND) {
+            input_samples_needed *= AUDIO_RESAMPLE_DECIMATION_FACTOR;
+        }
         if (input_samples_needed > BOARD_PCM_CHUNK_SIZE) {
             input_samples_needed = BOARD_PCM_CHUNK_SIZE;
         }
-
         size_t bytes_read = 0;
-        last_err = i2s_read(BOARD_I2S_PORT, input_pcm,
-                            input_samples_needed * sizeof(int16_t),
-                            &bytes_read, portMAX_DELAY);
+        last_err = i2s_read(BOARD_I2S_PORT, input_pcm, input_samples_needed * sizeof(int16_t),
+                            &bytes_read, pdMS_TO_TICKS(HFP_I2S_READ_TIMEOUT_MS));
         total_i2s_bytes_read += bytes_read;
-
         if (last_err != ESP_OK || bytes_read == 0) {
-            const int64_t now_us = esp_timer_get_time();
-            if (now_us - last_read_error_log_us >= HFP_LOG_THROTTLE_US) {
-                ESP_LOGW(TAG, "I2S read failed in HFP outgoing callback: err=%s, bytes_read=%u",
-                         esp_err_to_name(last_err), (unsigned int)bytes_read);
-                last_read_error_log_us = now_us;
-            }
             break;
         }
-
         const size_t input_samples_read = bytes_read / sizeof(int16_t);
-        const size_t output_capacity = sizeof(output_pcm) / sizeof(output_pcm[0]);
-        const size_t decimated_samples =
-            audio_resample_decimate_2to1(&decimator, input_pcm, input_samples_read,
-                                         output_pcm, output_capacity);
-        const size_t samples_to_copy =
-            decimated_samples < remaining_output_samples ? decimated_samples : remaining_output_samples;
-
-        memcpy(data + bytes_written, output_pcm, samples_to_copy * sizeof(int16_t));
+        size_t samples_to_copy;
+        if (mode == HFP_AUDIO_MODE_CVSD_NARROW_BAND) {
+            portENTER_CRITICAL(&s_hfp_audio_mux);
+            const size_t decimated_samples = audio_resample_decimate_2to1(
+                &hfp_audio_cb_state.outgoing_decimator, input_pcm, input_samples_read,
+                output_pcm, sizeof(output_pcm) / sizeof(output_pcm[0]));
+            portEXIT_CRITICAL(&s_hfp_audio_mux);
+            samples_to_copy = decimated_samples < remaining_output_samples ? decimated_samples : remaining_output_samples;
+            memcpy(data + bytes_written, output_pcm, samples_to_copy * sizeof(int16_t));
+        } else {
+            samples_to_copy = input_samples_read < remaining_output_samples ? input_samples_read : remaining_output_samples;
+            memcpy(data + bytes_written, input_pcm, samples_to_copy * sizeof(int16_t));
+        }
         output_samples_written += samples_to_copy;
         bytes_written += samples_to_copy * sizeof(int16_t);
-
         if (bytes_read < input_samples_needed * sizeof(int16_t)) {
             break;
         }
     }
-
     if (bytes_written < len) {
         const size_t zero_fill_len = len - bytes_written;
         memset(data + bytes_written, 0, zero_fill_len);
         bytes_written += zero_fill_len;
-
-        consecutive_underfills++;
-        if (consecutive_underfills >= HFP_UNDERFILL_LOG_THRESHOLD) {
-            const int64_t now_us = esp_timer_get_time();
-            if (now_us - last_underfill_log_us >= HFP_LOG_THROTTLE_US) {
-                ESP_LOGW(TAG, "HFP outgoing audio underfill: produced %u/%u bytes, zero-filled %u bytes, i2s_read=%u bytes, consecutive=%u",
-                         (unsigned int)(output_samples_written * sizeof(int16_t)),
-                         (unsigned int)len,
-                         (unsigned int)zero_fill_len,
-                         (unsigned int)total_i2s_bytes_read,
-                         (unsigned int)consecutive_underfills);
-                last_underfill_log_us = now_us;
-            }
+        const int64_t now_us = esp_timer_get_time();
+        bool should_log = false;
+        uint32_t underfills;
+        portENTER_CRITICAL(&s_hfp_audio_mux);
+        hfp_audio_cb_state.consecutive_underfills++;
+        underfills = hfp_audio_cb_state.consecutive_underfills;
+        if (underfills >= HFP_UNDERFILL_LOG_THRESHOLD &&
+            now_us - hfp_audio_cb_state.last_underfill_log_us >= HFP_LOG_THROTTLE_US) {
+            hfp_audio_cb_state.last_underfill_log_us = now_us;
+            should_log = true;
+        }
+        portEXIT_CRITICAL(&s_hfp_audio_mux);
+        if (should_log) {
+            ESP_LOGW(TAG, "HFP outgoing audio underfill: produced %u/%u bytes, zero-filled %u bytes, i2s_read=%u bytes, consecutive=%u",
+                     (unsigned int)(output_samples_written * sizeof(int16_t)), (unsigned int)len,
+                     (unsigned int)zero_fill_len, (unsigned int)total_i2s_bytes_read,
+                     (unsigned int)underfills);
         }
     } else {
-        consecutive_underfills = 0;
+        portENTER_CRITICAL(&s_hfp_audio_mux);
+        hfp_audio_cb_state.consecutive_underfills = 0;
+        portEXIT_CRITICAL(&s_hfp_audio_mux);
     }
-
 #if HFP_OUTGOING_DATA_CB_RETURN_SHORT_ON_UNDERFILL
     return (int)(output_samples_written * sizeof(int16_t));
 #else
@@ -492,39 +652,67 @@ static int hfp_outgoing_data_cb(uint8_t *data, uint32_t len)
 #endif
 }
 
-/* HFP incoming data callback.  Called by the HFP stack when audio
- * data arrives from the remote device (e.g. when the Mac plays a
- * tone back).  For simplicity we route it directly to the codec’s
- * DAC so the user can monitor remote audio.  If monitoring is not
- * desired this function may simply return.
- */
 static void hfp_incoming_data_cb(const uint8_t *data, uint32_t len)
 {
+    static int16_t expanded_pcm[BOARD_PCM_CHUNK_SIZE];
     if (!status_ui_get_monitoring_enabled()) {
         return;
     }
-
-    size_t bytes_written;
-    i2s_write(BOARD_I2S_PORT, data, len, &bytes_written, portMAX_DELAY);
-    (void)bytes_written;
+    const hfp_audio_mode_t mode = shared_state_get_audio_mode();
+    const uint8_t *write_data = data;
+    size_t write_len = len;
+    if (mode == HFP_AUDIO_MODE_CVSD_NARROW_BAND) {
+        const int16_t *input = (const int16_t *)data;
+        const size_t input_samples = len / sizeof(int16_t);
+        portENTER_CRITICAL(&s_hfp_audio_mux);
+        const size_t expanded_samples = audio_resample_expand_2to1(
+            &hfp_audio_cb_state.incoming_expander, input, input_samples,
+            expanded_pcm, sizeof(expanded_pcm) / sizeof(expanded_pcm[0]));
+        portEXIT_CRITICAL(&s_hfp_audio_mux);
+        write_data = (const uint8_t *)expanded_pcm;
+        write_len = expanded_samples * sizeof(int16_t);
+    }
+    if (write_len == 0) {
+        return;
+    }
+    size_t bytes_written = 0;
+    esp_err_t err = i2s_write(BOARD_I2S_PORT, write_data, write_len, &bytes_written,
+                              pdMS_TO_TICKS(HFP_I2S_WRITE_TIMEOUT_MS));
+    if (err != ESP_OK || bytes_written < write_len) {
+        const int64_t now_us = esp_timer_get_time();
+        bool should_log = false;
+        portENTER_CRITICAL(&s_hfp_audio_mux);
+        if (now_us - hfp_audio_cb_state.last_write_error_log_us >= HFP_LOG_THROTTLE_US) {
+            hfp_audio_cb_state.last_write_error_log_us = now_us;
+            should_log = true;
+        }
+        portEXIT_CRITICAL(&s_hfp_audio_mux);
+        if (should_log) {
+            ESP_LOGW(TAG, "I2S monitoring write underflow: err=%s, wrote=%u/%u bytes",
+                     esp_err_to_name(err), (unsigned int)bytes_written, (unsigned int)write_len);
+        }
+    }
 }
 
 static void reconnect_task(void *arg)
 {
     esp_bd_addr_t addr;
     memcpy(addr, arg, sizeof(esp_bd_addr_t));
+    free(arg);
     vTaskDelay(pdMS_TO_TICKS(RECONNECT_BACKOFF_MS));
-
-    if (!hfp_connected) {
+    bool already_connected;
+    portENTER_CRITICAL(&s_shared_state_mux);
+    already_connected = hfp_connected || clear_pairing_requested;
+    portEXIT_CRITICAL(&s_shared_state_mux);
+    if (!already_connected) {
         log_bd_addr("Attempting saved-peer reconnect to", addr);
         esp_err_t err = esp_hf_client_connect(addr);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Saved-peer reconnect request failed: %s", esp_err_to_name(err));
         }
     } else {
-        ESP_LOGI(TAG, "Skipping saved-peer reconnect; HFP is already connected");
+        ESP_LOGI(TAG, "Skipping saved-peer reconnect; HFP is already connected or clear pairing is pending");
     }
-
     vTaskDelete(NULL);
 }
 
@@ -544,8 +732,9 @@ void app_main(void)
     ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
+        ret = nvs_flash_init();
     }
+    ESP_ERROR_CHECK(ret);
 
     if (peer_reset_button_pressed()) {
         ESP_LOGI(TAG, "Peer reset button held at boot; clearing saved Bluetooth peer");
@@ -570,7 +759,7 @@ void app_main(void)
     // Set device name and enable discoverable/connectable mode
     ESP_ERROR_CHECK(esp_bt_dev_set_device_name("M5StickS3-Mic"));
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(gap_callback));
-    bt_ready = true;
+    shared_state_set_bt_ready(true);
     ESP_ERROR_CHECK(set_discoverable_mode(true));
 
     // Initialize HFP client
@@ -579,12 +768,25 @@ void app_main(void)
     // Register data callbacks (voice over HCI must be enabled in menuconfig)
     ESP_ERROR_CHECK(esp_hf_client_register_data_callback(hfp_incoming_data_cb, hfp_outgoing_data_cb));
 
-    esp_err_t peer_load_err = peer_store_load(peer_addr);
+    esp_bd_addr_t saved_peer_addr;
+    esp_err_t peer_load_err = peer_store_load(saved_peer_addr);
     if (peer_load_err == ESP_OK) {
-        log_bd_addr("Startup reconnect mode; saved peer is", peer_addr);
-        xTaskCreate(reconnect_task, "bt_reconnect", 3072, peer_addr, 5, NULL);
+        shared_state_set_peer_addr(saved_peer_addr);
+        log_bd_addr("Startup reconnect mode; saved peer is", saved_peer_addr);
+        esp_bd_addr_t *reconnect_addr = malloc(sizeof(esp_bd_addr_t));
+        if (reconnect_addr == NULL) {
+            ESP_LOGE(TAG, "Unable to allocate reconnect peer address");
+        } else {
+            memcpy(reconnect_addr, saved_peer_addr, sizeof(esp_bd_addr_t));
+            BaseType_t created = xTaskCreate(reconnect_task, "bt_reconnect", 3072,
+                                             reconnect_addr, 5, NULL);
+            if (created != pdPASS) {
+                ESP_LOGE(TAG, "Unable to start saved-peer reconnect task");
+                free(reconnect_addr);
+            }
+        }
     } else {
-        memset(peer_addr, 0, sizeof(peer_addr));
+        shared_state_clear_peer_addr();
         ESP_LOGI(TAG, "Startup first-pairing mode; no saved Bluetooth peer (%s)",
                  esp_err_to_name(peer_load_err));
     }
@@ -596,13 +798,12 @@ void app_main(void)
         // If a service level connection exists and audio is not yet
         // connected, request to open the audio channel.  Once open
         // the audio callbacks will be invoked.
-        if (!peer_addr_is_empty(peer_addr) && hfp_connected && !audio_connected && !audio_connect_pending) {
-            // Connect the audio channel if not already done.  The
-            // state is updated via the audio state event.
-            ret = esp_hf_client_connect_audio(peer_addr);
+        esp_bd_addr_t connect_addr;
+        if (shared_state_snapshot_for_audio_connect(connect_addr)) {
+            ret = esp_hf_client_connect_audio(connect_addr);
             ESP_LOGI(TAG, "esp_hf_client_connect_audio returned %s (0x%x)", esp_err_to_name(ret), ret);
-            if (ret == ESP_OK) {
-                audio_connect_pending = true;
+            if (ret != ESP_OK) {
+                shared_state_clear_audio_connect_pending();
             }
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
