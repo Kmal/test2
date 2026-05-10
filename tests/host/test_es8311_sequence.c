@@ -7,11 +7,22 @@
 #define ASSERT_TRUE(expr) do { if (!(expr)) { fprintf(stderr, "%s:%d assertion failed: %s\n", __FILE__, __LINE__, #expr); exit(1); } } while (0)
 #define ASSERT_EQ(expected, actual) do { if ((expected) != (actual)) { fprintf(stderr, "%s:%d expected %ld got %ld\n", __FILE__, __LINE__, (long)(expected), (long)(actual)); exit(1); } } while (0)
 
+static void assert_write(size_t index, uint8_t addr, uint8_t reg, uint8_t value)
+{
+    const fake_bus_op_t *op = fake_register_bus_op(index);
+    ASSERT_TRUE(op != NULL);
+    ASSERT_EQ(FAKE_BUS_OP_WRITE, op->type);
+    ASSERT_EQ(addr, op->addr);
+    ASSERT_EQ(reg, op->reg);
+    ASSERT_EQ(value, op->value);
+}
+
 static void test_baseline_init_writes_to_codec(void)
 {
     fake_register_bus_reset();
     ASSERT_EQ(ESP_OK, es8311_init(I2C_NUM_0, 0x18, I2S_NUM_0, 16000));
-    ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x00, 0x1f));
+    assert_write(0, 0x18, 0x00, 0x1f);
+    assert_write(1, 0x18, 0x00, 0x80);
 }
 
 static void test_unsupported_rate_emits_no_writes(void)
@@ -32,6 +43,8 @@ static void test_adc_only_configures_capture_path_without_unmuting_dac(void)
 {
     fake_register_bus_reset();
     ASSERT_EQ(ESP_OK, es8311_init_profile(I2C_NUM_0, 0x18, I2S_NUM_0, ES8311_PROFILE_ADC_ONLY, 16000));
+    assert_write(0, 0x18, 0x00, 0x1f);
+    assert_write(1, 0x18, 0x00, 0x80);
     ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x01, 0x3f));
     ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x02, 0x40));
     ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x0a, 0x0c));
