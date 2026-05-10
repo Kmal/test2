@@ -146,13 +146,11 @@ bool audio_metrics_accumulator_finalize_with_config(audio_metrics_accumulator_t 
                                                    uint32_t sequence,
                                                    const audio_metrics_config_t *config,
                                                    audio_level_metrics_t *out)
-bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
-                                        uint32_t sequence,
-                                        audio_level_metrics_t *out)
 {
     if (acc == NULL || out == NULL || acc->collected_samples == 0) {
         return false;
     }
+
     audio_metrics_config_t effective = {
         .floor_dbfs_q8 = AUDIO_METRICS_DEFAULT_FLOOR_Q8,
         .ceiling_dbfs_q8 = AUDIO_METRICS_DEFAULT_CEILING_Q8,
@@ -180,11 +178,6 @@ bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
     out->peak_percent = audio_metrics_dbfs_q8_to_percent(out->peak_dbfs_q8,
                                                          effective.floor_dbfs_q8,
                                                          effective.ceiling_dbfs_q8);
-                                                        AUDIO_METRICS_DEFAULT_FLOOR_Q8,
-                                                        AUDIO_METRICS_DEFAULT_CEILING_Q8);
-    out->peak_percent = audio_metrics_dbfs_q8_to_percent(out->peak_dbfs_q8,
-                                                         AUDIO_METRICS_DEFAULT_FLOOR_Q8,
-                                                         AUDIO_METRICS_DEFAULT_CEILING_Q8);
     out->vu_percent = out->rms_percent;
     out->peak_sample = acc->peak_sample;
     out->clipped_samples = acc->clipped_samples;
@@ -193,7 +186,6 @@ bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
         out->flags |= AUDIO_METRICS_FLAG_CLIPPING;
     }
     if (out->rms_dbfs_q8 >= effective.loud_threshold_dbfs_q8) {
-    if (out->rms_dbfs_q8 >= AUDIO_METRICS_LOUD_Q8) {
         out->flags |= AUDIO_METRICS_FLAG_LOUD;
     }
     if (out->rms_dbfs_q8 >= AUDIO_METRICS_VOICE_FLOOR_Q8 && out->zero_crossings > samples / 100U) {
