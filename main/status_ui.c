@@ -426,6 +426,45 @@ static uint16_t state_color(status_ui_state_t state)
 }
 
 
+typedef struct {
+    status_ui_state_t state;
+    bool monitoring_enabled;
+    bool service_enabled;
+    uint32_t key1_count;
+    uint32_t key2_count;
+    status_ui_sound_meter_snapshot_t snapshot;
+    app_display_mode_t display_mode;
+} status_ui_lcd_context_t;
+
+static const char *display_title(app_display_mode_t mode)
+{
+    switch (mode) {
+    case APP_DISPLAY_VU:
+        return "METER";
+    case APP_DISPLAY_NUMERIC:
+        return "NUMERIC";
+    case APP_DISPLAY_BLE_STATUS:
+        return "BLE";
+    case APP_DISPLAY_DIAGNOSTICS:
+        return "DIAG";
+    default:
+        return "APP";
+    }
+}
+
+static void status_ui_render_app_shell(const char *title, const status_ui_lcd_context_t *ctx, uint16_t accent)
+{
+    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
+    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, accent);
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, title, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
+
+    char line[32];
+    snprintf(line, sizeof(line), "K1 VIEW K2 APP");
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, BOARD_LCD_V_RES - 18, line, STATUS_UI_LCD_DIM, 1);
+    snprintf(line, sizeof(line), "%.10s", status_ui_state_name(ctx->state));
+    lcd_draw_text(BOARD_LCD_H_RES - 64, BOARD_LCD_V_RES - 18, line, state_color(ctx->state), 1);
+}
+
 static void format_dbfs_q8(char *buf, size_t len, int32_t dbfs_q8)
 {
     int32_t whole = dbfs_q8 / 256;
@@ -459,13 +498,6 @@ static uint16_t vu_color(const status_ui_sound_meter_snapshot_t *snap)
 
 static void status_ui_render_vu_lcd(const status_ui_sound_meter_snapshot_t *snap)
 {
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    uint16_t header = ((snap->flags & AUDIO_METRICS_FLAG_CLIPPING) != 0) ? STATUS_UI_LCD_ERR : STATUS_UI_LCD_HEADER_BG;
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, header);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD,
-                  snap->calibration_active ? "CALIBRATE" : "M5S3 LEVEL",
-                  STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-
     if (snap->calibration_active) {
         char line[32];
         lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 40, "KEEP QUIET", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
@@ -479,8 +511,6 @@ static void status_ui_render_vu_lcd(const status_ui_sound_meter_snapshot_t *snap
         lcd_draw_horizontal_bar(4, 100, BOARD_LCD_H_RES - 8, 24, percent, STATUS_UI_LCD_WARN, STATUS_UI_LCD_DIM);
         return;
     }
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, "M5S3 LEVEL", STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-
     char rms[16];
     char peak[16];
     char line[32];
@@ -503,9 +533,6 @@ static void status_ui_render_vu_lcd(const status_ui_sound_meter_snapshot_t *snap
 
 static void status_ui_render_numeric_lcd(const status_ui_sound_meter_snapshot_t *snap)
 {
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, STATUS_UI_LCD_HEADER_BG);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, "METER NUM", STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
     char rms[16];
     char peak[16];
     char line[32];
@@ -527,9 +554,6 @@ static void status_ui_render_numeric_lcd(const status_ui_sound_meter_snapshot_t 
 
 static void status_ui_render_ble_lcd(const status_ui_sound_meter_snapshot_t *snap)
 {
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, STATUS_UI_LCD_HEADER_BG);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, "BLE STATUS", STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
     char line[32];
     snprintf(line, sizeof(line), "CONN %s", snap->ble_connected ? "YES" : "NO");
     lcd_draw_text(4, 36, line, snap->ble_connected ? STATUS_UI_LCD_OK : STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
@@ -541,73 +565,30 @@ static void status_ui_render_ble_lcd(const status_ui_sound_meter_snapshot_t *sna
     lcd_draw_text(4, 96, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
 }
 
-static void status_ui_render_lcd(void)
+static void status_ui_render_diagnostics_lcd(const status_ui_lcd_context_t *ctx)
 {
-    status_ui_state_t state;
-    bool monitoring_enabled;
-    bool service_enabled;
-    uint32_t key1_count;
-    uint32_t key2_count;
-
-    portENTER_CRITICAL(&s_state_mux);
-    state = s_state;
-    monitoring_enabled = s_monitoring_enabled;
-    service_enabled = s_service_enabled;
-    key1_count = s_key1_press_count;
-    key2_count = s_key2_press_count;
-    status_ui_sound_meter_snapshot_t snapshot = s_sound_snapshot;
-    app_display_mode_t display_mode = s_display_mode;
-    portEXIT_CRITICAL(&s_state_mux);
-
-    if (snapshot.valid && display_mode != APP_DISPLAY_DIAGNOSTICS) {
-        snapshot.display_mode = (uint8_t)display_mode;
-        switch (display_mode) {
-        case APP_DISPLAY_VU:
-            status_ui_render_vu_lcd(&snapshot);
-            break;
-        case APP_DISPLAY_NUMERIC:
-            status_ui_render_numeric_lcd(&snapshot);
-            break;
-        case APP_DISPLAY_BLE_STATUS:
-            status_ui_render_ble_lcd(&snapshot);
-            break;
-        case APP_DISPLAY_DIAGNOSTICS:
-        default:
-            break;
-        }
-        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
-        }
-        return;
-    }
-
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, STATUS_UI_LCD_HEADER_BG);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, "STICKS3 DBG", STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-
     int y = 32;
     char line[32];
     snprintf(line, sizeof(line), "STATE");
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
     y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "%.12s", status_ui_state_name(state));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, state_color(state), STATUS_UI_LCD_TEXT_SCALE);
+    snprintf(line, sizeof(line), "%.12s", status_ui_state_name(ctx->state));
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, state_color(ctx->state), STATUS_UI_LCD_TEXT_SCALE);
 
     y += STATUS_UI_LCD_LINE_HEIGHT + 2;
-    snprintf(line, sizeof(line), "BLE SVC: %s", bool_label(service_enabled));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, service_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
+    snprintf(line, sizeof(line), "BLE SVC: %s", bool_label(ctx->service_enabled));
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, ctx->service_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
     y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "MON: %s", bool_label(monitoring_enabled));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, monitoring_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
+    snprintf(line, sizeof(line), "MON: %s", bool_label(ctx->monitoring_enabled));
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, ctx->monitoring_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
     y += STATUS_UI_LCD_LINE_HEIGHT;
     snprintf(line, sizeof(line), "PCM: %d HZ", BOARD_I2S_SAMPLE_RATE);
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
     y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "KEY1:%lu", (unsigned long)key1_count);
+    snprintf(line, sizeof(line), "KEY1:%lu", (unsigned long)ctx->key1_count);
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
     y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "KEY2:%lu", (unsigned long)key2_count);
+    snprintf(line, sizeof(line), "KEY2:%lu", (unsigned long)ctx->key2_count);
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
     y += STATUS_UI_LCD_LINE_HEIGHT;
     snprintf(line, sizeof(line), "UP:%lus", (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS / 1000U));
@@ -617,6 +598,56 @@ static void status_ui_render_lcd(void)
     y += STATUS_UI_LCD_LINE_HEIGHT + 2;
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME, STATUS_UI_LCD_DIM, 1);
 #endif
+}
+
+static void status_ui_render_waiting_lcd(void)
+{
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 46, "WAITING", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 70, "FOR PCM", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 104, "CHECK I2S", STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 124, "CLOCK/CODEC", STATUS_UI_LCD_DIM, 1);
+}
+
+static void status_ui_render_lcd(void)
+{
+    status_ui_lcd_context_t ctx;
+
+    portENTER_CRITICAL(&s_state_mux);
+    ctx.state = s_state;
+    ctx.monitoring_enabled = s_monitoring_enabled;
+    ctx.service_enabled = s_service_enabled;
+    ctx.key1_count = s_key1_press_count;
+    ctx.key2_count = s_key2_press_count;
+    ctx.snapshot = s_sound_snapshot;
+    ctx.display_mode = s_display_mode;
+    portEXIT_CRITICAL(&s_state_mux);
+
+    uint16_t accent = STATUS_UI_LCD_HEADER_BG;
+    if (ctx.snapshot.valid && (ctx.snapshot.flags & AUDIO_METRICS_FLAG_CLIPPING) != 0) {
+        accent = STATUS_UI_LCD_ERR;
+    }
+    status_ui_render_app_shell(display_title(ctx.display_mode), &ctx, accent);
+
+    if (!ctx.snapshot.valid && ctx.display_mode != APP_DISPLAY_DIAGNOSTICS) {
+        status_ui_render_waiting_lcd();
+    } else {
+        ctx.snapshot.display_mode = (uint8_t)ctx.display_mode;
+        switch (ctx.display_mode) {
+        case APP_DISPLAY_VU:
+            status_ui_render_vu_lcd(&ctx.snapshot);
+            break;
+        case APP_DISPLAY_NUMERIC:
+            status_ui_render_numeric_lcd(&ctx.snapshot);
+            break;
+        case APP_DISPLAY_BLE_STATUS:
+            status_ui_render_ble_lcd(&ctx.snapshot);
+            break;
+        case APP_DISPLAY_DIAGNOSTICS:
+        default:
+            status_ui_render_diagnostics_lcd(&ctx);
+            break;
+        }
+    }
 
     esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
     if (err != ESP_OK) {

@@ -62,6 +62,13 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
         },
     };
     std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_768;
+    /*
+     * The StickS3 ES8311 clock profile is 16-bit mono payload in a 32-bit I2S
+     * slot: Fs=16 kHz, BCLK=512 kHz, MCLK=12.288 MHz.  The ESP-IDF default
+     * mono helper derives BCLK from the 16-bit payload width, which can leave
+     * the codec without the expected serial clock and cause RX timeouts.
+     */
+    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
 
     err = i2s_channel_init_std_mode(s_rx_handle, &std_cfg);
     if (err != ESP_OK) {

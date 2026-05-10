@@ -18,8 +18,8 @@ static const board_audio_clock_profile_t s_profile = {
     .channels = 1,
     .fixed_mclk_authoritative = true,
     .mclk_multiple_for_driver = 768,
-    .es8311_clk_reg_value = 0x1B,
-    .source_note = "StickS3 pin map + current project ES8311 16 kHz sequence; measure clocks on hardware",
+    .es8311_clk_reg_value = 0x40,
+    .source_note = "StickS3 pin map + current project ES8311 16 kHz clock-manager sequence; measure clocks on hardware",
 };
 
 const board_audio_clock_profile_t *board_audio_clock_get_profile(void)
