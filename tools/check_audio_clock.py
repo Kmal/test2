@@ -27,7 +27,7 @@ def main() -> int:
             errors.append(f"{HEADER.relative_to(ROOT)} missing {name}={value}")
 
     clock_text = CLOCK.read_text(encoding="utf-8")
-    for needle in ["fixed_mclk_authoritative = true", "mclk_multiple_for_driver = 768", "0x1B"]:
+    for needle in ["fixed_mclk_authoritative = true", "mclk_multiple_for_driver = 768", "0x40"]:
         if needle not in clock_text:
             errors.append(f"{CLOCK.relative_to(ROOT)} missing {needle!r}")
 

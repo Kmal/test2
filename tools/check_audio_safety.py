@@ -40,7 +40,7 @@ def main() -> int:
     es_text = ES8311.read_text(encoding="utf-8")
     if "ES8311_PROFILE_ADC_ONLY" not in es_text:
         errors.append("es8311.c must implement ADC-only profile")
-    if "ES8311_DAC_POWER_DOWN" not in es_text or "es8311_mute(i2c_num, i2c_addr, true)" not in es_text:
+    if "ES8311_SYSTEM12_DAC_DOWN" not in es_text or "es8311_mute(i2c_num, i2c_addr, true)" not in es_text:
         errors.append("ADC-only codec profile must keep DAC powered down/muted")
 
     if errors:

@@ -54,7 +54,7 @@ The current source-backed software profile is intentionally explicit:
 - fixed MCLK: 12.288 MHz on GPIO18
 - BCLK target: 512 kHz on GPIO17 for 16-bit mono capture
 - LRCK/WS: GPIO15
-- ES8311 clock register value used by the current project sequence: `0x1B`
+- ES8311 12.288 MHz / 16 kHz clock-manager register-2 value used by the current project sequence: `0x40`
 
 For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success.
 
