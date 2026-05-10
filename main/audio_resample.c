@@ -15,6 +15,9 @@ static int16_t clamp_i32_to_i16(int32_t sample)
 
 void audio_resample_decimator_reset(audio_resample_decimator_t *decimator)
 {
+    if (decimator == NULL) {
+        return;
+    }
     memset(decimator, 0, sizeof(*decimator));
 }
 
@@ -24,6 +27,10 @@ size_t audio_resample_decimate_2to1(audio_resample_decimator_t *decimator,
                                     int16_t *output,
                                     size_t output_capacity)
 {
+    if (decimator == NULL || input == NULL || output == NULL) {
+        return 0;
+    }
+
     size_t output_samples = 0;
 
     for (size_t i = 0; i < input_samples && output_samples < output_capacity; ++i) {
@@ -56,6 +63,9 @@ size_t audio_resample_decimate_2to1(audio_resample_decimator_t *decimator,
 
 void audio_resample_expander_reset(audio_resample_expander_t *expander)
 {
+    if (expander == NULL) {
+        return;
+    }
     memset(expander, 0, sizeof(*expander));
 }
 
@@ -65,6 +75,10 @@ size_t audio_resample_expand_2to1(audio_resample_expander_t *expander,
                                   int16_t *output,
                                   size_t output_capacity)
 {
+    if (expander == NULL || input == NULL || output == NULL) {
+        return 0;
+    }
+
     size_t output_samples = 0;
 
     for (size_t i = 0; i < input_samples && output_samples < output_capacity; ++i) {

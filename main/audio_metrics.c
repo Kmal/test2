@@ -59,10 +59,13 @@ void audio_metrics_accumulator_init(audio_metrics_accumulator_t *acc,
     memset(acc, 0, sizeof(*acc));
     acc->sample_rate_hz = sample_rate_hz;
     acc->target_window_ms = window_ms;
-    acc->target_samples = (sample_rate_hz * window_ms) / 1000U;
-    if (acc->target_samples == 0) {
-        acc->target_samples = 1;
+    uint64_t target_samples = ((uint64_t)sample_rate_hz * (uint64_t)window_ms) / 1000U;
+    if (target_samples == 0) {
+        target_samples = 1;
+    } else if (target_samples > UINT32_MAX) {
+        target_samples = UINT32_MAX;
     }
+    acc->target_samples = (uint32_t)target_samples;
 }
 
 bool audio_metrics_accumulator_add_i16(audio_metrics_accumulator_t *acc,
@@ -137,8 +140,8 @@ uint16_t audio_metrics_dbfs_q8_to_percent(int32_t dbfs_q8,
     if (dbfs_q8 >= ceiling_dbfs_q8) {
         return 100;
     }
-    int32_t num = (dbfs_q8 - floor_dbfs_q8) * 100;
-    int32_t den = ceiling_dbfs_q8 - floor_dbfs_q8;
+    int64_t num = ((int64_t)dbfs_q8 - (int64_t)floor_dbfs_q8) * 100;
+    int64_t den = (int64_t)ceiling_dbfs_q8 - (int64_t)floor_dbfs_q8;
     return (uint16_t)(num / den);
 }
 

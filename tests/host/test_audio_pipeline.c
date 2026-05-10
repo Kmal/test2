@@ -14,6 +14,7 @@ typedef struct {
     const int16_t *input;
     size_t available;
     size_t write_limit;
+    size_t over_report;
 } fake_io_t;
 
 static size_t fake_read(int16_t *dst, size_t samples, void *ctx)
@@ -30,6 +31,9 @@ static size_t fake_write(const int16_t *src, size_t samples, void *ctx)
 {
     (void)src;
     fake_io_t *fake = (fake_io_t *)ctx;
+    if (fake->over_report != 0) {
+        return fake->over_report;
+    }
     return fake->write_limit < samples ? fake->write_limit : samples;
 }
 
@@ -69,11 +73,38 @@ static void test_partial_write_counts_overrun(void)
     ASSERT_EQ(1, audio_pipeline_get_overruns(&pipeline));
 }
 
+
+static void test_invalid_arguments_and_over_reports_are_safe(void)
+{
+    int16_t input[3] = {1, 2, 3};
+    int16_t output[3] = {9, 9, 9};
+    fake_io_t fake = {.input = input, .available = 3, .write_limit = 3, .over_report = 99};
+    audio_pipeline_t pipeline;
+
+    audio_pipeline_init(NULL, 16000, 1, 16, fake_read, fake_write, &fake);
+    ASSERT_EQ(0, audio_pipeline_capture_read(NULL, output, 3, 1));
+    ASSERT_EQ(0, audio_pipeline_playback_write(NULL, input, 3));
+    ASSERT_EQ(0, audio_pipeline_get_underruns(NULL));
+    ASSERT_EQ(0, audio_pipeline_get_overruns(NULL));
+
+    audio_pipeline_init(&pipeline, 16000, 1, 16, fake_read, fake_write, &fake);
+    ASSERT_EQ(0, audio_pipeline_capture_read(&pipeline, NULL, 3, 1));
+    ASSERT_EQ(0, audio_pipeline_playback_write(&pipeline, NULL, 3));
+    ASSERT_EQ(3, audio_pipeline_playback_write(&pipeline, input, 3));
+    ASSERT_EQ(0, audio_pipeline_get_overruns(&pipeline));
+
+    pipeline.underruns = UINT32_MAX;
+    fake.available = 0;
+    ASSERT_EQ(3, audio_pipeline_capture_read(&pipeline, output, 3, 1));
+    ASSERT_EQ(UINT32_MAX, audio_pipeline_get_underruns(&pipeline));
+}
+
 int main(void)
 {
     test_full_capture_no_underrun();
     test_partial_capture_zero_fills_and_counts_underrun();
     test_partial_write_counts_overrun();
+    test_invalid_arguments_and_over_reports_are_safe();
     puts("audio_pipeline tests passed");
     return 0;
 }

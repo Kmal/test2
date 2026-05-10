@@ -59,12 +59,34 @@ static void test_zero_length_inputs(void)
     ASSERT_EQ(0, audio_resample_expand_2to1(&expander, output, 0, output, 2));
 }
 
+
+static void test_invalid_arguments_are_safe(void)
+{
+    audio_resample_decimator_t decimator;
+    audio_resample_expander_t expander;
+    int16_t input[2] = {1, 2};
+    int16_t output[2] = {0};
+
+    audio_resample_decimator_reset(NULL);
+    audio_resample_expander_reset(NULL);
+    audio_resample_decimator_reset(&decimator);
+    audio_resample_expander_reset(&expander);
+
+    ASSERT_EQ(0, audio_resample_decimate_2to1(NULL, input, 2, output, 2));
+    ASSERT_EQ(0, audio_resample_decimate_2to1(&decimator, NULL, 2, output, 2));
+    ASSERT_EQ(0, audio_resample_decimate_2to1(&decimator, input, 2, NULL, 2));
+    ASSERT_EQ(0, audio_resample_expand_2to1(NULL, input, 2, output, 2));
+    ASSERT_EQ(0, audio_resample_expand_2to1(&expander, NULL, 2, output, 2));
+    ASSERT_EQ(0, audio_resample_expand_2to1(&expander, input, 2, NULL, 2));
+}
+
 int main(void)
 {
     test_zero_input_decimates_to_zero();
     test_constant_input_converges();
     test_expander_interpolates();
     test_zero_length_inputs();
+    test_invalid_arguments_are_safe();
     puts("audio_resample tests passed");
     return 0;
 }
