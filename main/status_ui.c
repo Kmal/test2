@@ -667,14 +667,21 @@ static void status_ui_lcd_task(void *arg)
 
 static esp_err_t status_ui_lcd_init(void)
 {
+    ESP_LOGI(TAG, "LCD init start: ST7789P3 %dx%d host=%d pixel_clock=%d Hz",
+             BOARD_LCD_H_RES, BOARD_LCD_V_RES, BOARD_LCD_HOST, BOARD_LCD_PIXEL_CLOCK_HZ);
     esp_err_t err = board_i2c_init();
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed during shared I2C setup: %s", esp_err_to_name(err));
         return err;
     }
+    ESP_LOGI(TAG, "LCD init step ok: shared I2C bus ready");
+
     err = m5pm1_enable_lcd_power(BOARD_I2C_PORT, BOARD_M5PM1_ADDR);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed during M5PM1 LCD/L3B power enable: %s", esp_err_to_name(err));
         return err;
     }
+    ESP_LOGI(TAG, "LCD init step ok: M5PM1 LCD/L3B power enabled");
 
     gpio_config_t bl_conf = {
         .pin_bit_mask = (1ULL << BOARD_LCD_BL_GPIO),
@@ -685,9 +692,13 @@ static esp_err_t status_ui_lcd_init(void)
     };
     err = gpio_config(&bl_conf);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed configuring backlight GPIO%d: %s",
+                 BOARD_LCD_BL_GPIO, esp_err_to_name(err));
         return err;
     }
     gpio_set_level(BOARD_LCD_BL_GPIO, !BOARD_LCD_BL_ON_LEVEL);
+    ESP_LOGI(TAG, "LCD init step ok: backlight GPIO%d configured off_level=%d on_level=%d",
+             BOARD_LCD_BL_GPIO, !BOARD_LCD_BL_ON_LEVEL, BOARD_LCD_BL_ON_LEVEL);
 
     spi_bus_config_t buscfg = {
         .sclk_io_num = BOARD_LCD_SCLK_GPIO,
@@ -697,8 +708,12 @@ static esp_err_t status_ui_lcd_init(void)
         .quadhd_io_num = -1,
         .max_transfer_sz = BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(uint16_t),
     };
+    ESP_LOGI(TAG, "LCD init step: SPI bus host=%d MOSI=GPIO%d SCLK=GPIO%d max_transfer=%u",
+             BOARD_LCD_HOST, BOARD_LCD_MOSI_GPIO, BOARD_LCD_SCLK_GPIO,
+             (unsigned)buscfg.max_transfer_sz);
     err = spi_bus_initialize(BOARD_LCD_HOST, &buscfg, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed during SPI bus init: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -713,9 +728,13 @@ static esp_err_t status_ui_lcd_init(void)
     };
     err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)BOARD_LCD_HOST, &io_config, &s_panel_io);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed creating panel IO: DC=GPIO%d CS=GPIO%d err=%s",
+                 BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, esp_err_to_name(err));
         spi_bus_free(BOARD_LCD_HOST);
         return err;
     }
+    ESP_LOGI(TAG, "LCD init step ok: panel IO DC=GPIO%d CS=GPIO%d queue_depth=%d",
+             BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, io_config.trans_queue_depth);
 
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = BOARD_LCD_RST_GPIO,
@@ -724,6 +743,8 @@ static esp_err_t status_ui_lcd_init(void)
     };
     err = esp_lcd_new_panel_st7789(s_panel_io, &panel_config, &s_panel);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed creating ST7789 panel: RST=GPIO%d err=%s",
+                 BOARD_LCD_RST_GPIO, esp_err_to_name(err));
         esp_lcd_panel_io_del(s_panel_io);
         s_panel_io = NULL;
         spi_bus_free(BOARD_LCD_HOST);
@@ -731,17 +752,33 @@ static esp_err_t status_ui_lcd_init(void)
     }
 
     err = esp_lcd_panel_reset(s_panel);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LCD init failed resetting panel: %s", esp_err_to_name(err));
+    }
     if (err == ESP_OK) {
         err = esp_lcd_panel_init(s_panel);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "LCD init failed initialising panel: %s", esp_err_to_name(err));
+        }
     }
     if (err == ESP_OK) {
         err = esp_lcd_panel_invert_color(s_panel, true);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "LCD init failed setting color inversion: %s", esp_err_to_name(err));
+        }
     }
     if (err == ESP_OK) {
         err = esp_lcd_panel_set_gap(s_panel, BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "LCD init failed setting panel gap %d,%d: %s",
+                     BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP, esp_err_to_name(err));
+        }
     }
     if (err == ESP_OK) {
         err = esp_lcd_panel_disp_on_off(s_panel, true);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "LCD init failed enabling panel display: %s", esp_err_to_name(err));
+        }
     }
     if (err != ESP_OK) {
         esp_lcd_panel_del(s_panel);
@@ -752,8 +789,13 @@ static esp_err_t status_ui_lcd_init(void)
         return err;
     }
 
+    ESP_LOGI(TAG, "LCD init step ok: panel configured gap=%d,%d inversion=on",
+             BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP);
+
     s_framebuffer = heap_caps_malloc(BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (s_framebuffer == NULL) {
+        ESP_LOGE(TAG, "LCD init failed allocating framebuffer: %u bytes DMA/internal",
+                 (unsigned)(BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(uint16_t)));
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
         esp_lcd_panel_io_del(s_panel_io);
@@ -766,6 +808,7 @@ static esp_err_t status_ui_lcd_init(void)
                                      STATUS_UI_LCD_TASK_STACK, NULL,
                                      STATUS_UI_LCD_TASK_PRIORITY, NULL);
     if (created != pdPASS) {
+        ESP_LOGE(TAG, "LCD init failed starting refresh task");
         heap_caps_free(s_framebuffer);
         s_framebuffer = NULL;
         esp_lcd_panel_del(s_panel);
@@ -777,6 +820,8 @@ static esp_err_t status_ui_lcd_init(void)
     }
 
     gpio_set_level(BOARD_LCD_BL_GPIO, BOARD_LCD_BL_ON_LEVEL);
+    ESP_LOGI(TAG, "LCD init step ok: backlight enabled GPIO%d level=%d",
+             BOARD_LCD_BL_GPIO, BOARD_LCD_BL_ON_LEVEL);
     ESP_LOGI(TAG, "LCD debug UI ready: ST7789P3 %dx%d gap=%d,%d MOSI=%d SCLK=%d DC=%d CS=%d RST=%d BL=%d",
              BOARD_LCD_H_RES, BOARD_LCD_V_RES, BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP, BOARD_LCD_MOSI_GPIO, BOARD_LCD_SCLK_GPIO,
              BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, BOARD_LCD_RST_GPIO, BOARD_LCD_BL_GPIO);

@@ -2,10 +2,69 @@
 
 #include "register_bus.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include <stddef.h>
 
 static const char *TAG = "M5PM1";
+
+#define M5PM1_RETRY_DELAY_MS 5
+
+static esp_err_t m5pm1_update_u8_once(i2c_port_t port, uint8_t addr, uint8_t reg,
+                                      uint8_t mask, uint8_t value,
+                                      uint8_t *current_out, uint8_t *next_out)
+{
+    uint8_t current = 0;
+    esp_err_t err = register_bus_read_u8(port, addr, reg, &current);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t next = (current & (uint8_t)~mask) | (value & mask);
+    err = register_bus_write_u8(port, addr, reg, next);
+    if (err == ESP_OK) {
+        if (current_out != NULL) {
+            *current_out = current;
+        }
+        if (next_out != NULL) {
+            *next_out = next;
+        }
+    }
+    return err;
+}
+
+static esp_err_t m5pm1_update_u8_retry(i2c_port_t port, uint8_t addr, uint8_t reg,
+                                       uint8_t mask, uint8_t value)
+{
+    uint8_t current = 0;
+    uint8_t next = 0;
+    bool retried = false;
+    esp_err_t err = m5pm1_update_u8_once(port, addr, reg, mask, value, &current, &next);
+    if (err == ESP_ERR_INVALID_RESPONSE) {
+        /*
+         * M5PM1 can NACK/return an invalid response on the first register
+         * access immediately after boot or after its I2C auto-sleep window.
+         * Keep the retry local to the PMIC path so other devices still surface
+         * hard I2C faults immediately.
+         */
+        ESP_LOGW(TAG, "M5PM1 reg 0x%02x update got invalid response; retrying after %u ms",
+                 reg, M5PM1_RETRY_DELAY_MS);
+        vTaskDelay(pdMS_TO_TICKS(M5PM1_RETRY_DELAY_MS));
+        retried = true;
+        err = m5pm1_update_u8_once(port, addr, reg, mask, value, &current, &next);
+    }
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "M5PM1 reg 0x%02x update ok: current=0x%02x mask=0x%02x value=0x%02x next=0x%02x retried=%s",
+                 reg, current, mask, value, next, retried ? "yes" : "no");
+    } else {
+        ESP_LOGE(TAG, "M5PM1 reg 0x%02x update failed: mask=0x%02x value=0x%02x err=%s retried=%s",
+                 reg, mask, value, esp_err_to_name(err), retried ? "yes" : "no");
+    }
+    (void)retried;
+    return err;
+}
 
 static esp_err_t m5pm1_update_bit(i2c_port_t port, uint8_t addr, uint8_t reg, uint8_t gpio, bool set)
 {
@@ -13,7 +72,7 @@ static esp_err_t m5pm1_update_bit(i2c_port_t port, uint8_t addr, uint8_t reg, ui
         return ESP_ERR_INVALID_ARG;
     }
     uint8_t mask = (uint8_t)(1U << gpio);
-    return register_bus_update_u8(port, addr, reg, mask, set ? mask : 0);
+    return m5pm1_update_u8_retry(port, addr, reg, mask, set ? mask : 0);
 }
 
 esp_err_t m5pm1_probe(i2c_port_t port, uint8_t addr, m5pm1_identity_t *identity)
@@ -44,7 +103,7 @@ esp_err_t m5pm1_gpio_set_function(i2c_port_t port, uint8_t addr, uint8_t gpio, u
     uint8_t shift = (uint8_t)((gpio % 4) * 2);
     uint8_t mask = (uint8_t)(0x3U << shift);
     uint8_t value = (uint8_t)((function & 0x3U) << shift);
-    return register_bus_update_u8(port, addr, reg, mask, value);
+    return m5pm1_update_u8_retry(port, addr, reg, mask, value);
 }
 
 esp_err_t m5pm1_gpio_set_mode(i2c_port_t port, uint8_t addr, uint8_t gpio, bool output)
@@ -65,24 +124,35 @@ esp_err_t m5pm1_gpio_set_drive(i2c_port_t port, uint8_t addr, uint8_t gpio, bool
 
 static esp_err_t m5pm1_configure_l3b_enable(i2c_port_t port, uint8_t addr)
 {
+    ESP_LOGI(TAG, "M5PM1 L3B enable sequence start: addr=0x%02x gpio=2 active_level=low", addr);
     /*
      * StickS3 schematic and pin map route M5PM1/PY G2 to PYG2_L3B_EN.
-     * Configure GPIO2 as a normal output, push-pull drive, and high output;
-     * this matches the official M5GFX StickS3 L3B/LCD power-on sequence.
+     * Configure GPIO2 as a normal output, push-pull drive, and low output;
+     * StickS3 inverts PYG2_L3B_EN, and the official M5PM1 sequence drives
+     * PYG2 low to enable L3B peripherals.
      */
     esp_err_t err = m5pm1_gpio_set_function(port, addr, 2, 0);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "M5PM1 L3B enable failed while setting GPIO2 function: %s", esp_err_to_name(err));
         return err;
     }
     err = m5pm1_gpio_set_mode(port, addr, 2, true);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "M5PM1 L3B enable failed while setting GPIO2 output mode: %s", esp_err_to_name(err));
         return err;
     }
     err = m5pm1_gpio_set_drive(port, addr, 2, true);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "M5PM1 L3B enable failed while setting GPIO2 push-pull drive: %s", esp_err_to_name(err));
         return err;
     }
-    return m5pm1_gpio_set_output(port, addr, 2, true);
+    err = m5pm1_gpio_set_output(port, addr, 2, false);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "M5PM1 L3B enable failed while driving GPIO2 low: %s", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "M5PM1 L3B enable sequence complete: GPIO2 driven low");
+    return ESP_OK;
 }
 
 esp_err_t m5pm1_enable_l3b_power(i2c_port_t port, uint8_t addr)
@@ -97,5 +167,11 @@ esp_err_t m5pm1_enable_lcd_power(i2c_port_t port, uint8_t addr)
         return err;
     }
 
-    return register_bus_write_u8(port, addr, M5PM1_REG_I2C_CFG, 0x00);
+    err = register_bus_write_u8(port, addr, M5PM1_REG_I2C_CFG, 0x00);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "M5PM1 LCD power sequence complete: I2C_CFG=0x00");
+    } else {
+        ESP_LOGE(TAG, "M5PM1 LCD power sequence failed while writing I2C_CFG: %s", esp_err_to_name(err));
+    }
+    return err;
 }
