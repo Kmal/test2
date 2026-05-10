@@ -98,36 +98,46 @@ esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const bo
     ESP_LOGI(TAG, "audio init step: shared I2C bus");
     esp_err_t err = ops->i2c_init(ops->ctx);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "audio init step failed: shared I2C bus: %s", esp_err_to_name(err));
         return finish_or_cleanup(err, ops);
     }
+    ESP_LOGI(TAG, "audio init step ok: shared I2C bus");
 
     if (config->probe_m5pm1) {
         ESP_LOGI(TAG, "audio init step: M5PM1 probe");
         err = ops->m5pm1_probe(ops->ctx);
         if (err != ESP_OK) {
+            ESP_LOGE(TAG, "audio init step failed: M5PM1 probe: %s", esp_err_to_name(err));
             return finish_or_cleanup(err, ops);
         }
+        ESP_LOGI(TAG, "audio init step ok: M5PM1 probe");
     }
 
     if (config->require_audio_power_enable) {
         ESP_LOGI(TAG, "audio init step: audio power rail enable");
         err = ops->audio_power_enable(ops->ctx);
         if (err != ESP_OK) {
+            ESP_LOGE(TAG, "audio init step failed: audio power rail enable: %s", esp_err_to_name(err));
             return finish_or_cleanup(err, ops);
         }
+        ESP_LOGI(TAG, "audio init step ok: audio power rail enable");
     }
 
     ESP_LOGI(TAG, "audio init step: I2S clocks/channel setup");
     err = ops->i2s_init_profile(config->profile, ops->ctx);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "audio init step failed: I2S clocks/channel setup: %s", esp_err_to_name(err));
         return finish_or_cleanup(err, ops);
     }
+    ESP_LOGI(TAG, "audio init step ok: I2S clocks/channel setup");
 
     ESP_LOGI(TAG, "audio init step: ES8311 codec setup");
     err = ops->es8311_init_profile(config->profile, ops->ctx);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "audio init step failed: ES8311 codec setup: %s", esp_err_to_name(err));
         return finish_or_cleanup(err, ops);
     }
+    ESP_LOGI(TAG, "audio init step ok: ES8311 codec setup");
 
     ESP_LOGI(TAG, "audio profile initialised: %s",
              config->profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "full-duplex" : "capture-only");
