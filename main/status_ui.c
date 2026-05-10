@@ -462,6 +462,23 @@ static void status_ui_render_vu_lcd(const status_ui_sound_meter_snapshot_t *snap
     lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
     uint16_t header = ((snap->flags & AUDIO_METRICS_FLAG_CLIPPING) != 0) ? STATUS_UI_LCD_ERR : STATUS_UI_LCD_HEADER_BG;
     lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, header);
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD,
+                  snap->calibration_active ? "CALIBRATE" : "M5S3 LEVEL",
+                  STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
+
+    if (snap->calibration_active) {
+        char line[32];
+        lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 40, "KEEP QUIET", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
+        snprintf(line, sizeof(line), "%lu/%lu", (unsigned long)snap->calibration_collected_windows,
+                 (unsigned long)snap->calibration_required_windows);
+        lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 68, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
+        uint16_t percent = snap->calibration_required_windows == 0
+                               ? 0
+                               : (uint16_t)((snap->calibration_collected_windows * 100U) /
+                                            snap->calibration_required_windows);
+        lcd_draw_horizontal_bar(4, 100, BOARD_LCD_H_RES - 8, 24, percent, STATUS_UI_LCD_WARN, STATUS_UI_LCD_DIM);
+        return;
+    }
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, "M5S3 LEVEL", STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
 
     char rms[16];

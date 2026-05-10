@@ -142,6 +142,10 @@ uint16_t audio_metrics_dbfs_q8_to_percent(int32_t dbfs_q8,
     return (uint16_t)(num / den);
 }
 
+bool audio_metrics_accumulator_finalize_with_config(audio_metrics_accumulator_t *acc,
+                                                   uint32_t sequence,
+                                                   const audio_metrics_config_t *config,
+                                                   audio_level_metrics_t *out)
 bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
                                         uint32_t sequence,
                                         audio_level_metrics_t *out)
@@ -149,6 +153,15 @@ bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
     if (acc == NULL || out == NULL || acc->collected_samples == 0) {
         return false;
     }
+    audio_metrics_config_t effective = {
+        .floor_dbfs_q8 = AUDIO_METRICS_DEFAULT_FLOOR_Q8,
+        .ceiling_dbfs_q8 = AUDIO_METRICS_DEFAULT_CEILING_Q8,
+        .loud_threshold_dbfs_q8 = AUDIO_METRICS_LOUD_Q8,
+    };
+    if (config != NULL) {
+        effective = *config;
+    }
+
     uint32_t samples = acc->collected_samples;
     uint64_t mean_square = acc->sum_squares / samples;
     uint32_t rms = isqrt_u64(mean_square);
@@ -162,6 +175,11 @@ bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
     out->rms_dbfs_q8 = audio_metrics_amplitude_to_dbfs_q8(rms);
     out->peak_dbfs_q8 = audio_metrics_amplitude_to_dbfs_q8(peak);
     out->rms_percent = audio_metrics_dbfs_q8_to_percent(out->rms_dbfs_q8,
+                                                        effective.floor_dbfs_q8,
+                                                        effective.ceiling_dbfs_q8);
+    out->peak_percent = audio_metrics_dbfs_q8_to_percent(out->peak_dbfs_q8,
+                                                         effective.floor_dbfs_q8,
+                                                         effective.ceiling_dbfs_q8);
                                                         AUDIO_METRICS_DEFAULT_FLOOR_Q8,
                                                         AUDIO_METRICS_DEFAULT_CEILING_Q8);
     out->peak_percent = audio_metrics_dbfs_q8_to_percent(out->peak_dbfs_q8,
@@ -174,6 +192,7 @@ bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
     if (acc->clipped_samples > 0) {
         out->flags |= AUDIO_METRICS_FLAG_CLIPPING;
     }
+    if (out->rms_dbfs_q8 >= effective.loud_threshold_dbfs_q8) {
     if (out->rms_dbfs_q8 >= AUDIO_METRICS_LOUD_Q8) {
         out->flags |= AUDIO_METRICS_FLAG_LOUD;
     }
@@ -181,5 +200,57 @@ bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
         out->flags |= AUDIO_METRICS_FLAG_VOICE_LIKE;
     }
     audio_metrics_accumulator_reset(acc);
+    return true;
+}
+
+bool audio_metrics_accumulator_finalize(audio_metrics_accumulator_t *acc,
+                                        uint32_t sequence,
+                                        audio_level_metrics_t *out)
+{
+    return audio_metrics_accumulator_finalize_with_config(acc, sequence, NULL, out);
+}
+
+void audio_calibration_init(audio_calibration_t *cal)
+{
+    if (cal == NULL) {
+        return;
+    }
+    memset(cal, 0, sizeof(*cal));
+}
+
+void audio_calibration_begin(audio_calibration_t *cal, uint32_t required_windows)
+{
+    if (cal == NULL) {
+        return;
+    }
+    memset(cal, 0, sizeof(*cal));
+    cal->active = true;
+    cal->required_windows = required_windows == 0 ? 1 : required_windows;
+}
+
+void audio_calibration_add_window(audio_calibration_t *cal, const audio_level_metrics_t *metrics)
+{
+    if (cal == NULL || metrics == NULL || !cal->active || audio_calibration_ready(cal)) {
+        return;
+    }
+    cal->sum_rms_dbfs_q8 += metrics->rms_dbfs_q8;
+    cal->collected_windows++;
+}
+
+bool audio_calibration_ready(const audio_calibration_t *cal)
+{
+    return cal != NULL && cal->active && cal->collected_windows >= cal->required_windows;
+}
+
+bool audio_calibration_finalize(audio_calibration_t *cal)
+{
+    if (!audio_calibration_ready(cal) || cal->collected_windows == 0) {
+        return false;
+    }
+    cal->noise_floor_dbfs_q8 = (int32_t)(cal->sum_rms_dbfs_q8 / (int64_t)cal->collected_windows);
+    cal->quiet_threshold_dbfs_q8 = cal->noise_floor_dbfs_q8 + (6 * 256);
+    cal->loud_threshold_dbfs_q8 = cal->noise_floor_dbfs_q8 + (25 * 256);
+    cal->active = false;
+    cal->valid = true;
     return true;
 }

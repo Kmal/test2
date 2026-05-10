@@ -91,6 +91,11 @@ config APP_SOUND_METER_LOUD_DBFS
     default -12
     range -60 0
 
+config APP_SOUND_METER_CALIBRATION_WINDOWS
+    int "Calibration analysis windows"
+    default 30
+    range 1 300
+
 config APP_SOUND_METER_ENABLE_PCM_DEBUG
     bool "Allow raw PCM debug streaming mode"
     default n

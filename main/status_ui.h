@@ -41,6 +41,10 @@ typedef struct {
     bool ble_connected;
     bool ble_metrics_notify_enabled;
     bool ble_pcm_notify_enabled;
+    bool calibration_active;
+    uint32_t calibration_collected_windows;
+    uint32_t calibration_required_windows;
+    int32_t calibration_noise_floor_dbfs_q8;
 } status_ui_sound_meter_snapshot_t;
 
 esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers);

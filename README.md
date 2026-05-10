@@ -106,6 +106,7 @@ The code includes bit-preserving M5PM1 GPIO helpers, a tested source-backed GPIO
 
    GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256`, so workflow artifacts include a ready-to-flash `0x0` image for each successful build.
 
+The monitor displays firmware logs tagged with `STICKS3_APP`, `BOARD_AUDIO`, `BOARD_I2C`, `BOARD_I2S`, `ES8311`, `M5PM1`, `STATUS_UI`, `SOUND_METER`, and `BLE_GATT_PCM`. It will state that Bluetooth LE sound-meter telemetry is running. Connect with a BLE central/custom host app to device `M5StickS3-Meter`, discover service UUID `0xFFF0`, and subscribe to sound-level characteristic UUID `0xFFF2`. Each telemetry notification starts with a little-endian `M5LM` packet containing sequence, uptime, sample rate, window size, RMS dBFS Q8, peak dBFS Q8, VU percent, clipping count, and mode fields. Optional raw PCM debug notifications remain available on characteristic UUID `0xFFF1` only when PCM debug mode is enabled; those notifications retain the small `M5S3` header followed by little-endian 16-bit mono PCM payload bytes. Characteristic `0xFFF3` accepts one-byte control commands, and characteristic `0xFFF4` exposes an `M5TS` status packet. See `docs/ble-sound-meter-protocol.md`.
 The monitor displays firmware logs tagged with `STICKS3_APP`, `BOARD_AUDIO`, `BOARD_I2C`, `BOARD_I2S`, `ES8311`, `M5PM1`, `STATUS_UI`, `SOUND_METER`, and `BLE_GATT_PCM`. It will state that Bluetooth LE sound-meter telemetry is running. Connect with a BLE central/custom host app to device `M5StickS3-Meter`, discover service UUID `0xFFF0`, and subscribe to sound-level characteristic UUID `0xFFF2`. Each telemetry notification starts with a little-endian `M5LM` packet containing sequence, uptime, sample rate, window size, RMS dBFS Q8, peak dBFS Q8, VU percent, clipping count, and mode fields. Optional raw PCM debug notifications remain available on characteristic UUID `0xFFF1` only when PCM debug mode is enabled; those notifications retain the small `M5S3` header followed by little-endian 16-bit mono PCM payload bytes.
 
 ## CI and local validation
@@ -128,6 +129,7 @@ The local environment must provide ESP-IDF and esptool for the `idf.py` and fact
 
 ## Limitations and further work
 
+* The default StickS3 product mode is a BLE sound-level meter using service UUID `0xFFF0`, sound-level notify characteristic UUID `0xFFF2`, control characteristic UUID `0xFFF3`, and status characteristic UUID `0xFFF4`; optional raw PCM debug uses characteristic UUID `0xFFF1`.
 * The default StickS3 product mode is a BLE sound-level meter using service UUID `0xFFF0` and sound-level notify characteristic UUID `0xFFF2`; optional raw PCM debug uses characteristic UUID `0xFFF1`.
 * Classic Bluetooth HFP is incompatible with StickS3/ESP32-S3.
 * BLE Audio is not assumed feasible until official ESP-IDF documentation proves the exact ESP32-S3 support and required role.

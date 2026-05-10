@@ -2,7 +2,6 @@
 
 #include "board_audio_clock.h"
 #include "board_sticks3.h"
-#include "board_i2s.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -38,16 +37,26 @@ static uint8_t s_own_addr_type;
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_char_handle;
 static uint16_t s_metrics_char_handle;
+static uint16_t s_control_char_handle;
+static uint16_t s_status_char_handle;
 static uint16_t s_mtu = BLE_GATT_PCM_DEFAULT_MTU;
 static bool s_connected;
 static bool s_notify_enabled;
 static bool s_metrics_notify_enabled;
+static bool s_status_notify_enabled;
 static bool s_pcm_debug_enabled;
 static bool s_started;
+static transport_ble_control_cb_t s_control_cb;
+static void *s_control_ctx;
+static transport_ble_pcm_read_cb_t s_pcm_read_cb;
+static void *s_pcm_read_ctx;
+static transport_ble_status_snapshot_t s_status_snapshot;
 
 static const ble_uuid16_t s_service_uuid = BLE_UUID16_INIT(BLE_GATT_PCM_SERVICE_UUID);
 static const ble_uuid16_t s_char_uuid = BLE_UUID16_INIT(BLE_GATT_PCM_CHAR_UUID);
 static const ble_uuid16_t s_metrics_char_uuid = BLE_UUID16_INIT(BLE_GATT_SOUND_LEVEL_CHAR_UUID);
+static const ble_uuid16_t s_control_char_uuid = BLE_UUID16_INIT(BLE_GATT_CONTROL_CHAR_UUID);
+static const ble_uuid16_t s_status_char_uuid = BLE_UUID16_INIT(BLE_GATT_STATUS_CHAR_UUID);
 
 /* Last-readable value; notifications carry framed PCM payloads. */
 static uint8_t s_initial_char_value[] = {0};
@@ -101,6 +110,67 @@ static int gatt_metrics_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+
+static ble_sound_status_packet_t make_status_packet(void)
+{
+    ble_sound_status_packet_t packet = {
+        .magic = BLE_SOUND_STATUS_MAGIC,
+        .version = BLE_SOUND_STATUS_VERSION,
+        .packet_bytes = sizeof(ble_sound_status_packet_t),
+        .uptime_ms = (uint32_t)(esp_timer_get_time() / 1000),
+        .app_mode = (uint8_t)s_status_snapshot.app_mode,
+        .display_mode = (uint8_t)s_status_snapshot.display_mode,
+        .ble_connected = s_connected ? 1 : 0,
+        .metrics_notify_enabled = s_metrics_notify_enabled ? 1 : 0,
+        .pcm_notify_enabled = s_notify_enabled ? 1 : 0,
+        .pcm_debug_enabled = s_pcm_debug_enabled ? 1 : 0,
+        .sound_meter_enabled = s_status_snapshot.sound_meter_enabled ? 1 : 0,
+        .sample_rate_hz = s_status_snapshot.sample_rate_hz,
+        .metrics_window_ms = s_status_snapshot.metrics_window_ms,
+        .windows_completed = s_status_snapshot.windows_completed,
+        .i2s_read_errors = s_status_snapshot.i2s_read_errors,
+    };
+    return packet;
+}
+
+static int gatt_control_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    }
+    uint8_t command = 0;
+    uint16_t out_len = 0;
+    int rc = ble_hs_mbuf_to_flat(ctxt->om, &command, sizeof(command), &out_len);
+    if (rc != 0 || out_len != sizeof(command)) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (s_control_cb == NULL) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    esp_err_t err = s_control_cb(command, s_control_ctx);
+    return err == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
+}
+
+static int gatt_status_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
+    ble_sound_status_packet_t packet = make_status_packet();
+    int rc = os_mbuf_append(ctxt->om, &packet, sizeof(packet));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static int gap_event_cb(struct ble_gap_event *event, void *arg);
 
 static const struct ble_gatt_svc_def s_gatt_svcs[] = {
@@ -119,6 +189,18 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
                 .access_cb = gatt_metrics_access_cb,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &s_metrics_char_handle,
+            },
+            {
+                .uuid = &s_control_char_uuid.u,
+                .access_cb = gatt_control_access_cb,
+                .flags = BLE_GATT_CHR_F_WRITE,
+                .val_handle = &s_control_char_handle,
+            },
+            {
+                .uuid = &s_status_char_uuid.u,
+                .access_cb = gatt_status_access_cb,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &s_status_char_handle,
             },
             {0},
         },
@@ -167,6 +249,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             s_connected = true;
             s_notify_enabled = false;
             s_metrics_notify_enabled = false;
+            s_status_notify_enabled = false;
             s_conn_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "BLE client connected: handle=%u", s_conn_handle);
         } else {
@@ -179,6 +262,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_connected = false;
         s_notify_enabled = false;
         s_metrics_notify_enabled = false;
+        s_status_notify_enabled = false;
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_mtu = BLE_GATT_PCM_DEFAULT_MTU;
         advertise();
@@ -194,6 +278,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         } else if (event->subscribe.attr_handle == s_metrics_char_handle) {
             s_metrics_notify_enabled = event->subscribe.cur_notify;
             ESP_LOGI(TAG, "sound level notifications %s", s_metrics_notify_enabled ? "enabled" : "disabled");
+        } else if (event->subscribe.attr_handle == s_status_char_handle) {
+            s_status_notify_enabled = event->subscribe.cur_notify;
+            ESP_LOGI(TAG, "status notifications %s", s_status_notify_enabled ? "enabled" : "disabled");
         }
         return 0;
     case BLE_GAP_EVENT_MTU:
@@ -258,16 +345,15 @@ static void pcm_notify_task(void *arg)
             continue;
         }
 
-        uint8_t *payload = notify_buf + header_bytes;
-        const size_t payload_capacity = notify_capacity - header_bytes;
-        size_t bytes_read = 0;
-        esp_err_t err = board_i2s_read(payload, payload_capacity, &bytes_read, pdMS_TO_TICKS(100));
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "I2S read failed: %s", esp_err_to_name(err));
-            vTaskDelay(pdMS_TO_TICKS(10));
+        if (s_pcm_read_cb == NULL) {
+            vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
+        uint8_t *payload = notify_buf + header_bytes;
+        const size_t payload_capacity = notify_capacity - header_bytes;
+        size_t bytes_read = s_pcm_read_cb(payload, payload_capacity, s_pcm_read_ctx);
         if (bytes_read == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
@@ -363,6 +449,39 @@ bool transport_ble_gatt_pcm_metrics_notify_enabled(void)
 bool transport_ble_gatt_pcm_pcm_notify_enabled(void)
 {
     return s_notify_enabled;
+}
+
+
+void transport_ble_gatt_pcm_set_control_callback(transport_ble_control_cb_t cb, void *ctx)
+{
+    s_control_cb = cb;
+    s_control_ctx = ctx;
+}
+
+void transport_ble_gatt_pcm_set_pcm_reader(transport_ble_pcm_read_cb_t cb, void *ctx)
+{
+    s_pcm_read_cb = cb;
+    s_pcm_read_ctx = ctx;
+}
+
+void transport_ble_gatt_pcm_update_status(const transport_ble_status_snapshot_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+    s_status_snapshot = *status;
+    if (!s_connected || !s_status_notify_enabled || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return;
+    }
+    ble_sound_status_packet_t packet = make_status_packet();
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(&packet, sizeof(packet));
+    if (om == NULL) {
+        return;
+    }
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_status_char_handle, om);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "status notify failed: rc=%d", rc);
+    }
 }
 
 esp_err_t transport_ble_gatt_pcm_start(void)

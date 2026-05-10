@@ -12,6 +12,7 @@ set(APP_SRCS
     "app_mode.c"
     "audio_metrics.c"
     "sound_meter.c"
+    "pcm_debug_ring.c"
     "audio_resample.c"
     "audio_pipeline.c"
     "button_state.c"
