@@ -1,6 +1,7 @@
 #include "audio_metrics.h"
 
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 
 #define ASSERT_TRUE(value) do { \
@@ -135,6 +136,19 @@ static void test_ready_boundary_and_reset(void)
     ASSERT_EQ(0, acc.clipped_samples);
 }
 
+
+static void test_extreme_configuration_is_bounded(void)
+{
+    audio_metrics_accumulator_t acc;
+    audio_metrics_accumulator_init(&acc, UINT32_MAX, UINT32_MAX);
+    ASSERT_EQ(UINT32_MAX, acc.target_samples);
+    ASSERT_EQ(50, audio_metrics_dbfs_q8_to_percent(0, INT_MIN, INT_MAX));
+
+    audio_calibration_t cal;
+    audio_calibration_begin(&cal, 0);
+    ASSERT_EQ(1, cal.required_windows);
+}
+
 int main(void)
 {
     test_silence();
@@ -143,6 +157,7 @@ int main(void)
     test_half_scale_square_wave();
     test_ready_boundary_and_reset();
     test_custom_config_and_calibration();
+    test_extreme_configuration_is_bounded();
     puts("audio_metrics tests passed");
     return 0;
 }
