@@ -65,7 +65,7 @@ static void test_lcd_power_sequence_matches_source_backed_order(void)
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_FUNC0, 0xCF));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_MODE, 0x04));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_DRV, 0xFB));
-    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x00));
+    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x04));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_I2C_CFG, 0x00));
 }
 
@@ -77,7 +77,7 @@ static void test_lcd_power_sequence_retries_first_invalid_response(void)
 
     ASSERT_EQ(ESP_OK, m5pm1_enable_lcd_power(I2C_NUM_0, 0x6e));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_FUNC0, 0xCF));
-    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x00));
+    ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_GPIO_OUT, 0x04));
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_I2C_CFG, 0x00));
 }
 
