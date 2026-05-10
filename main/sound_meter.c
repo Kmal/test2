@@ -192,7 +192,7 @@ static void sound_meter_task(void *arg)
         }
 
         size_t bytes_read = 0;
-        esp_err_t err = board_i2s_read(pcm_samples, sizeof(pcm_samples), &bytes_read,
+        esp_err_t err = board_i2s_read(pcm_samples, s_config.pcm_chunk_bytes, &bytes_read,
                                        pdMS_TO_TICKS(s_config.i2s_read_timeout_ms));
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "I2S read failed: %s", esp_err_to_name(err));
@@ -287,6 +287,10 @@ esp_err_t sound_meter_start(const sound_meter_config_t *config)
     }
     if (s_config.pcm_chunk_bytes == 0 || s_config.pcm_chunk_bytes > BOARD_PCM_CHUNK_SIZE) {
         s_config.pcm_chunk_bytes = BOARD_PCM_CHUNK_SIZE;
+    }
+    s_config.pcm_chunk_bytes -= s_config.pcm_chunk_bytes % sizeof(int16_t);
+    if (s_config.pcm_chunk_bytes == 0) {
+        s_config.pcm_chunk_bytes = sizeof(int16_t);
     }
     if (s_config.dbfs_ceiling_q8 <= s_config.dbfs_floor_q8) {
         s_config.dbfs_floor_q8 = -60 * 256;
