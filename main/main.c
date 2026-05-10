@@ -57,7 +57,6 @@ static void app_apply_runtime_state(const app_runtime_state_t *state)
     case APP_MODE_SOUND_METER:
         sound_meter_set_enabled(true);
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
-#if CONFIG_APP_SOUND_METER_ENABLE_PCM_DEBUG
         transport_ble_gatt_pcm_set_pcm_debug_enabled(false);
 #endif
         status_ui_set_monitoring_enabled(true);
@@ -65,7 +64,6 @@ static void app_apply_runtime_state(const app_runtime_state_t *state)
     case APP_MODE_PCM_DEBUG_STREAM:
         sound_meter_set_enabled(true);
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM && CONFIG_APP_SOUND_METER_ENABLE_PCM_DEBUG
-#if CONFIG_APP_SOUND_METER_ENABLE_PCM_DEBUG
         transport_ble_gatt_pcm_set_pcm_debug_enabled(state->ble_pcm_debug_enabled);
 #else
         (void)state;
@@ -235,31 +233,12 @@ static void key1_pressed_cb(void *ctx)
 {
     (void)ctx;
     app_cycle_display_mode();
-    app_runtime_state_t state;
-    portENTER_CRITICAL(&s_runtime_mux);
-    app_runtime_next_display_mode(&s_runtime_state);
-    state = s_runtime_state;
-    portEXIT_CRITICAL(&s_runtime_mux);
-    status_ui_set_display_mode(state.display_mode);
-    ESP_LOGI(TAG, "KEY1 display mode: %s", app_display_mode_name(state.display_mode));
 }
 
 static void key2_pressed_cb(void *ctx)
 {
     (void)ctx;
     app_cycle_app_mode();
-    app_runtime_state_t state;
-    portENTER_CRITICAL(&s_runtime_mux);
-    app_runtime_next_app_mode(&s_runtime_state);
-#if !CONFIG_APP_SOUND_METER_ENABLE_PCM_DEBUG
-    if (s_runtime_state.app_mode == APP_MODE_PCM_DEBUG_STREAM) {
-        app_runtime_next_app_mode(&s_runtime_state);
-    }
-#endif
-    state = s_runtime_state;
-    portEXIT_CRITICAL(&s_runtime_mux);
-    app_apply_runtime_state(&state);
-    ESP_LOGI(TAG, "KEY2 app mode: %s", app_mode_name(state.app_mode));
 }
 
 static void app_idle_forever(void)
@@ -336,7 +315,6 @@ void app_main(void)
         .pcm_notify_enabled = app_pcm_notify_adapter,
         .pcm_debug_enabled = app_pcm_debug_adapter,
         .status_update = app_status_update_adapter,
-        .get_runtime = app_get_runtime_snapshot,
     };
     ret = sound_meter_start(&meter_config);
     if (ret != ESP_OK) {
