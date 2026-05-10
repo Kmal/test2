@@ -51,7 +51,13 @@
 #define ES8311_REG_DAC_EQ               0x37
 
 #define ES8311_RESET_ASSERT             0x1F
-#define ES8311_RESET_RELEASE            0x00
+/*
+ * Reg0x00 bit7 (CSM_ON) must be set after reset so the codec state machine
+ * leaves power-down.  Releasing reset with 0x00 keeps the ES8311 control port
+ * alive over I2C but leaves the digital audio path silent, which makes the ESP
+ * I2S RX channel wait forever and return ESP_ERR_TIMEOUT.
+ */
+#define ES8311_RESET_POWER_UP           0x80
 #define ES8311_CLK1_MCLK_INPUT_ENABLE   0x3F
 #define ES8311_CLK2_12M288_16K          0x40
 #define ES8311_CLK3_12M288_16K          0x10
@@ -189,7 +195,7 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
     vTaskDelay(pdMS_TO_TICKS(20));
 
     ret = ESP_OK;
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_RELEASE));
+    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_POWER_UP));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_CLK_MANAGER_1, ES8311_CLK1_MCLK_INPUT_ENABLE));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_CLK_MANAGER_2, ES8311_CLK2_12M288_16K));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_CLK_MANAGER_3, ES8311_CLK3_12M288_16K));
@@ -282,7 +288,7 @@ esp_err_t es8311_power_up(i2c_port_t i2c_num, uint8_t i2c_addr)
     esp_err_t ret = ESP_OK;
     ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
                                                            ES8311_REG_RESET,
-                                                           ES8311_RESET_RELEASE, true));
+                                                           ES8311_RESET_POWER_UP, true));
     ret = es8311_first_error(ret, es8311_write_reg_checked(i2c_num, i2c_addr,
                                                            ES8311_REG_SYSTEM_0D,
                                                            ES8311_SYSTEM0D_ANALOG_UP, true));
