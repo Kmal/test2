@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "main" / "main.c"
 BOARD_I2S = ROOT / "main" / "board_i2s.c"
 ES8311 = ROOT / "main" / "es8311.c"
+SOUND_METER = ROOT / "main" / "sound_meter.c"
 
 
 def main() -> int:
@@ -29,6 +30,12 @@ def main() -> int:
         errors.append("board_i2s.c must default to RX-only standard-channel allocation")
     if "BOARD_AUDIO_PROFILE_FULL_DUPLEX" not in i2s_text or "BOARD_I2S_DO_IO" not in i2s_text:
         errors.append("board_i2s.c must make TX explicit only for full-duplex profile")
+
+    sound_meter_text = SOUND_METER.read_text(encoding="utf-8")
+    if "board_i2s_read(pcm_samples, s_config.pcm_chunk_bytes" not in sound_meter_text:
+        errors.append("sound_meter.c must honor configured PCM chunk size for I2S reads")
+    if "s_config.pcm_chunk_bytes -= s_config.pcm_chunk_bytes % sizeof(int16_t)" not in sound_meter_text:
+        errors.append("sound_meter.c must align PCM chunk size to complete int16_t samples")
 
     es_text = ES8311.read_text(encoding="utf-8")
     if "ES8311_PROFILE_ADC_ONLY" not in es_text:
