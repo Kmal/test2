@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 static const char *TAG = "BOARD_I2S";
 
@@ -96,24 +97,28 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
 
     s_active_profile = profile;
     s_i2s_ready = true;
-    ESP_LOGI(TAG, "I2S standard %s profile ready: Fs=%d MCLK=%d",
+    ESP_LOGI(TAG, "I2S standard %s profile ready: Fs=%d MCLK=%d BCLK=%d LRCK=%d bits=%d channels=%d slot_bits=%d",
              profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "full-duplex" : "capture-only",
-             clock->sample_rate_hz, clock->mclk_hz);
+             clock->sample_rate_hz, clock->mclk_hz, clock->bclk_hz, clock->lrck_hz,
+             clock->bits_per_sample, clock->channels, (int)std_cfg.slot_cfg.slot_bit_width);
+    ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=%s",
+             BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO,
+             profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "GPIO14" : "unused");
     return ESP_OK;
 }
 
-esp_err_t board_i2s_read(void *dest, size_t size, size_t *bytes_read, TickType_t timeout_ticks)
+esp_err_t board_i2s_read(void *dest, size_t size, size_t *bytes_read, uint32_t timeout_ms)
 {
     if (!s_i2s_ready || s_rx_handle == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    return i2s_channel_read(s_rx_handle, dest, size, bytes_read, timeout_ticks);
+    return i2s_channel_read(s_rx_handle, dest, size, bytes_read, timeout_ms);
 }
 
-esp_err_t board_i2s_write(const void *src, size_t size, size_t *bytes_written, TickType_t timeout_ticks)
+esp_err_t board_i2s_write(const void *src, size_t size, size_t *bytes_written, uint32_t timeout_ms)
 {
     if (!s_i2s_ready || s_tx_handle == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    return i2s_channel_write(s_tx_handle, src, size, bytes_written, timeout_ticks);
+    return i2s_channel_write(s_tx_handle, src, size, bytes_written, timeout_ms);
 }

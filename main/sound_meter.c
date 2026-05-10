@@ -29,6 +29,9 @@ static sound_meter_stats_t s_stats;
 static audio_calibration_t s_calibration;
 static pcm_debug_ring_t s_pcm_ring;
 static int64_t s_last_telemetry_ms;
+static int64_t s_last_i2s_error_log_ms;
+static uint32_t s_consecutive_i2s_errors;
+static bool s_first_i2s_read_logged;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_pcm_ring_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -193,22 +196,49 @@ static void sound_meter_task(void *arg)
 
         size_t bytes_read = 0;
         esp_err_t err = board_i2s_read(pcm_samples, s_config.pcm_chunk_bytes, &bytes_read,
-                                       pdMS_TO_TICKS(s_config.i2s_read_timeout_ms));
+                                       s_config.i2s_read_timeout_ms);
         if (err != ESP_OK) {
-            ESP_LOGW(TAG, "I2S read failed: %s", esp_err_to_name(err));
+            uint32_t total_errors;
             portENTER_CRITICAL(&s_mux);
             increment_u32(&s_stats.i2s_read_errors);
+            total_errors = s_stats.i2s_read_errors;
             portEXIT_CRITICAL(&s_mux);
+
+            ++s_consecutive_i2s_errors;
+            int64_t now_ms = esp_timer_get_time() / 1000;
+            if (s_consecutive_i2s_errors <= 3 ||
+                s_last_i2s_error_log_ms == 0 ||
+                now_ms - s_last_i2s_error_log_ms >= 1000) {
+                ESP_LOGW(TAG,
+                         "I2S read failed: %s (timeout=%lu ms requested=%u bytes total_errors=%lu consecutive=%lu mode=%u)",
+                         esp_err_to_name(err), (unsigned long)s_config.i2s_read_timeout_ms,
+                         (unsigned)s_config.pcm_chunk_bytes, (unsigned long)total_errors,
+                         (unsigned long)s_consecutive_i2s_errors, (unsigned)runtime.app_mode);
+                s_last_i2s_error_log_ms = now_ms;
+            }
             notify_status_update(&runtime);
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
+        if (s_consecutive_i2s_errors > 0) {
+            ESP_LOGI(TAG, "I2S read recovered after %lu consecutive errors",
+                     (unsigned long)s_consecutive_i2s_errors);
+        }
+        s_consecutive_i2s_errors = 0;
         if (bytes_read == 0) {
+            ESP_LOGW(TAG, "I2S read returned zero bytes (timeout=%lu ms requested=%u bytes)",
+                     (unsigned long)s_config.i2s_read_timeout_ms, (unsigned)s_config.pcm_chunk_bytes);
             portENTER_CRITICAL(&s_mux);
             increment_u32(&s_stats.i2s_zero_reads);
             portEXIT_CRITICAL(&s_mux);
             notify_status_update(&runtime);
             continue;
+        }
+
+        if (!s_first_i2s_read_logged) {
+            ESP_LOGI(TAG, "first I2S read: %u bytes in %lu ms timeout window",
+                     (unsigned)bytes_read, (unsigned long)s_config.i2s_read_timeout_ms);
+            s_first_i2s_read_logged = true;
         }
 
         size_t sample_count = bytes_read / sizeof(pcm_samples[0]);
@@ -306,6 +336,9 @@ esp_err_t sound_meter_start(const sound_meter_config_t *config)
     pcm_debug_ring_init(&s_pcm_ring);
     portEXIT_CRITICAL(&s_pcm_ring_mux);
     audio_calibration_init(&s_calibration);
+    s_last_i2s_error_log_ms = 0;
+    s_consecutive_i2s_errors = 0;
+    s_first_i2s_read_logged = false;
     s_enabled = true;
     BaseType_t ok = xTaskCreate(sound_meter_task, "sound_meter", SOUND_METER_TASK_STACK, NULL,
                                 SOUND_METER_TASK_PRIORITY, &s_task);
@@ -313,9 +346,10 @@ esp_err_t sound_meter_start(const sound_meter_config_t *config)
         return ESP_ERR_NO_MEM;
     }
     s_started = true;
-    ESP_LOGI(TAG, "sound meter started: %lu Hz %lu ms windows telemetry=%lu ms",
+    ESP_LOGI(TAG, "sound meter started: %lu Hz %lu ms windows telemetry=%lu ms chunk=%u bytes read_timeout=%lu ms",
              (unsigned long)s_config.sample_rate_hz, (unsigned long)s_config.metrics_window_ms,
-             (unsigned long)s_config.telemetry_interval_ms);
+             (unsigned long)s_config.telemetry_interval_ms, (unsigned)s_config.pcm_chunk_bytes,
+             (unsigned long)s_config.i2s_read_timeout_ms);
     return ESP_OK;
 }
 
