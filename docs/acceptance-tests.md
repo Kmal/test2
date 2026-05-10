@@ -36,6 +36,7 @@ Host tests cover pure C helpers, audio metrics, application mode cycling, ES8311
 - Default Bluetooth LE GATT PCM boot leaves the I2S TX path, ES8311 DAC, and speaker amplifier disabled.
 - Microphone capture produces nonzero PCM under sound input after source-backed audio power/clock/codec setup is complete.
 - Selected BLE sound-meter transport advertises as `M5StickS3-Meter`, renders a live LCD VU meter, delivers `M5LM` telemetry notifications to a BLE central subscribed to service UUID `0xFFF0`, characteristic UUID `0xFFF2`, accepts one-byte control writes on characteristic UUID `0xFFF3`, and returns an `M5TS` status packet on characteristic UUID `0xFFF4`; optional raw PCM debug remains on characteristic UUID `0xFFF1` when explicitly enabled.
+- Selected BLE sound-meter transport advertises as `M5StickS3-Meter`, renders a live LCD VU meter, and delivers `M5LM` telemetry notifications to a BLE central subscribed to service UUID `0xFFF0`, characteristic UUID `0xFFF2`; optional raw PCM debug remains on characteristic UUID `0xFFF1` when explicitly enabled.
 - Speaker output works only if monitoring is in scope and M5PM1 amplifier control is implemented from source-backed evidence.
 - IR receive is tested with speaker amplifier disabled if IR support is in scope.
 
@@ -57,4 +58,5 @@ Host tests cover pure C helpers, audio metrics, application mode cycling, ES8311
 - BLE central subscription to `0xFFF2` receives compact sound-level telemetry at roughly `CONFIG_APP_SOUND_METER_TELEMETRY_HZ`.
 - BLE central writes to `0xFFF3` can cycle app/display modes, pause/resume the sound meter, and enter calibration mode.
 - BLE central reads `0xFFF4` and receives an `M5TS` status packet.
+- BLE central subscription to `0xFFF2` receives compact sound-level telemetry at roughly the configured analysis-window cadence.
 - The firmware does not claim calibrated SPL/dBA accuracy unless calibrated against an external acoustic reference.

@@ -25,6 +25,7 @@ typedef void (*sound_meter_status_update_cb_t)(const struct sound_meter_stats *s
                                                const app_runtime_state_t *runtime,
                                                bool enabled,
                                                void *ctx);
+typedef app_runtime_state_t (*sound_meter_runtime_getter_t)(void *ctx);
 
 typedef struct {
     uint32_t sample_rate_hz;
@@ -50,6 +51,11 @@ typedef struct {
 } sound_meter_config_t;
 
 struct sound_meter_stats {
+    sound_meter_runtime_getter_t get_runtime;
+    void *runtime_ctx;
+} sound_meter_config_t;
+
+typedef struct {
     uint32_t windows_completed;
     uint32_t i2s_read_errors;
     uint32_t i2s_zero_reads;
@@ -59,6 +65,9 @@ struct sound_meter_stats {
     uint32_t last_sequence;
     int64_t last_update_ms;
 };
+    uint32_t last_sequence;
+    int64_t last_update_ms;
+} sound_meter_stats_t;
 
 esp_err_t sound_meter_start(const sound_meter_config_t *config);
 bool sound_meter_get_latest(audio_level_metrics_t *out);
@@ -69,6 +78,8 @@ void sound_meter_set_enabled(bool enabled);
 bool sound_meter_get_enabled(void);
 size_t sound_meter_read_pcm_debug(uint8_t *dst, size_t max_bytes);
 uint32_t sound_meter_get_pcm_debug_overruns(void);
+void sound_meter_set_enabled(bool enabled);
+bool sound_meter_get_enabled(void);
 
 #ifdef __cplusplus
 }

@@ -479,6 +479,7 @@ static void status_ui_render_vu_lcd(const status_ui_sound_meter_snapshot_t *snap
         lcd_draw_horizontal_bar(4, 100, BOARD_LCD_H_RES - 8, 24, percent, STATUS_UI_LCD_WARN, STATUS_UI_LCD_DIM);
         return;
     }
+    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, "M5S3 LEVEL", STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
 
     char rms[16];
     char peak[16];

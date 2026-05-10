@@ -8,6 +8,8 @@
 #include "freertos/task.h"
 #include "pcm_debug_ring.h"
 #include "status_ui.h"
+#include "status_ui.h"
+#include "transport_ble_gatt_pcm.h"
 
 #include <string.h>
 
@@ -31,6 +33,7 @@ static pcm_debug_ring_t s_pcm_ring;
 static int64_t s_last_telemetry_ms;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_pcm_ring_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static app_runtime_state_t default_runtime(void)
 {
@@ -92,6 +95,14 @@ static void notify_status_update(const app_runtime_state_t *runtime)
     calibration = s_calibration;
     portEXIT_CRITICAL(&s_mux);
     s_config.status_update(&stats, &calibration, runtime, s_enabled, s_config.transport_ctx);
+    portEXIT_CRITICAL(&s_mux);
+}
+
+static void increment_u32(uint32_t *value)
+{
+    if (*value != UINT32_MAX) {
+        ++(*value);
+    }
 }
 
 static void publish_ui_snapshot(const audio_level_metrics_t *metrics, const app_runtime_state_t *runtime)
@@ -122,6 +133,9 @@ static void publish_ui_snapshot(const audio_level_metrics_t *metrics, const app_
         .calibration_collected_windows = calibration.collected_windows,
         .calibration_required_windows = calibration.required_windows,
         .calibration_noise_floor_dbfs_q8 = calibration.noise_floor_dbfs_q8,
+        .ble_connected = transport_ble_gatt_pcm_is_connected(),
+        .ble_metrics_notify_enabled = transport_ble_gatt_pcm_metrics_notify_enabled(),
+        .ble_pcm_notify_enabled = transport_ble_gatt_pcm_pcm_notify_enabled(),
     };
     status_ui_set_sound_meter_snapshot(&snapshot);
     portENTER_CRITICAL(&s_mux);
@@ -178,6 +192,10 @@ static void sound_meter_task(void *arg)
 {
     (void)arg;
     int16_t pcm_samples[BOARD_PCM_CHUNK_SIZE / sizeof(int16_t)];
+static void sound_meter_task(void *arg)
+{
+    (void)arg;
+    uint8_t pcm_bytes[BOARD_PCM_CHUNK_SIZE];
     audio_metrics_accumulator_t acc;
     audio_metrics_accumulator_init(&acc, s_config.sample_rate_hz, s_config.metrics_window_ms);
     uint32_t sequence = 0;
@@ -187,12 +205,14 @@ static void sound_meter_task(void *arg)
         begin_calibration_if_needed(&runtime);
         if (!s_enabled || runtime.app_mode == APP_MODE_PAUSED) {
             notify_status_update(&runtime);
+        if (!s_enabled || runtime.app_mode == APP_MODE_PAUSED) {
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
         size_t bytes_read = 0;
         esp_err_t err = board_i2s_read(pcm_samples, sizeof(pcm_samples), &bytes_read,
+        esp_err_t err = board_i2s_read(pcm_bytes, s_config.pcm_chunk_bytes, &bytes_read,
                                        pdMS_TO_TICKS(s_config.i2s_read_timeout_ms));
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "I2S read failed: %s", esp_err_to_name(err));
@@ -224,6 +244,10 @@ static void sound_meter_task(void *arg)
         }
 
         audio_metrics_accumulator_add_i16(&acc, pcm_samples, sample_count);
+            continue;
+        }
+
+        audio_metrics_accumulator_add_i16(&acc, (const int16_t *)pcm_bytes, bytes_read / sizeof(int16_t));
         if (!audio_metrics_accumulator_ready(&acc)) {
             continue;
         }
@@ -252,6 +276,15 @@ static void sound_meter_task(void *arg)
         if (telemetry_due && s_config.enable_ble_telemetry && runtime.ble_telemetry_enabled &&
             runtime.app_mode != APP_MODE_PAUSED && s_config.publish_metrics != NULL) {
             err = s_config.publish_metrics(&metrics, runtime.app_mode, runtime.display_mode, s_config.transport_ctx);
+        if (!audio_metrics_accumulator_finalize(&acc, sequence++, &metrics)) {
+            continue;
+        }
+        store_latest(&metrics);
+        if (s_config.enable_lcd_updates) {
+            publish_ui_snapshot(&metrics, &runtime);
+        }
+        if (s_config.enable_ble_telemetry && runtime.ble_telemetry_enabled && runtime.app_mode != APP_MODE_PAUSED) {
+            err = transport_ble_gatt_pcm_publish_metrics(&metrics, runtime.app_mode, runtime.display_mode);
             if (err != ESP_OK) {
                 portENTER_CRITICAL(&s_mux);
                 increment_u32(&s_stats.telemetry_publish_errors);
@@ -263,6 +296,8 @@ static void sound_meter_task(void *arg)
         notify_status_update(&runtime);
         if (calibration_done) {
             ESP_LOGI(TAG, "calibration complete; use control or KEY2 to return to sound meter mode");
+        }
+            }
         }
     }
 }
@@ -312,6 +347,8 @@ esp_err_t sound_meter_start(const sound_meter_config_t *config)
     ESP_LOGI(TAG, "sound meter started: %lu Hz %lu ms windows telemetry=%lu ms",
              (unsigned long)s_config.sample_rate_hz, (unsigned long)s_config.metrics_window_ms,
              (unsigned long)s_config.telemetry_interval_ms);
+    ESP_LOGI(TAG, "sound meter started: %lu Hz %lu ms windows",
+             (unsigned long)s_config.sample_rate_hz, (unsigned long)s_config.metrics_window_ms);
     return ESP_OK;
 }
 
@@ -351,6 +388,8 @@ void sound_meter_reset_calibration(void)
 {
     portENTER_CRITICAL(&s_mux);
     audio_calibration_init(&s_calibration);
+    portENTER_CRITICAL(&s_mux);
+    *out = s_stats;
     portEXIT_CRITICAL(&s_mux);
 }
 

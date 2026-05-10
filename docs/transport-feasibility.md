@@ -15,6 +15,7 @@ A replacement transport must be selected before the firmware can honestly claim 
 ## Current decision
 
 **Decision: Selected for this repository state.** The default StickS3-compatible product is a custom Bluetooth LE sound-level meter. The firmware advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends compact RMS/peak/VU/clipping telemetry notifications on characteristic UUID `0xFFF2`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1`, one-byte control writes on `0xFFF3`, and status reads/notifications on `0xFFF4`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
+**Decision: Selected for this repository state.** The default StickS3-compatible product is a custom Bluetooth LE sound-level meter. The firmware advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends compact RMS/peak/VU/clipping telemetry notifications on characteristic UUID `0xFFF2`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
 
 ## Candidate matrix
 
