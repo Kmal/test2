@@ -90,12 +90,19 @@ esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const bo
         return ESP_ERR_INVALID_ARG;
     }
 
+    ESP_LOGI(TAG, "audio init start: profile=%s probe_m5pm1=%s require_power=%s",
+             config->profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "full-duplex" : "capture-only",
+             config->probe_m5pm1 ? "yes" : "no",
+             config->require_audio_power_enable ? "yes" : "no");
+
+    ESP_LOGI(TAG, "audio init step: shared I2C bus");
     esp_err_t err = ops->i2c_init(ops->ctx);
     if (err != ESP_OK) {
         return finish_or_cleanup(err, ops);
     }
 
     if (config->probe_m5pm1) {
+        ESP_LOGI(TAG, "audio init step: M5PM1 probe");
         err = ops->m5pm1_probe(ops->ctx);
         if (err != ESP_OK) {
             return finish_or_cleanup(err, ops);
@@ -103,17 +110,20 @@ esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const bo
     }
 
     if (config->require_audio_power_enable) {
+        ESP_LOGI(TAG, "audio init step: audio power rail enable");
         err = ops->audio_power_enable(ops->ctx);
         if (err != ESP_OK) {
             return finish_or_cleanup(err, ops);
         }
     }
 
+    ESP_LOGI(TAG, "audio init step: I2S clocks/channel setup");
     err = ops->i2s_init_profile(config->profile, ops->ctx);
     if (err != ESP_OK) {
         return finish_or_cleanup(err, ops);
     }
 
+    ESP_LOGI(TAG, "audio init step: ES8311 codec setup");
     err = ops->es8311_init_profile(config->profile, ops->ctx);
     if (err != ESP_OK) {
         return finish_or_cleanup(err, ops);

@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include <stddef.h>
+#include <stdio.h>
 
 #ifndef BIT
 #define BIT(n) (1U << (n))
@@ -147,6 +148,47 @@ static esp_err_t es8311_write_reg_checked(i2c_port_t i2c_num, uint8_t i2c_addr,
     return ESP_OK;
 }
 
+
+static void es8311_log_register_snapshot(i2c_port_t i2c_num, uint8_t i2c_addr)
+{
+    const uint8_t regs[] = {
+        ES8311_REG_RESET,
+        ES8311_REG_CLK_MANAGER_1,
+        ES8311_REG_CLK_MANAGER_2,
+        ES8311_REG_CLK_MANAGER_3,
+        ES8311_REG_CLK_MANAGER_4,
+        ES8311_REG_CLK_MANAGER_6,
+        ES8311_REG_CLK_MANAGER_8,
+        ES8311_REG_SDP_ADC,
+        ES8311_REG_SYSTEM_0D,
+        ES8311_REG_SYSTEM_0E,
+        ES8311_REG_SYSTEM_12,
+        ES8311_REG_SYSTEM_13,
+        ES8311_REG_MIC_GAIN,
+        ES8311_REG_ADC_VOLUME,
+        ES8311_REG_DAC_MUTE,
+    };
+    char snapshot[160];
+    size_t used = 0;
+
+    for (size_t i = 0; i < sizeof(regs) / sizeof(regs[0]); ++i) {
+        uint8_t value = 0;
+        esp_err_t err = es8311_read_reg(i2c_num, i2c_addr, regs[i], &value);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG_CODEC, "register snapshot aborted at reg 0x%02x: %s",
+                     regs[i], esp_err_to_name(err));
+            return;
+        }
+        int written = snprintf(snapshot + used, sizeof(snapshot) - used,
+                               "%s%02x=%02x", i == 0 ? "" : " ", regs[i], value);
+        if (written < 0 || (size_t)written >= sizeof(snapshot) - used) {
+            break;
+        }
+        used += (size_t)written;
+    }
+    ESP_LOGI(TAG_CODEC, "ES8311 register snapshot: %s", snapshot);
+}
+
 static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
                                         uint8_t reg, uint8_t mask, uint8_t val,
                                         bool verify)
@@ -194,7 +236,10 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
 
     vTaskDelay(pdMS_TO_TICKS(20));
 
+    ESP_LOGI(TAG_CODEC, "ES8311 reset asserted; waiting for analog rails to settle");
+
     ret = ESP_OK;
+    ESP_LOGI(TAG_CODEC, "ES8311 configuring clock tree for 12.288 MHz MCLK / %d Hz sample rate", sample_rate);
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_POWER_UP));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_CLK_MANAGER_1, ES8311_CLK1_MCLK_INPUT_ENABLE));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_CLK_MANAGER_2, ES8311_CLK2_12M288_16K));
@@ -230,7 +275,11 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
     }
 
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG_CODEC, "ES8311 initialised");
+        es8311_log_register_snapshot(i2c_num, i2c_addr);
+        ESP_LOGI(TAG_CODEC, "ES8311 initialised: profile=%s adc_volume=0x%02x mic_gain=%u dac_muted=%s",
+                 profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" : "full-duplex",
+                 ES8311_ADC_VOLUME_BOOST, (unsigned)ES8311_DEFAULT_MIC_GAIN,
+                 profile == ES8311_PROFILE_ADC_ONLY ? "yes" : "no");
     } else {
         ESP_LOGE(TAG_CODEC, "ES8311 initialisation failed: %s", esp_err_to_name(ret));
     }
