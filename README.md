@@ -123,6 +123,22 @@ The code includes bit-preserving M5PM1 GPIO helpers, a tested source-backed GPIO
 
 The monitor displays firmware logs tagged with `STICKS3_APP`, `BOARD_AUDIO`, `BOARD_I2C`, `BOARD_I2S`, `ES8311`, `M5PM1`, `STATUS_UI`, `SOUND_METER`, and `BLE_GATT_PCM`. It will state that Bluetooth LE sound-meter telemetry is running. Connect with a BLE central/custom host app to device `M5StickS3-Meter`, discover service UUID `0xFFF0`, and subscribe to sound-level characteristic UUID `0xFFF2`. Each telemetry notification starts with a little-endian `M5LM` packet containing sequence, uptime, sample rate, window size, RMS dBFS Q8, peak dBFS Q8, VU percent, clipping count, and mode fields. Optional raw PCM debug notifications remain available on characteristic UUID `0xFFF1` only when PCM debug mode is enabled; those notifications retain the small `M5S3` header followed by little-endian 16-bit mono PCM payload bytes. Characteristic `0xFFF3` accepts one-byte control commands, and characteristic `0xFFF4` exposes an `M5TS` status packet. See `docs/ble-sound-meter-protocol.md`.
 
+## Wi-Fi setup and local web UI
+
+The firmware starts an ESP-IDF Wi-Fi manager before the rule web server. On boot it tries saved station credentials from NVS. If no saved network connects before `CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS`, it creates the setup access point configured by `CONFIG_APP_WIFI_AP_SSID` (default `M5StickS3-Setup`) and `CONFIG_APP_WIFI_AP_PASSWORD` (blank/open by default). Connect a phone or computer to that AP and open the URL printed in the monitor, normally `http://192.168.4.1/`.
+
+The firmware also supports Launcher-style on-device Wi-Fi entry on the StickS3 display. If saved credentials are missing or fail, `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING` shows a virtual keyboard before AP fallback: KEY1 selects the highlighted key/control, KEY2 advances, and holding KEY2 moves backward. Use `OK` to accept, `AA` to switch shifted characters, `DEL` to erase, `SPC` for space, and `ESC` to cancel.
+
+The root page contains a **Wi-Fi setup** panel, based on the same scan/connect/AP flow used by the referenced Launcher project: scan nearby networks, select an SSID or enter a hidden SSID, enter the password, then choose **Connect and save**. Successful station credentials are persisted in NVS and reused on later boots. The setup AP remains available during the current session when connecting from the portal, so the browser can display the connection result; after reboot, the device will prefer the saved station network and the UI will be available at the station IP printed in the monitor.
+
+Useful HTTP endpoints:
+
+* `GET /` — rule automation and Wi-Fi setup page.
+* `GET /api/wifi/status` — current AP/station status and web URL.
+* `POST /api/wifi/scan` — scan nearby access points.
+* `POST /api/wifi/connect` with `{"ssid":"...","password":"..."}` — connect and save credentials.
+* `POST /api/wifi/ap` — start the setup AP on demand.
+
 ## CI and local validation
 
 Recommended local validation:

@@ -13,6 +13,9 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#if CONFIG_APP_STATUS_UI_LCD
+#include "freertos/queue.h"
+#endif
 
 #if CONFIG_APP_STATUS_UI_LCD
 #include "board_i2c.h"
@@ -48,6 +51,11 @@
 #define STATUS_UI_LCD_LINE_HEIGHT 16
 #define STATUS_UI_LCD_LEFT_PAD 4
 #define STATUS_UI_LCD_TOP_PAD 4
+#define STATUS_UI_KEYBOARD_ROWS 4
+#define STATUS_UI_KEYBOARD_COLS 10
+#define STATUS_UI_KEYBOARD_CONTROLS 5
+#define STATUS_UI_KEYBOARD_MAX_TEXT 64
+#define STATUS_UI_KEYBOARD_LONG_MS 600
 #endif
 
 static const char *TAG = "STATUS_UI";
@@ -62,6 +70,30 @@ static status_ui_sound_meter_snapshot_t s_sound_snapshot;
 static app_display_mode_t s_display_mode = APP_DISPLAY_VU;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
+
+#if CONFIG_APP_STATUS_UI_LCD
+typedef enum {
+    STATUS_UI_KEYBOARD_EVENT_SELECT = 0,
+    STATUS_UI_KEYBOARD_EVENT_NEXT,
+    STATUS_UI_KEYBOARD_EVENT_PREV,
+} status_ui_keyboard_event_t;
+
+typedef struct {
+    bool active;
+    bool secret;
+    bool caps;
+    bool cancelled;
+    bool done;
+    size_t max_len;
+    int selected;
+    char title[24];
+    char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
+} status_ui_keyboard_state_t;
+
+static QueueHandle_t s_keyboard_queue;
+static status_ui_keyboard_state_t s_keyboard;
+#endif
+
 #if CONFIG_APP_STATUS_UI_LCD
 static esp_lcd_panel_io_handle_t s_panel_io;
 static esp_lcd_panel_handle_t s_panel;
@@ -75,6 +107,10 @@ typedef struct {
     bool stable_pressed;
     bool last_sample_pressed;
     TickType_t last_change_tick;
+#if CONFIG_APP_STATUS_UI_LCD
+    TickType_t pressed_since_tick;
+    bool long_sent;
+#endif
 } status_button_t;
 
 static const char *bool_label(bool enabled)
@@ -211,6 +247,24 @@ static void record_button_press(gpio_num_t gpio)
     portEXIT_CRITICAL(&s_state_mux);
 }
 
+#if CONFIG_APP_STATUS_UI_LCD
+static bool keyboard_is_active(void)
+{
+    bool active;
+    portENTER_CRITICAL(&s_state_mux);
+    active = s_keyboard.active;
+    portEXIT_CRITICAL(&s_state_mux);
+    return active;
+}
+
+static void keyboard_queue_event(status_ui_keyboard_event_t event)
+{
+    if (s_keyboard_queue != NULL) {
+        (void)xQueueSend(s_keyboard_queue, &event, 0);
+    }
+}
+#endif
+
 static void maybe_dispatch_button(status_button_t *button, TickType_t now)
 {
     bool pressed = button_is_pressed(button->gpio);
@@ -225,11 +279,36 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
         return;
     }
 
+#if CONFIG_APP_STATUS_UI_LCD
+    if (keyboard_is_active()) {
+        if (pressed && button->stable_pressed && !button->long_sent &&
+            button->gpio == BOARD_BUTTON_KEY2_GPIO &&
+            (now - button->pressed_since_tick) >= pdMS_TO_TICKS(STATUS_UI_KEYBOARD_LONG_MS)) {
+            button->long_sent = true;
+            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+        }
+    }
+#endif
+
     if (pressed == button->stable_pressed) {
         return;
     }
 
     button->stable_pressed = pressed;
+#if CONFIG_APP_STATUS_UI_LCD
+    if (keyboard_is_active()) {
+        if (pressed) {
+            record_button_press(button->gpio);
+            button->pressed_since_tick = now;
+            button->long_sent = false;
+            ESP_LOGI(TAG, "keyboard button pressed: %s", button->name);
+        } else if (!button->long_sent) {
+            keyboard_queue_event(button->gpio == BOARD_BUTTON_KEY1_GPIO ?
+                                 STATUS_UI_KEYBOARD_EVENT_SELECT : STATUS_UI_KEYBOARD_EVENT_NEXT);
+        }
+        return;
+    }
+#endif
     if (pressed) {
         record_button_press(button->gpio);
         ESP_LOGI(TAG, "button pressed: %s", button->name);
@@ -316,6 +395,20 @@ static const uint8_t *glyph_rows(char c)
     static const uint8_t glyph_dot[7] = {0, 0, 0, 0, 0, 12, 12};
     static const uint8_t glyph_slash[7] = {1, 1, 2, 4, 8, 16, 16};
     static const uint8_t glyph_percent[7] = {24, 25, 2, 4, 8, 19, 3};
+    static const uint8_t glyph_at[7] = {14, 17, 23, 21, 23, 16, 14};
+    static const uint8_t glyph_underscore[7] = {0, 0, 0, 0, 0, 0, 31};
+    static const uint8_t glyph_plus[7] = {0, 4, 4, 31, 4, 4, 0};
+    static const uint8_t glyph_question[7] = {14, 17, 1, 2, 4, 0, 4};
+    static const uint8_t glyph_lparen[7] = {2, 4, 8, 8, 8, 4, 2};
+    static const uint8_t glyph_rparen[7] = {8, 4, 2, 2, 2, 4, 8};
+    static const uint8_t glyph_hash[7] = {10, 31, 10, 10, 31, 10, 0};
+    static const uint8_t glyph_dollar[7] = {4, 15, 20, 14, 5, 30, 4};
+    static const uint8_t glyph_amp[7] = {12, 18, 20, 8, 21, 18, 13};
+    static const uint8_t glyph_equal[7] = {0, 0, 31, 0, 31, 0, 0};
+    static const uint8_t glyph_bang[7] = {4, 4, 4, 4, 4, 0, 4};
+    static const uint8_t glyph_caret[7] = {4, 10, 17, 0, 0, 0, 0};
+    static const uint8_t glyph_star[7] = {0, 21, 14, 31, 14, 21, 0};
+    static const uint8_t glyph_gt[7] = {16, 8, 4, 2, 4, 8, 16};
 
     switch ((char)toupper((unsigned char)c)) {
     case '0': return glyph_0;
@@ -359,6 +452,20 @@ static const uint8_t *glyph_rows(char c)
     case '.': return glyph_dot;
     case '/': return glyph_slash;
     case '%': return glyph_percent;
+    case '@': return glyph_at;
+    case '_': return glyph_underscore;
+    case '+': return glyph_plus;
+    case '?': return glyph_question;
+    case '(': return glyph_lparen;
+    case ')': return glyph_rparen;
+    case '#': return glyph_hash;
+    case '$': return glyph_dollar;
+    case '&': return glyph_amp;
+    case '=': return glyph_equal;
+    case '!': return glyph_bang;
+    case '^': return glyph_caret;
+    case '*': return glyph_star;
+    case '>': return glyph_gt;
     default: return blank;
     }
 }
@@ -408,6 +515,216 @@ static void lcd_draw_text(int x, int y, const char *text, uint16_t color, uint8_
         cursor_x += 6 * scale;
         ++text;
     }
+}
+
+
+static const char s_keyboard_keys[STATUS_UI_KEYBOARD_ROWS][STATUS_UI_KEYBOARD_COLS][2] = {
+    {{'1', '!'}, {'2', '@'}, {'3', '#'}, {'4', '$'}, {'5', '%'}, {'6', '^'}, {'7', '&'}, {'8', '*'}, {'9', '('}, {'0', ')'}},
+    {{'q', 'Q'}, {'w', 'W'}, {'e', 'E'}, {'r', 'R'}, {'t', 'T'}, {'y', 'Y'}, {'u', 'U'}, {'i', 'I'}, {'o', 'O'}, {'p', 'P'}},
+    {{'a', 'A'}, {'s', 'S'}, {'d', 'D'}, {'f', 'F'}, {'g', 'G'}, {'h', 'H'}, {'j', 'J'}, {'k', 'K'}, {'l', 'L'}, {'-', '_'}},
+    {{'z', 'Z'}, {'x', 'X'}, {'c', 'C'}, {'v', 'V'}, {'b', 'B'}, {'n', 'N'}, {'m', 'M'}, {'.', '>'}, {'/', '?'}, {'@', ':'}},
+};
+
+static void lcd_draw_text_clipped(int x, int y, const char *text, uint16_t color, uint8_t scale, size_t max_chars)
+{
+    char buf[40];
+    if (max_chars >= sizeof(buf)) {
+        max_chars = sizeof(buf) - 1u;
+    }
+    size_t i = 0;
+    while (i < max_chars && text != NULL && text[i] != '\0') {
+        buf[i] = text[i];
+        ++i;
+    }
+    buf[i] = '\0';
+    lcd_draw_text(x, y, buf, color, scale);
+}
+
+static void keyboard_snapshot(status_ui_keyboard_state_t *out)
+{
+    portENTER_CRITICAL(&s_state_mux);
+    *out = s_keyboard;
+    portEXIT_CRITICAL(&s_state_mux);
+}
+
+static void status_ui_render_keyboard_lcd(void)
+{
+    status_ui_keyboard_state_t kb;
+    keyboard_snapshot(&kb);
+    if (!kb.active) {
+        return;
+    }
+
+    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
+    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 16, STATUS_UI_LCD_HEADER_BG);
+    lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 4, kb.title, STATUS_UI_LCD_TEXT, 1, 20);
+
+    char display[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
+    size_t text_len = strlen(kb.text);
+    for (size_t i = 0; i < text_len && i < sizeof(display) - 1u; ++i) {
+        display[i] = kb.secret ? '*' : kb.text[i];
+    }
+    display[text_len < sizeof(display) ? text_len : sizeof(display) - 1u] = '\0';
+    lcd_fill_rect(3, 19, BOARD_LCD_H_RES - 6, 18, 0x2104);
+    lcd_draw_text_clipped(6, 24, display, STATUS_UI_LCD_TEXT, 1, 19);
+
+    char count[16];
+    snprintf(count, sizeof(count), "%u/%u", (unsigned)text_len, (unsigned)kb.max_len);
+    lcd_draw_text(BOARD_LCD_H_RES - 38, 4, count, STATUS_UI_LCD_DIM, 1);
+
+    static const char *controls[STATUS_UI_KEYBOARD_CONTROLS] = {"OK", "AA", "DEL", "SPC", "ESC"};
+    const int control_w = BOARD_LCD_H_RES / STATUS_UI_KEYBOARD_CONTROLS;
+    for (int i = 0; i < STATUS_UI_KEYBOARD_CONTROLS; ++i) {
+        const bool selected = kb.selected == i;
+        const int x = i * control_w;
+        uint16_t bg = selected ? STATUS_UI_LCD_WARN : 0x3186;
+        uint16_t fg = selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT;
+        lcd_fill_rect(x + 1, 42, control_w - 2, 18, bg);
+        lcd_draw_text(x + 5, 48, controls[i], fg, 1);
+    }
+
+    const int key_w = BOARD_LCD_H_RES / STATUS_UI_KEYBOARD_COLS;
+    const int key_h = 34;
+    const int y0 = 68;
+    for (int row = 0; row < STATUS_UI_KEYBOARD_ROWS; ++row) {
+        for (int col = 0; col < STATUS_UI_KEYBOARD_COLS; ++col) {
+            const int index = STATUS_UI_KEYBOARD_CONTROLS + row * STATUS_UI_KEYBOARD_COLS + col;
+            const bool selected = kb.selected == index;
+            const int x = col * key_w;
+            const int y = y0 + row * key_h;
+            char label[2] = {s_keyboard_keys[row][col][kb.caps ? 1 : 0], '\0'};
+            uint16_t bg = selected ? STATUS_UI_LCD_OK : 0x1082;
+            uint16_t fg = selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT;
+            lcd_fill_rect(x + 1, y + 1, key_w - 2, key_h - 2, bg);
+            lcd_draw_text(x + 4, y + 11, label, fg, 1);
+        }
+    }
+
+    lcd_draw_text(4, BOARD_LCD_V_RES - 13, "K1 SEL K2 NEXT HOLD PREV", STATUS_UI_LCD_DIM, 1);
+}
+
+static void keyboard_move(int delta)
+{
+    const int total = STATUS_UI_KEYBOARD_CONTROLS + STATUS_UI_KEYBOARD_ROWS * STATUS_UI_KEYBOARD_COLS;
+    portENTER_CRITICAL(&s_state_mux);
+    s_keyboard.selected = (s_keyboard.selected + delta + total) % total;
+    portEXIT_CRITICAL(&s_state_mux);
+}
+
+static void keyboard_select(void)
+{
+    portENTER_CRITICAL(&s_state_mux);
+    if (s_keyboard.selected < STATUS_UI_KEYBOARD_CONTROLS) {
+        switch (s_keyboard.selected) {
+        case 0:
+            s_keyboard.done = true;
+            break;
+        case 1:
+            s_keyboard.caps = !s_keyboard.caps;
+            break;
+        case 2: {
+            size_t len = strlen(s_keyboard.text);
+            if (len > 0) {
+                s_keyboard.text[len - 1u] = '\0';
+            }
+            break;
+        }
+        case 3: {
+            size_t len = strlen(s_keyboard.text);
+            if (len < s_keyboard.max_len && len + 1u < sizeof(s_keyboard.text)) {
+                s_keyboard.text[len] = ' ';
+                s_keyboard.text[len + 1u] = '\0';
+            }
+            break;
+        }
+        case 4:
+            s_keyboard.cancelled = true;
+            break;
+        default:
+            break;
+        }
+    } else {
+        const int key_index = s_keyboard.selected - STATUS_UI_KEYBOARD_CONTROLS;
+        const int row = key_index / STATUS_UI_KEYBOARD_COLS;
+        const int col = key_index % STATUS_UI_KEYBOARD_COLS;
+        size_t len = strlen(s_keyboard.text);
+        if (row >= 0 && row < STATUS_UI_KEYBOARD_ROWS && col >= 0 && col < STATUS_UI_KEYBOARD_COLS &&
+            len < s_keyboard.max_len && len + 1u < sizeof(s_keyboard.text)) {
+            s_keyboard.text[len] = s_keyboard_keys[row][col][s_keyboard.caps ? 1 : 0];
+            s_keyboard.text[len + 1u] = '\0';
+        }
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+}
+
+bool status_ui_keyboard_read_line(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, bool secret, uint32_t timeout_ms)
+{
+    if (out == NULL || out_len == 0 || max_len == 0 || s_keyboard_queue == NULL || s_panel == NULL || s_framebuffer == NULL) {
+        return false;
+    }
+    if (max_len >= out_len) {
+        max_len = out_len - 1u;
+    }
+    if (max_len > STATUS_UI_KEYBOARD_MAX_TEXT) {
+        max_len = STATUS_UI_KEYBOARD_MAX_TEXT;
+    }
+
+    xQueueReset(s_keyboard_queue);
+    portENTER_CRITICAL(&s_state_mux);
+    memset(&s_keyboard, 0, sizeof(s_keyboard));
+    s_keyboard.active = true;
+    s_keyboard.secret = secret;
+    s_keyboard.max_len = max_len;
+    s_keyboard.selected = STATUS_UI_KEYBOARD_CONTROLS;
+    snprintf(s_keyboard.title, sizeof(s_keyboard.title), "%s", title != NULL ? title : "Keyboard");
+    snprintf(s_keyboard.text, sizeof(s_keyboard.text), "%s", initial != NULL ? initial : "");
+    s_keyboard.text[max_len] = '\0';
+    portEXIT_CRITICAL(&s_state_mux);
+
+    ESP_LOGI(TAG, "virtual keyboard start: %s", title != NULL ? title : "Keyboard");
+    const TickType_t start = xTaskGetTickCount();
+    const TickType_t timeout = timeout_ms == 0 ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+    bool ok = false;
+    while (true) {
+        status_ui_keyboard_event_t event;
+        TickType_t wait = pdMS_TO_TICKS(100);
+        if (timeout != portMAX_DELAY) {
+            TickType_t elapsed = xTaskGetTickCount() - start;
+            if (elapsed >= timeout) {
+                break;
+            }
+            TickType_t remaining = timeout - elapsed;
+            if (remaining < wait) {
+                wait = remaining;
+            }
+        }
+        if (xQueueReceive(s_keyboard_queue, &event, wait) == pdTRUE) {
+            if (event == STATUS_UI_KEYBOARD_EVENT_SELECT) {
+                keyboard_select();
+            } else if (event == STATUS_UI_KEYBOARD_EVENT_NEXT) {
+                keyboard_move(1);
+            } else if (event == STATUS_UI_KEYBOARD_EVENT_PREV) {
+                keyboard_move(-1);
+            }
+        }
+        portENTER_CRITICAL(&s_state_mux);
+        bool done = s_keyboard.done;
+        bool cancelled = s_keyboard.cancelled;
+        portEXIT_CRITICAL(&s_state_mux);
+        if (done || cancelled) {
+            ok = done && !cancelled;
+            break;
+        }
+    }
+
+    portENTER_CRITICAL(&s_state_mux);
+    if (ok) {
+        snprintf(out, out_len, "%s", s_keyboard.text);
+    }
+    s_keyboard.active = false;
+    portEXIT_CRITICAL(&s_state_mux);
+    ESP_LOGI(TAG, "virtual keyboard end: %s", ok ? "ok" : "cancel/timeout");
+    return ok;
 }
 
 static uint16_t state_color(status_ui_state_t state)
@@ -626,6 +943,15 @@ static void status_ui_render_lcd(void)
     if (ctx.snapshot.valid && (ctx.snapshot.flags & AUDIO_METRICS_FLAG_CLIPPING) != 0) {
         accent = STATUS_UI_LCD_ERR;
     }
+    if (keyboard_is_active()) {
+        status_ui_render_keyboard_lcd();
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+
     status_ui_render_app_shell(display_title(ctx.display_mode), &ctx, accent);
 
     if (!ctx.snapshot.valid && ctx.display_mode != APP_DISPLAY_DIAGNOSTICS) {
@@ -827,10 +1153,33 @@ static esp_err_t status_ui_lcd_init(void)
              BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, BOARD_LCD_RST_GPIO, BOARD_LCD_BL_GPIO);
     return ESP_OK;
 }
+#else
+bool status_ui_keyboard_read_line(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, bool secret, uint32_t timeout_ms)
+{
+    (void)title;
+    (void)initial;
+    (void)out;
+    (void)out_len;
+    (void)max_len;
+    (void)secret;
+    (void)timeout_ms;
+    return false;
+}
 #endif
 
 esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
 {
+#if CONFIG_APP_STATUS_UI_LCD
+    if (s_keyboard_queue == NULL) {
+        s_keyboard_queue = xQueueCreate(8, sizeof(status_ui_keyboard_event_t));
+        if (s_keyboard_queue == NULL) {
+            ESP_LOGE(TAG, "failed to create virtual keyboard queue");
+            status_ui_set_state(STATUS_UI_STATE_ERROR);
+            return ESP_ERR_NO_MEM;
+        }
+    }
+#endif
+
     if (handlers != NULL) {
         memcpy(&s_handlers, handlers, sizeof(s_handlers));
     } else {

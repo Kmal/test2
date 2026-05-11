@@ -25,6 +25,7 @@
 #include "action_http.h"
 #include "action_ir.h"
 #include "app_mode.h"
+#include "app_wifi.h"
 #include "board_audio.h"
 #include "board_sticks3.h"
 #include "rule_config_store.h"
@@ -542,11 +543,17 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "app_main: NVS ready");
     ESP_ERROR_CHECK(app_network_stack_init());
-    app_rule_runtime_init();
 
     ESP_LOGI(TAG, "app_main: status UI init start");
     ESP_ERROR_CHECK(status_ui_init(&status_handlers));
     status_ui_set_state(STATUS_UI_STATE_BOOTING);
+
+    if (app_wifi_start()) {
+        ESP_LOGI(TAG, "app_main: Wi-Fi/web UI network ready or setup AP started");
+    } else {
+        ESP_LOGW(TAG, "app_main: Wi-Fi/web UI network startup unavailable");
+    }
+    app_rule_runtime_init();
 
     const board_audio_config_t audio_config = {
         .profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY,

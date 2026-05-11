@@ -46,6 +46,73 @@ endif
 
 endmenu
 
+
+menu "StickS3 Wi-Fi and web UI"
+
+config APP_WIFI_ENABLE
+    bool "Enable Wi-Fi station/setup AP for web UI"
+    default y
+    help
+        Start ESP-IDF Wi-Fi during boot, try saved station credentials, and
+        fall back to a setup access point so the local HTTP configuration UI is
+        reachable from a browser.
+
+config APP_WIFI_AP_SSID
+    string "Setup access point SSID"
+    default "M5StickS3-Setup"
+    depends on APP_WIFI_ENABLE
+
+config APP_WIFI_AP_PASSWORD
+    string "Setup access point password (blank for open AP)"
+    default ""
+    depends on APP_WIFI_ENABLE
+    help
+        Leave blank for an open setup AP. If set, ESP Wi-Fi requires at least
+        eight characters for WPA2-PSK.
+
+config APP_WIFI_AP_CHANNEL
+    int "Setup access point channel"
+    default 6
+    range 1 13
+    depends on APP_WIFI_ENABLE
+
+config APP_WIFI_AP_MAX_CONNECTIONS
+    int "Setup access point max clients"
+    default 4
+    range 1 8
+    depends on APP_WIFI_ENABLE
+
+config APP_WIFI_CONNECT_TIMEOUT_MS
+    int "Station connection timeout in milliseconds"
+    default 8000
+    range 1000 60000
+    depends on APP_WIFI_ENABLE
+
+config APP_WIFI_MAX_SCAN_RESULTS
+    int "Maximum Wi-Fi scan results shown in web UI"
+    default 12
+    range 1 32
+    depends on APP_WIFI_ENABLE
+
+config APP_WIFI_KEYBOARD_PROVISIONING
+    bool "Prompt for Wi-Fi credentials on the LCD keyboard"
+    default y
+    depends on APP_WIFI_ENABLE && APP_STATUS_UI_LCD
+    help
+        When saved station credentials are missing or fail, show a Launcher-style
+        virtual keyboard on the StickS3 LCD before falling back to the setup AP.
+
+config APP_WIFI_KEYBOARD_TIMEOUT_MS
+    int "LCD keyboard provisioning timeout in milliseconds"
+    default 60000
+    range 0 300000
+    depends on APP_WIFI_KEYBOARD_PROVISIONING
+    help
+        Timeout for each SSID/password keyboard prompt. Set to 0 to wait
+        indefinitely.
+
+endmenu
+
 menu "StickS3 status UI"
 
 config APP_STATUS_UI_LCD
