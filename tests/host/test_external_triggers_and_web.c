@@ -1,4 +1,5 @@
 #include "rule_web.h"
+#include "app_wifi.h"
 #include "trigger_gpio.h"
 #include "trigger_hat.h"
 
@@ -59,7 +60,7 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(rule_runtime_init(&runtime, &config));
     ASSERT_TRUE(rule_config_store_open(&store));
     ASSERT_TRUE(rule_web_start(&web, &runtime, &store));
-    char json[8192];
+    char json[12288];
     ASSERT_TRUE(rule_web_get_status_json(&web, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "http_network_ready") != NULL);
     ASSERT_TRUE(strstr(json, "\"wifi\"") != NULL);
@@ -68,20 +69,50 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "Import / export JSON") != NULL);
     ASSERT_TRUE(strstr(json, "Test GPIO safety") != NULL);
     ASSERT_TRUE(strstr(json, "Probe HAT") != NULL);
-    ASSERT_TRUE(strstr(json, "Wi-Fi setup") != NULL);
+    ASSERT_TRUE(strstr(json, "Wi-Fi Mode") != NULL);
+    ASSERT_TRUE(strstr(json, "AP Mode") != NULL);
+    ASSERT_TRUE(strstr(json, "AP Name") != NULL);
+    ASSERT_TRUE(strstr(json, "Scan Nearby Wi-Fi") != NULL);
+    ASSERT_TRUE(strstr(json, "Use Wi-Fi Mode") != NULL);
+    ASSERT_TRUE(strstr(json, "Use AP Mode") != NULL);
+    ASSERT_TRUE(strstr(json, "Saved Wi-Fi") != NULL);
+    ASSERT_TRUE(strstr(json, "Forget Saved Credentials") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/wifi/status", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "\"enabled\":false") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/scan", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "wifi_unavailable") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/connect", "{}", json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "missing_ssid") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
+                                        "{\"ssid\":\"MyDeviceAP\",\"password\":\"password123\",\"channel\":6}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\"") != NULL);
+    ASSERT_TRUE(strstr(json, "MyDeviceAP") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
+                                        "{\"ssid\":\"OpenAP\",\"channel\":6}",
+                                        json, sizeof(json)));
+    app_wifi_config_t wifi_config;
+    ASSERT_TRUE(app_wifi_get_config(&wifi_config));
+    ASSERT_TRUE(strcmp(wifi_config.ap_ssid, "OpenAP") == 0);
+    ASSERT_TRUE(wifi_config.ap_password[0] == '\0');
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
+                                        "{\"ssid\":\"\",\"password\":\"password123\",\"channel\":6}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "invalid_ap_ssid") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
+                                        "{\"ssid\":\"MyDeviceAP\",\"channel\":99}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "invalid_ap_channel") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/mode",
+                                        "{\"mode\":\"ap\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\"") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/capabilities", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "pin_conflicts") != NULL);
     ASSERT_TRUE(strstr(json, "hat.thermal.avg_c") != NULL);
     ASSERT_TRUE(strstr(json, "pulse_count") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/config", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "threshold_kind") != NULL);
-    char exported[8192];
+    char exported[12288];
     snprintf(exported, sizeof(exported), "%s", json);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", exported, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "config rejected") == NULL);

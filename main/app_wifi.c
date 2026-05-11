@@ -6,16 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef ESP_PLATFORM
-#include "esp_err.h"
-#include "esp_event.h"
-#include "esp_log.h"
-#include "esp_netif.h"
-#include "esp_wifi.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "nvs.h"
-
 #ifndef CONFIG_APP_WIFI_ENABLE
 #define CONFIG_APP_WIFI_ENABLE 1
 #endif
@@ -35,7 +25,7 @@
 #define CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS 8000
 #endif
 #ifndef CONFIG_APP_WIFI_MAX_SCAN_RESULTS
-#define CONFIG_APP_WIFI_MAX_SCAN_RESULTS 12
+#define CONFIG_APP_WIFI_MAX_SCAN_RESULTS APP_WIFI_MAX_SCAN_RESULTS
 #endif
 #ifndef CONFIG_APP_WIFI_KEYBOARD_PROVISIONING
 #define CONFIG_APP_WIFI_KEYBOARD_PROVISIONING 0
@@ -44,10 +34,26 @@
 #define CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS 60000
 #endif
 
+#define APP_WIFI_IP_LEN 16u
+
+#ifdef ESP_PLATFORM
+#include "esp_err.h"
+#include "esp_event.h"
+#include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nvs.h"
+
 #define APP_WIFI_NVS_NAMESPACE "app_wifi"
 #define APP_WIFI_NVS_SSID "ssid"
 #define APP_WIFI_NVS_PASSWORD "password"
-#define APP_WIFI_IP_LEN 16u
+#define APP_WIFI_NVS_AP_SSID "ap_ssid"
+#define APP_WIFI_NVS_AP_PASSWORD "ap_password"
+#define APP_WIFI_NVS_AP_CHANNEL "ap_channel"
+#define APP_WIFI_NVS_AP_MAX_CONNECTIONS "ap_max_conn"
+#define APP_WIFI_NVS_MODE "preferred_mode"
 
 static const char *TAG = "APP_WIFI";
 
@@ -57,48 +63,49 @@ static bool s_wifi_initialized;
 static bool s_wifi_started;
 static bool s_ap_started;
 static bool s_sta_connected;
-static char s_sta_ssid[33];
 static char s_sta_ip[APP_WIFI_IP_LEN] = "0.0.0.0";
 static char s_ap_ip[APP_WIFI_IP_LEN] = "0.0.0.0";
+static app_wifi_config_t s_config;
+static bool s_config_loaded;
 
-static void copy_ip(char out[APP_WIFI_IP_LEN], esp_ip4_addr_t ip)
+static bool validate_ssid(const char *ssid)
 {
-    (void)snprintf(out, APP_WIFI_IP_LEN, IPSTR, IP2STR(&ip));
+    return ssid != NULL && ssid[0] != '\0' && strlen(ssid) <= 32u;
 }
 
-static bool read_saved_credentials(char *ssid, size_t ssid_len, char *password, size_t password_len)
+static bool validate_password(const char *password)
 {
-    if (ssid == NULL || password == NULL || ssid_len == 0 || password_len == 0) {
-        return false;
-    }
-    ssid[0] = '\0';
-    password[0] = '\0';
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open(APP_WIFI_NVS_NAMESPACE, NVS_READONLY, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGI(TAG, "no saved Wi-Fi credentials: %s", esp_err_to_name(err));
-        return false;
-    }
-    size_t required = ssid_len;
-    err = nvs_get_str(handle, APP_WIFI_NVS_SSID, ssid, &required);
-    if (err == ESP_OK) {
-        required = password_len;
-        esp_err_t pass_err = nvs_get_str(handle, APP_WIFI_NVS_PASSWORD, password, &required);
-        if (pass_err == ESP_ERR_NVS_NOT_FOUND) {
-            password[0] = '\0';
-        } else if (pass_err != ESP_OK) {
-            ESP_LOGW(TAG, "saved Wi-Fi password read failed: %s", esp_err_to_name(pass_err));
-        }
-    }
-    nvs_close(handle);
-    if (err != ESP_OK || ssid[0] == '\0') {
-        ESP_LOGI(TAG, "saved Wi-Fi SSID unavailable: %s", esp_err_to_name(err));
-        return false;
-    }
-    return true;
+    size_t len = password != NULL ? strlen(password) : 0u;
+    return len == 0u || (len >= 8u && len <= 63u);
 }
 
-static bool save_credentials(const char *ssid, const char *password)
+static bool validate_channel(uint8_t channel)
+{
+    return channel >= 1u && channel <= 13u;
+}
+
+const char *app_wifi_mode_name(app_wifi_mode_t mode)
+{
+    switch (mode) {
+    case APP_WIFI_MODE_OFF: return "off";
+    case APP_WIFI_MODE_STA: return "wifi";
+    case APP_WIFI_MODE_AP: return "ap";
+    case APP_WIFI_MODE_APSTA: return "apsta";
+    default: return "unknown";
+    }
+}
+
+static void config_defaults(app_wifi_config_t *config)
+{
+    memset(config, 0, sizeof(*config));
+    (void)snprintf(config->ap_ssid, sizeof(config->ap_ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
+    (void)snprintf(config->ap_password, sizeof(config->ap_password), "%s", CONFIG_APP_WIFI_AP_PASSWORD);
+    config->ap_channel = CONFIG_APP_WIFI_AP_CHANNEL;
+    config->ap_max_connections = CONFIG_APP_WIFI_AP_MAX_CONNECTIONS;
+    config->preferred_mode = APP_WIFI_MODE_STA;
+}
+
+static bool persist_config(const app_wifi_config_t *config)
 {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(APP_WIFI_NVS_NAMESPACE, NVS_READWRITE, &handle);
@@ -106,19 +113,77 @@ static bool save_credentials(const char *ssid, const char *password)
         ESP_LOGE(TAG, "open Wi-Fi NVS failed: %s", esp_err_to_name(err));
         return false;
     }
-    err = nvs_set_str(handle, APP_WIFI_NVS_SSID, ssid != NULL ? ssid : "");
-    if (err == ESP_OK) {
-        err = nvs_set_str(handle, APP_WIFI_NVS_PASSWORD, password != NULL ? password : "");
-    }
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
+    err = nvs_set_str(handle, APP_WIFI_NVS_SSID, config->sta_ssid);
+    if (err == ESP_OK) err = nvs_set_str(handle, APP_WIFI_NVS_PASSWORD, config->sta_password);
+    if (err == ESP_OK) err = nvs_set_str(handle, APP_WIFI_NVS_AP_SSID, config->ap_ssid);
+    if (err == ESP_OK) err = nvs_set_str(handle, APP_WIFI_NVS_AP_PASSWORD, config->ap_password);
+    if (err == ESP_OK) err = nvs_set_u8(handle, APP_WIFI_NVS_AP_CHANNEL, config->ap_channel);
+    if (err == ESP_OK) err = nvs_set_u8(handle, APP_WIFI_NVS_AP_MAX_CONNECTIONS, config->ap_max_connections);
+    if (err == ESP_OK) err = nvs_set_u8(handle, APP_WIFI_NVS_MODE, (uint8_t)config->preferred_mode);
+    if (err == ESP_OK) err = nvs_commit(handle);
     nvs_close(handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "save Wi-Fi credentials failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "save Wi-Fi config failed: %s", esp_err_to_name(err));
         return false;
     }
     return true;
+}
+
+static void load_config_once(void)
+{
+    if (s_config_loaded) {
+        return;
+    }
+    config_defaults(&s_config);
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(APP_WIFI_NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "no saved Wi-Fi config: %s", esp_err_to_name(err));
+        s_config_loaded = true;
+        return;
+    }
+    size_t required = sizeof(s_config.sta_ssid);
+    (void)nvs_get_str(handle, APP_WIFI_NVS_SSID, s_config.sta_ssid, &required);
+    required = sizeof(s_config.sta_password);
+    (void)nvs_get_str(handle, APP_WIFI_NVS_PASSWORD, s_config.sta_password, &required);
+    required = sizeof(s_config.ap_ssid);
+    (void)nvs_get_str(handle, APP_WIFI_NVS_AP_SSID, s_config.ap_ssid, &required);
+    required = sizeof(s_config.ap_password);
+    (void)nvs_get_str(handle, APP_WIFI_NVS_AP_PASSWORD, s_config.ap_password, &required);
+    uint8_t channel = s_config.ap_channel;
+    if (nvs_get_u8(handle, APP_WIFI_NVS_AP_CHANNEL, &channel) == ESP_OK && validate_channel(channel)) {
+        s_config.ap_channel = channel;
+    }
+    uint8_t max_connections = s_config.ap_max_connections;
+    if (nvs_get_u8(handle, APP_WIFI_NVS_AP_MAX_CONNECTIONS, &max_connections) == ESP_OK &&
+        max_connections > 0u && max_connections <= 10u) {
+        s_config.ap_max_connections = max_connections;
+    }
+    uint8_t mode = (uint8_t)s_config.preferred_mode;
+    if (nvs_get_u8(handle, APP_WIFI_NVS_MODE, &mode) == ESP_OK && mode <= APP_WIFI_MODE_APSTA) {
+        s_config.preferred_mode = (app_wifi_mode_t)mode;
+    }
+    nvs_close(handle);
+    if (!validate_ssid(s_config.ap_ssid)) {
+        (void)snprintf(s_config.ap_ssid, sizeof(s_config.ap_ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
+    }
+    if (!validate_password(s_config.ap_password)) {
+        s_config.ap_password[0] = '\0';
+    }
+    s_config_loaded = true;
+}
+
+static void copy_ip(char out[APP_WIFI_IP_LEN], esp_ip4_addr_t ip)
+{
+    (void)snprintf(out, APP_WIFI_IP_LEN, IPSTR, IP2STR(&ip));
+}
+
+static app_wifi_mode_t active_mode(void)
+{
+    if (s_sta_connected && s_ap_started) return APP_WIFI_MODE_APSTA;
+    if (s_sta_connected) return APP_WIFI_MODE_STA;
+    if (s_ap_started) return APP_WIFI_MODE_AP;
+    return APP_WIFI_MODE_OFF;
 }
 
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -127,14 +192,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     if (base == WIFI_EVENT) {
         if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_sta_connected = false;
-            s_sta_ip[0] = '0';
-            s_sta_ip[1] = '.';
-            s_sta_ip[2] = '0';
-            s_sta_ip[3] = '.';
-            s_sta_ip[4] = '0';
-            s_sta_ip[5] = '.';
-            s_sta_ip[6] = '0';
-            s_sta_ip[7] = '\0';
+            (void)snprintf(s_sta_ip, sizeof(s_sta_ip), "0.0.0.0");
             action_http_set_network_ready(false);
             ESP_LOGW(TAG, "station disconnected");
         } else if (id == WIFI_EVENT_AP_START) {
@@ -143,7 +201,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             if (s_ap_netif != NULL && esp_netif_get_ip_info(s_ap_netif, &ip_info) == ESP_OK) {
                 copy_ip(s_ap_ip, ip_info.ip);
             }
-            ESP_LOGI(TAG, "setup AP started: ssid=%s ip=%s", CONFIG_APP_WIFI_AP_SSID, s_ap_ip);
+            ESP_LOGI(TAG, "setup AP started: ssid=%s ip=%s", s_config.ap_ssid, s_ap_ip);
         } else if (id == WIFI_EVENT_AP_STOP) {
             s_ap_started = false;
             (void)snprintf(s_ap_ip, sizeof(s_ap_ip), "0.0.0.0");
@@ -153,12 +211,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_sta_connected = true;
         copy_ip(s_sta_ip, event->ip_info.ip);
         action_http_set_network_ready(true);
-        ESP_LOGI(TAG, "station connected: ssid=%s ip=%s", s_sta_ssid, s_sta_ip);
+        ESP_LOGI(TAG, "station connected: ssid=%s ip=%s", s_config.sta_ssid, s_sta_ip);
     }
 }
 
 static bool app_wifi_init_once(void)
 {
+    load_config_once();
     if (s_wifi_initialized) {
         return true;
     }
@@ -198,7 +257,7 @@ static bool ensure_wifi_started(void)
     return true;
 }
 
-static bool set_mode(wifi_mode_t mode)
+static bool set_driver_mode(wifi_mode_t mode)
 {
     esp_err_t err = esp_wifi_set_mode(mode);
     if (err != ESP_OK) {
@@ -208,26 +267,142 @@ static bool set_mode(wifi_mode_t mode)
     return true;
 }
 
-bool app_wifi_start_ap(void)
+bool app_wifi_get_config(app_wifi_config_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    load_config_once();
+    *out = s_config;
+    return true;
+}
+
+bool app_wifi_set_config(const app_wifi_config_t *config, bool persist)
+{
+    if (config == NULL || !validate_ssid(config->ap_ssid) || !validate_password(config->ap_password) ||
+        !validate_channel(config->ap_channel) || config->preferred_mode > APP_WIFI_MODE_APSTA) {
+        return false;
+    }
+    if (config->sta_ssid[0] != '\0' && strlen(config->sta_ssid) > 32u) {
+        return false;
+    }
+    if (strlen(config->sta_password) > 63u || config->ap_max_connections == 0u || config->ap_max_connections > 10u) {
+        return false;
+    }
+    s_config = *config;
+    s_config_loaded = true;
+    return !persist || persist_config(&s_config);
+}
+
+bool app_wifi_get_status(app_wifi_status_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    load_config_once();
+    memset(out, 0, sizeof(*out));
+    out->enabled = CONFIG_APP_WIFI_ENABLE;
+    out->active_mode = active_mode();
+    out->sta_connected = s_sta_connected;
+    (void)snprintf(out->sta_ssid, sizeof(out->sta_ssid), "%s", s_config.sta_ssid);
+    (void)snprintf(out->sta_ip, sizeof(out->sta_ip), "%s", s_sta_ip);
+    out->ap_started = s_ap_started;
+    (void)snprintf(out->ap_ssid, sizeof(out->ap_ssid), "%s", s_config.ap_ssid);
+    (void)snprintf(out->ap_ip, sizeof(out->ap_ip), "%s", s_ap_ip);
+    out->ap_channel = s_config.ap_channel;
+    out->ap_max_connections = s_config.ap_max_connections;
+    (void)snprintf(out->web_url, sizeof(out->web_url), "http://%s/", s_sta_connected ? s_sta_ip : s_ap_ip);
+    return true;
+}
+
+bool app_wifi_set_mode(app_wifi_mode_t mode)
 {
 #if !CONFIG_APP_WIFI_ENABLE
+    (void)mode;
     return false;
 #else
+    if (!app_wifi_init_once() || mode > APP_WIFI_MODE_APSTA) {
+        return false;
+    }
+    s_config.preferred_mode = mode;
+    if (mode == APP_WIFI_MODE_OFF) {
+        esp_err_t err = esp_wifi_stop();
+        if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT && err != ESP_ERR_WIFI_NOT_STARTED) {
+            ESP_LOGE(TAG, "esp_wifi_stop failed: %s", esp_err_to_name(err));
+            return false;
+        }
+        s_wifi_started = false;
+        s_ap_started = false;
+        s_sta_connected = false;
+        action_http_set_network_ready(false);
+        return persist_config(&s_config);
+    }
+    if (mode == APP_WIFI_MODE_AP) {
+        if (s_sta_connected) {
+            (void)esp_wifi_disconnect();
+            s_sta_connected = false;
+            action_http_set_network_ready(false);
+        }
+        return app_wifi_start_ap_configured(s_config.ap_ssid, s_config.ap_password, s_config.ap_channel, true);
+    }
+    if (mode == APP_WIFI_MODE_APSTA) {
+        if (!s_sta_connected && s_config.sta_ssid[0] != '\0') {
+            (void)app_wifi_connect(s_config.sta_ssid, s_config.sta_password, false);
+        }
+        return app_wifi_start_ap_configured(s_config.ap_ssid, s_config.ap_password, s_config.ap_channel, true);
+    }
+    if (s_ap_started) {
+        s_ap_started = false;
+        if (!set_driver_mode(WIFI_MODE_STA)) {
+            return false;
+        }
+    }
+    if (s_config.sta_ssid[0] != '\0') {
+        bool connected = app_wifi_connect(s_config.sta_ssid, s_config.sta_password, false);
+        if (connected) {
+            s_config.preferred_mode = APP_WIFI_MODE_STA;
+            (void)persist_config(&s_config);
+        }
+        return connected;
+    }
+    if (!set_driver_mode(WIFI_MODE_STA) || !ensure_wifi_started()) {
+        return false;
+    }
+    return persist_config(&s_config);
+#endif
+}
+
+bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, uint8_t channel, bool persist)
+{
+#if !CONFIG_APP_WIFI_ENABLE
+    (void)ap_ssid; (void)ap_password; (void)channel; (void)persist;
+    return false;
+#else
+    if (!validate_ssid(ap_ssid) || !validate_password(ap_password) || !validate_channel(channel)) {
+        ESP_LOGW(TAG, "invalid AP configuration");
+        return false;
+    }
     if (!app_wifi_init_once()) {
         return false;
     }
-    wifi_mode_t mode = s_sta_connected ? WIFI_MODE_APSTA : WIFI_MODE_AP;
-    if (!set_mode(mode)) {
+    (void)snprintf(s_config.ap_ssid, sizeof(s_config.ap_ssid), "%s", ap_ssid);
+    (void)snprintf(s_config.ap_password, sizeof(s_config.ap_password), "%s", ap_password != NULL ? ap_password : "");
+    s_config.ap_channel = channel;
+    s_config.preferred_mode = s_sta_connected ? APP_WIFI_MODE_APSTA : APP_WIFI_MODE_AP;
+    if (persist && !persist_config(&s_config)) {
+        ESP_LOGW(TAG, "failed to persist AP configuration");
+    }
+    if (!set_driver_mode(s_sta_connected ? WIFI_MODE_APSTA : WIFI_MODE_AP)) {
         return false;
     }
     wifi_config_t ap_config;
     memset(&ap_config, 0, sizeof(ap_config));
-    (void)snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
-    ap_config.ap.ssid_len = strlen(CONFIG_APP_WIFI_AP_SSID);
-    (void)snprintf((char *)ap_config.ap.password, sizeof(ap_config.ap.password), "%s", CONFIG_APP_WIFI_AP_PASSWORD);
-    ap_config.ap.channel = CONFIG_APP_WIFI_AP_CHANNEL;
-    ap_config.ap.max_connection = CONFIG_APP_WIFI_AP_MAX_CONNECTIONS;
-    ap_config.ap.authmode = strlen(CONFIG_APP_WIFI_AP_PASSWORD) >= 8u ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    (void)snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid), "%s", s_config.ap_ssid);
+    ap_config.ap.ssid_len = strlen(s_config.ap_ssid);
+    (void)snprintf((char *)ap_config.ap.password, sizeof(ap_config.ap.password), "%s", s_config.ap_password);
+    ap_config.ap.channel = s_config.ap_channel;
+    ap_config.ap.max_connection = s_config.ap_max_connections;
+    ap_config.ap.authmode = strlen(s_config.ap_password) >= 8u ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     if (ap_config.ap.authmode == WIFI_AUTH_OPEN) {
         ap_config.ap.password[0] = '\0';
     }
@@ -245,9 +420,7 @@ bool app_wifi_start_ap(void)
     }
     s_ap_started = true;
     ESP_LOGI(TAG, "setup AP ready: ssid=%s password=%s url=http://%s/",
-             CONFIG_APP_WIFI_AP_SSID,
-             strlen(CONFIG_APP_WIFI_AP_PASSWORD) >= 8u ? CONFIG_APP_WIFI_AP_PASSWORD : "<open>",
-             s_ap_ip);
+             s_config.ap_ssid, strlen(s_config.ap_password) >= 8u ? s_config.ap_password : "<open>", s_ap_ip);
     return true;
 #endif
 }
@@ -255,12 +428,10 @@ bool app_wifi_start_ap(void)
 bool app_wifi_connect(const char *ssid, const char *password, bool persist)
 {
 #if !CONFIG_APP_WIFI_ENABLE
-    (void)ssid;
-    (void)password;
-    (void)persist;
+    (void)ssid; (void)password; (void)persist;
     return false;
 #else
-    if (ssid == NULL || ssid[0] == '\0' || strlen(ssid) > 32u) {
+    if (!validate_ssid(ssid)) {
         ESP_LOGW(TAG, "invalid SSID");
         return false;
     }
@@ -271,7 +442,7 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     if (!app_wifi_init_once()) {
         return false;
     }
-    if (!set_mode(s_ap_started ? WIFI_MODE_APSTA : WIFI_MODE_STA)) {
+    if (!set_driver_mode(s_ap_started ? WIFI_MODE_APSTA : WIFI_MODE_STA)) {
         return false;
     }
     wifi_config_t sta_config;
@@ -287,7 +458,10 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     if (!ensure_wifi_started()) {
         return false;
     }
-    (void)snprintf(s_sta_ssid, sizeof(s_sta_ssid), "%s", ssid);
+    (void)snprintf(s_config.sta_ssid, sizeof(s_config.sta_ssid), "%s", ssid);
+    (void)snprintf(s_config.sta_password, sizeof(s_config.sta_password), "%s", password != NULL ? password : "");
+    s_config.sta_persist = persist;
+    s_config.preferred_mode = s_ap_started ? APP_WIFI_MODE_APSTA : APP_WIFI_MODE_STA;
     s_sta_connected = false;
     action_http_set_network_ready(false);
     (void)esp_wifi_disconnect();
@@ -305,14 +479,13 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
         ESP_LOGW(TAG, "connection timed out for SSID %s", ssid);
         return false;
     }
-    if (persist && !save_credentials(ssid, password != NULL ? password : "")) {
+    if (persist && !persist_config(&s_config)) {
         ESP_LOGW(TAG, "connected but failed to persist Wi-Fi credentials");
     }
     ESP_LOGI(TAG, "web UI available on station network: http://%s/", s_sta_ip);
     return true;
 #endif
 }
-
 
 static bool prompt_credentials_and_connect(void)
 {
@@ -345,14 +518,12 @@ bool app_wifi_start(void)
     action_http_set_network_ready(false);
     return false;
 #else
-    char ssid[33];
-    char password[65];
     if (!app_wifi_init_once()) {
         return false;
     }
-    if (read_saved_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
-        ESP_LOGI(TAG, "trying saved Wi-Fi SSID %s", ssid);
-        if (app_wifi_connect(ssid, password, false)) {
+    if (s_config.sta_ssid[0] != '\0') {
+        ESP_LOGI(TAG, "trying saved Wi-Fi SSID %s", s_config.sta_ssid);
+        if (app_wifi_connect(s_config.sta_ssid, s_config.sta_password, false)) {
             return true;
         }
     }
@@ -360,16 +531,69 @@ bool app_wifi_start(void)
         return true;
     }
     ESP_LOGI(TAG, "starting setup AP for Wi-Fi selection and web UI");
-    return app_wifi_start_ap();
+    return app_wifi_start_ap_configured(s_config.ap_ssid, s_config.ap_password, s_config.ap_channel, false);
+#endif
+}
+
+bool app_wifi_forget_sta_credentials(void)
+{
+    load_config_once();
+    s_config.sta_ssid[0] = '\0';
+    s_config.sta_password[0] = '\0';
+    s_config.sta_persist = false;
+    return persist_config(&s_config);
+}
+
+bool app_wifi_scan(app_wifi_scan_results_t *out)
+{
+#if !CONFIG_APP_WIFI_ENABLE
+    (void)out;
+    return false;
+#else
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!app_wifi_init_once() || !set_driver_mode(s_ap_started ? WIFI_MODE_APSTA : WIFI_MODE_STA) || !ensure_wifi_started()) {
+        (void)snprintf(out->error, sizeof(out->error), "wifi_start_failed");
+        return false;
+    }
+    esp_err_t err = esp_wifi_scan_start(NULL, true);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err));
+        (void)snprintf(out->error, sizeof(out->error), "scan_failed");
+        return false;
+    }
+    uint16_t count = CONFIG_APP_WIFI_MAX_SCAN_RESULTS;
+    if (count > APP_WIFI_MAX_SCAN_RESULTS) {
+        count = APP_WIFI_MAX_SCAN_RESULTS;
+    }
+    wifi_ap_record_t records[APP_WIFI_MAX_SCAN_RESULTS];
+    memset(records, 0, sizeof(records));
+    err = esp_wifi_scan_get_ap_records(&count, records);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "scan records failed: %s", esp_err_to_name(err));
+        (void)snprintf(out->error, sizeof(out->error), "scan_records_failed");
+        return false;
+    }
+    out->ok = true;
+    out->count = count;
+    for (uint16_t i = 0; i < count; ++i) {
+        memcpy(out->items[i].ssid, records[i].ssid, 32);
+        out->items[i].ssid[32] = '\0';
+        out->items[i].rssi = (int8_t)records[i].rssi;
+        out->items[i].authmode = (uint8_t)records[i].authmode;
+        out->items[i].channel = records[i].primary;
+        out->items[i].secure = records[i].authmode != WIFI_AUTH_OPEN;
+    }
+    return true;
 #endif
 }
 
 static bool append_json_string(char **cursor, size_t *remaining, const char *value)
 {
     int written = snprintf(*cursor, *remaining, "\"");
-    if (written < 0 || (size_t)written >= *remaining) {
-        return false;
-    }
+    if (written < 0 || (size_t)written >= *remaining) return false;
     *cursor += written;
     *remaining -= (size_t)written;
     for (const unsigned char *ch = (const unsigned char *)(value != NULL ? value : ""); *ch != '\0'; ++ch) {
@@ -389,16 +613,12 @@ static bool append_json_string(char **cursor, size_t *remaining, const char *val
             break;
         }
         written = snprintf(*cursor, *remaining, "%s", escape != NULL ? escape : (char[]){(char)*ch, '\0'});
-        if (written < 0 || (size_t)written >= *remaining) {
-            return false;
-        }
+        if (written < 0 || (size_t)written >= *remaining) return false;
         *cursor += written;
         *remaining -= (size_t)written;
     }
     written = snprintf(*cursor, *remaining, "\"");
-    if (written < 0 || (size_t)written >= *remaining) {
-        return false;
-    }
+    if (written < 0 || (size_t)written >= *remaining) return false;
     *cursor += written;
     *remaining -= (size_t)written;
     return true;
@@ -406,62 +626,34 @@ static bool append_json_string(char **cursor, size_t *remaining, const char *val
 
 bool app_wifi_scan_json(char *out, size_t out_len)
 {
-#if !CONFIG_APP_WIFI_ENABLE
-    (void)out;
-    (void)out_len;
-    return false;
-#else
-    if (out == NULL || out_len == 0 || !app_wifi_init_once()) {
+    if (out == NULL || out_len == 0) {
         return false;
     }
-    if (!set_mode(s_ap_started ? WIFI_MODE_APSTA : WIFI_MODE_STA) || !ensure_wifi_started()) {
-        return false;
-    }
-    esp_err_t err = esp_wifi_scan_start(NULL, true);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err));
-        return snprintf(out, out_len, "{\"ok\":false,\"error\":\"scan_failed\"}") > 0;
-    }
-    uint16_t count = CONFIG_APP_WIFI_MAX_SCAN_RESULTS;
-    wifi_ap_record_t records[CONFIG_APP_WIFI_MAX_SCAN_RESULTS];
-    memset(records, 0, sizeof(records));
-    err = esp_wifi_scan_get_ap_records(&count, records);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "scan records failed: %s", esp_err_to_name(err));
-        return snprintf(out, out_len, "{\"ok\":false,\"error\":\"scan_records_failed\"}") > 0;
+    app_wifi_scan_results_t scan;
+    if (!app_wifi_scan(&scan)) {
+        return snprintf(out, out_len, "{\"ok\":false,\"error\":\"%s\"}", scan.error[0] != '\0' ? scan.error : "scan_failed") > 0;
     }
     char *cursor = out;
     size_t remaining = out_len;
     int written = snprintf(cursor, remaining, "{\"ok\":true,\"networks\":[");
-    if (written < 0 || (size_t)written >= remaining) {
-        return false;
-    }
+    if (written < 0 || (size_t)written >= remaining) return false;
     cursor += written;
     remaining -= (size_t)written;
-    for (uint16_t i = 0; i < count; ++i) {
-        char ssid[33];
-        memcpy(ssid, records[i].ssid, 32);
-        ssid[32] = '\0';
-        written = snprintf(cursor, remaining, "%s{\"ssid\":", i == 0 ? "" : ",");
-        if (written < 0 || (size_t)written >= remaining) {
-            return false;
-        }
+    for (size_t i = 0; i < scan.count; ++i) {
+        written = snprintf(cursor, remaining, "%s{\"ssid\":", i == 0u ? "" : ",");
+        if (written < 0 || (size_t)written >= remaining) return false;
         cursor += written;
         remaining -= (size_t)written;
-        if (!append_json_string(&cursor, &remaining, ssid)) {
-            return false;
-        }
-        written = snprintf(cursor, remaining, ",\"rssi\":%d,\"auth\":%d,\"channel\":%u}",
-                           records[i].rssi, (int)records[i].authmode, (unsigned)records[i].primary);
-        if (written < 0 || (size_t)written >= remaining) {
-            return false;
-        }
+        if (!append_json_string(&cursor, &remaining, scan.items[i].ssid)) return false;
+        written = snprintf(cursor, remaining, ",\"rssi\":%d,\"auth\":%u,\"channel\":%u,\"secure\":%s}",
+                           scan.items[i].rssi, (unsigned)scan.items[i].authmode,
+                           (unsigned)scan.items[i].channel, scan.items[i].secure ? "true" : "false");
+        if (written < 0 || (size_t)written >= remaining) return false;
         cursor += written;
         remaining -= (size_t)written;
     }
     written = snprintf(cursor, remaining, "]}");
     return written > 0 && (size_t)written < remaining;
-#endif
 }
 
 bool app_wifi_status_json(char *out, size_t out_len)
@@ -469,37 +661,30 @@ bool app_wifi_status_json(char *out, size_t out_len)
     if (out == NULL || out_len == 0) {
         return false;
     }
-#if !CONFIG_APP_WIFI_ENABLE
-    return snprintf(out, out_len, "{\"enabled\":false}") > 0;
-#else
-    const char *mode = s_sta_connected ? (s_ap_started ? "apsta" : "sta") : (s_ap_started ? "ap" : "off");
+    app_wifi_status_t status;
+    if (!app_wifi_get_status(&status)) {
+        return false;
+    }
     char *cursor = out;
     size_t remaining = out_len;
     int written = snprintf(cursor, remaining,
                            "{\"enabled\":true,\"mode\":\"%s\",\"sta_connected\":%s,\"sta_ssid\":",
-                           mode, s_sta_connected ? "true" : "false");
-    if (written < 0 || (size_t)written >= remaining) {
-        return false;
-    }
+                           app_wifi_mode_name(status.active_mode), status.sta_connected ? "true" : "false");
+    if (written < 0 || (size_t)written >= remaining) return false;
     cursor += written;
     remaining -= (size_t)written;
-    if (!append_json_string(&cursor, &remaining, s_sta_ssid)) {
-        return false;
-    }
+    if (!append_json_string(&cursor, &remaining, status.sta_ssid)) return false;
     written = snprintf(cursor, remaining, ",\"sta_ip\":\"%s\",\"ap_started\":%s,\"ap_ssid\":",
-                       s_sta_ip, s_ap_started ? "true" : "false");
-    if (written < 0 || (size_t)written >= remaining) {
-        return false;
-    }
+                       status.sta_ip, status.ap_started ? "true" : "false");
+    if (written < 0 || (size_t)written >= remaining) return false;
     cursor += written;
     remaining -= (size_t)written;
-    if (!append_json_string(&cursor, &remaining, CONFIG_APP_WIFI_AP_SSID)) {
-        return false;
-    }
-    written = snprintf(cursor, remaining, ",\"ap_ip\":\"%s\",\"web_url\":\"http://%s/\"}",
-                       s_ap_ip, s_sta_connected ? s_sta_ip : s_ap_ip);
+    if (!append_json_string(&cursor, &remaining, status.ap_ssid)) return false;
+    written = snprintf(cursor, remaining,
+                       ",\"ap_ip\":\"%s\",\"ap_channel\":%u,\"ap_max_connections\":%u,\"web_url\":\"%s\"}",
+                       status.ap_ip, (unsigned)status.ap_channel,
+                       (unsigned)status.ap_max_connections, status.web_url);
     return written > 0 && (size_t)written < remaining;
-#endif
 }
 
 bool app_wifi_is_sta_connected(void)
@@ -509,32 +694,163 @@ bool app_wifi_is_sta_connected(void)
 
 #else
 
+static app_wifi_config_t s_config;
+static bool s_config_loaded;
+static bool s_sta_connected;
+static bool s_ap_started;
+
+static void config_defaults(app_wifi_config_t *config)
+{
+    memset(config, 0, sizeof(*config));
+    (void)snprintf(config->ap_ssid, sizeof(config->ap_ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
+    (void)snprintf(config->ap_password, sizeof(config->ap_password), "%s", CONFIG_APP_WIFI_AP_PASSWORD);
+    config->ap_channel = CONFIG_APP_WIFI_AP_CHANNEL;
+    config->ap_max_connections = CONFIG_APP_WIFI_AP_MAX_CONNECTIONS;
+    config->preferred_mode = APP_WIFI_MODE_STA;
+}
+
+static void load_config_once(void)
+{
+    if (!s_config_loaded) {
+        config_defaults(&s_config);
+        s_config_loaded = true;
+    }
+}
+
+static bool validate_ssid(const char *ssid)
+{
+    return ssid != NULL && ssid[0] != '\0' && strlen(ssid) <= 32u;
+}
+
+static bool validate_password(const char *password)
+{
+    size_t len = password != NULL ? strlen(password) : 0u;
+    return len == 0u || (len >= 8u && len <= 63u);
+}
+
+static bool validate_channel(uint8_t channel)
+{
+    return channel >= 1u && channel <= 13u;
+}
+
+const char *app_wifi_mode_name(app_wifi_mode_t mode)
+{
+    switch (mode) {
+    case APP_WIFI_MODE_OFF: return "off";
+    case APP_WIFI_MODE_STA: return "wifi";
+    case APP_WIFI_MODE_AP: return "ap";
+    case APP_WIFI_MODE_APSTA: return "apsta";
+    default: return "unknown";
+    }
+}
+
 bool app_wifi_start(void)
 {
     return false;
 }
 
-bool app_wifi_start_ap(void)
+bool app_wifi_get_config(app_wifi_config_t *out)
 {
-    return false;
+    if (out == NULL) return false;
+    load_config_once();
+    *out = s_config;
+    return true;
+}
+
+bool app_wifi_set_config(const app_wifi_config_t *config, bool persist)
+{
+    (void)persist;
+    if (config == NULL || !validate_ssid(config->ap_ssid) || !validate_password(config->ap_password) || !validate_channel(config->ap_channel)) {
+        return false;
+    }
+    s_config = *config;
+    s_config_loaded = true;
+    return true;
+}
+
+bool app_wifi_get_status(app_wifi_status_t *out)
+{
+    if (out == NULL) return false;
+    load_config_once();
+    memset(out, 0, sizeof(*out));
+    out->enabled = false;
+    out->active_mode = s_config.preferred_mode;
+    out->sta_connected = s_sta_connected;
+    (void)snprintf(out->sta_ssid, sizeof(out->sta_ssid), "%s", s_config.sta_ssid);
+    (void)snprintf(out->sta_ip, sizeof(out->sta_ip), "0.0.0.0");
+    out->ap_started = s_ap_started;
+    (void)snprintf(out->ap_ssid, sizeof(out->ap_ssid), "%s", s_config.ap_ssid);
+    (void)snprintf(out->ap_ip, sizeof(out->ap_ip), "0.0.0.0");
+    out->ap_channel = s_config.ap_channel;
+    out->ap_max_connections = s_config.ap_max_connections;
+    (void)snprintf(out->web_url, sizeof(out->web_url), "http://0.0.0.0/");
+    return true;
+}
+
+bool app_wifi_set_mode(app_wifi_mode_t mode)
+{
+    if (mode > APP_WIFI_MODE_APSTA) return false;
+    load_config_once();
+    s_config.preferred_mode = mode;
+    s_ap_started = mode == APP_WIFI_MODE_AP || mode == APP_WIFI_MODE_APSTA;
+    s_sta_connected = mode == APP_WIFI_MODE_STA || mode == APP_WIFI_MODE_APSTA;
+    return true;
 }
 
 bool app_wifi_connect(const char *ssid, const char *password, bool persist)
 {
-    (void)ssid;
-    (void)password;
     (void)persist;
+    if (!validate_ssid(ssid) || (password != NULL && strlen(password) > 63u)) return false;
+    load_config_once();
+    (void)snprintf(s_config.sta_ssid, sizeof(s_config.sta_ssid), "%s", ssid);
+    (void)snprintf(s_config.sta_password, sizeof(s_config.sta_password), "%s", password != NULL ? password : "");
     return false;
+}
+
+bool app_wifi_scan(app_wifi_scan_results_t *out)
+{
+    if (out == NULL) return false;
+    memset(out, 0, sizeof(*out));
+    (void)snprintf(out->error, sizeof(out->error), "wifi_unavailable");
+    return false;
+}
+
+bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, uint8_t channel, bool persist)
+{
+    (void)persist;
+    if (!validate_ssid(ap_ssid) || !validate_password(ap_password) || !validate_channel(channel)) return false;
+    load_config_once();
+    (void)snprintf(s_config.ap_ssid, sizeof(s_config.ap_ssid), "%s", ap_ssid);
+    (void)snprintf(s_config.ap_password, sizeof(s_config.ap_password), "%s", ap_password != NULL ? ap_password : "");
+    s_config.ap_channel = channel;
+    return false;
+}
+
+bool app_wifi_forget_sta_credentials(void)
+{
+    load_config_once();
+    s_config.sta_ssid[0] = '\0';
+    s_config.sta_password[0] = '\0';
+    return true;
 }
 
 bool app_wifi_scan_json(char *out, size_t out_len)
 {
-    return out != NULL && snprintf(out, out_len, "{\"ok\":false,\"error\":\"wifi_unavailable\"}") > 0;
+    app_wifi_scan_results_t scan;
+    if (out == NULL || out_len == 0) return false;
+    (void)app_wifi_scan(&scan);
+    return snprintf(out, out_len, "{\"ok\":false,\"error\":\"%s\"}", scan.error) > 0;
 }
 
 bool app_wifi_status_json(char *out, size_t out_len)
 {
-    return out != NULL && snprintf(out, out_len, "{\"enabled\":false}") > 0;
+    if (out == NULL || out_len == 0) return false;
+    app_wifi_status_t status;
+    (void)app_wifi_get_status(&status);
+    return snprintf(out, out_len,
+                    "{\"enabled\":false,\"mode\":\"%s\",\"sta_connected\":false,\"sta_ssid\":\"%s\",\"sta_ip\":\"%s\",\"ap_started\":false,\"ap_ssid\":\"%s\",\"ap_ip\":\"%s\",\"web_url\":\"%s\"}",
+                    app_wifi_mode_name(status.active_mode), status.sta_ssid, status.sta_ip,
+                    status.ap_ssid, status.ap_ip, status.web_url) > 0;
 }
 
 bool app_wifi_is_sta_connected(void)

@@ -14,7 +14,7 @@
 #include "esp_log.h"
 
 #define RULE_WEB_MAX_BODY 512u
-#define RULE_WEB_MAX_RESPONSE 8192u
+#define RULE_WEB_MAX_RESPONSE 12288u
 
 static const char *TAG = "RULE_WEB";
 
@@ -111,7 +111,9 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
         !register_uri(web->server, "/api/wifi/status", HTTP_GET, web) ||
         !register_uri(web->server, "/api/wifi/scan", HTTP_POST, web) ||
         !register_uri(web->server, "/api/wifi/connect", HTTP_POST, web) ||
+        !register_uri(web->server, "/api/wifi/forget", HTTP_POST, web) ||
         !register_uri(web->server, "/api/wifi/ap", HTTP_POST, web) ||
+        !register_uri(web->server, "/api/wifi/mode", HTTP_POST, web) ||
         !register_uri(web->server, "/api/rules/test", HTTP_POST, web) ||
         !register_uri(web->server, "/api/gpio/test", HTTP_POST, web) ||
         !register_uri(web->server, "/api/hat/probe", HTTP_POST, web)) {
@@ -144,18 +146,30 @@ void rule_web_stop(rule_web_t *web)
 
 
 static const char s_rule_setup_page[] =
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>StickS3 local rule automation</title>"
-    "<style>body{font-family:sans-serif;margin:1rem;max-width:56rem}label{display:block;margin:.5rem 0}"
+    "<!doctype html><html><head><meta charset=\"utf-8\"><title>StickS3 control</title>"
+    "<style>body{font-family:sans-serif;margin:1rem;max-width:60rem}label{display:block;margin:.5rem 0}"
     "input,select,textarea,button{font:inherit;margin:.15rem}textarea{width:100%;min-height:8rem}"
-    "section{border:1px solid #ccc;border-radius:.5rem;padding:1rem;margin:1rem 0}.status{white-space:pre-wrap}</style></head>"
-    "<body><h1>StickS3 local rule automation</h1>"
-    "<section><h2>Wi-Fi setup</h2><p>Connect to a router or keep the setup AP active, then open this UI at the reported IP.</p>"
-    "<label>Scanned SSID <select id=\"wifi_ssid_select\"></select></label><label>Manual/hidden SSID <input id=\"wifi_ssid\" maxlength=\"32\"></label>"
+    "section{border:1px solid #ccc;border-radius:.5rem;padding:1rem;margin:1rem 0}.status{white-space:pre-wrap}"
+    ".tabs{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0}.panel{border:1px solid #ddd;border-radius:.5rem;padding:.75rem;margin:.5rem 0}"
+    ".network-row{display:block;width:100%;text-align:left;margin:.25rem 0;padding:.4rem}.network-row:hover{background:#eef}</style></head>"
+    "<body><h1>StickS3 control</h1>"
+    "<section id=\"network\"><h2>Network</h2><nav class=\"tabs\">"
+    "<button id=\"tab_wifi\" type=\"button\">Wi-Fi Mode</button><button id=\"tab_ap\" type=\"button\">AP Mode</button>"
+    "<button id=\"tab_net_status\" type=\"button\">Status</button></nav>"
+    "<div id=\"panel_wifi\" class=\"panel\"><h3>Wi-Fi Mode</h3><p>Select a nearby Wi-Fi network or type a hidden SSID.</p>"
+    "<button id=\"wifi_scan\" type=\"button\">Scan Nearby Wi-Fi</button><div id=\"wifi_networks\"></div>"
+    "<label>Selected SSID <input id=\"wifi_ssid\" maxlength=\"32\"></label>"
     "<label>Password <input id=\"wifi_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\"></label>"
-    "<button id=\"wifi_scan\" type=\"button\">Scan Wi-Fi</button><button id=\"wifi_connect\" type=\"button\">Connect and save</button>"
-    "<button id=\"wifi_ap\" type=\"button\">Start setup AP</button><pre id=\"wifi_status\" class=\"status\"></pre></section>"
-    "<section><h2>WHEN trigger</h2>"
-    "<label>Trigger source <select id=\"source\"></select></label>"
+    "<button id=\"mode_wifi\" type=\"button\">Use Wi-Fi Mode</button><button id=\"wifi_connect\" type=\"button\">Connect and Save</button>"
+    "<fieldset><legend>Saved Wi-Fi</legend><p id=\"wifi_saved\">Saved:-</p><button id=\"wifi_reconnect\" type=\"button\">Reconnect saved Wi-Fi</button>"
+    "<button id=\"wifi_forget\" type=\"button\">Forget Saved Credentials</button></fieldset></div>"
+    "<div id=\"panel_ap\" class=\"panel\" hidden><h3>AP Mode</h3><p>Create a setup hotspot from this device.</p>"
+    "<label>AP Name <input id=\"ap_ssid\" maxlength=\"32\"></label>"
+    "<label>AP Password <input id=\"ap_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\"></label>"
+    "<label>Channel <input id=\"ap_channel\" type=\"number\" min=\"1\" max=\"13\" value=\"6\"></label>"
+    "<button id=\"mode_ap\" type=\"button\">Use AP Mode</button><button id=\"ap_start\" type=\"button\">Start AP Mode</button></div>"
+    "<div id=\"panel_net_status\" class=\"panel\" hidden><h3>Network Status</h3><pre id=\"wifi_status\" class=\"status\"></pre></div></section>"
+    "<section><h2>WHEN trigger</h2><label>Trigger source <select id=\"source\"></select></label>"
     "<label>Comparator <select id=\"comparator\"><option value=\"eq\">equals</option><option value=\"ne\">not equals</option>"
     "<option value=\"gt\">greater than</option><option value=\"gte\">greater or equal</option><option value=\"lt\">less than</option><option value=\"lte\">less or equal</option></select></label>"
     "<label>Threshold <input id=\"threshold\" value=\"true\"></label>"
@@ -174,24 +188,22 @@ static const char s_rule_setup_page[] =
     "<section><h2>Status and capabilities</h2><pre id=\"status\" class=\"status\"></pre><pre id=\"capabilities\" class=\"status\"></pre></section>"
     "<script>const $=id=>document.getElementById(id);let caps={sources:[],actions:[],gpio_profiles:[],hat_sources:[]};"
     "function opt(sel,v,t){const o=document.createElement('option');o.value=v;o.textContent=t||v;sel.appendChild(o)}"
-    "async function j(u,o){const r=await fetch(u,o);return r.json()}function fill(){['source','action','gpio_profile','hat_source'].forEach(i=>$(i).innerHTML='');"
-    "(caps.sources||[]).forEach(v=>opt($('source'),v));(caps.actions||[]).forEach(v=>opt($('action'),v));"
-    "(caps.gpio_profiles||[]).forEach(g=>opt($('gpio_profile'),g.name||g,g.supported===false?(g.name+' (disabled)'):g.name||g));"
-    "(caps.hat_sources||[]).forEach(h=>opt($('hat_source'),h.name,h.supported?(h.name+' (present)'):(h.name+' ('+h.reason+')')))}"
-    "function body(){let b={source:$('source').value,action:$('action').value,comparator:$('comparator').value,threshold:$('threshold').value,http_url:$('http_url').value,http_bearer_token:$('http_bearer_token').value};"
-    "if(b.source.startsWith('gpio.'))Object.assign(b,{gpio_pin:+$('gpio_pin').value,gpio_profile:$('gpio_profile').value,gpio_debounce_ms:+$('gpio_debounce_ms').value,gpio_active_low:$('gpio_active_low').checked});return JSON.stringify(b)}"
-    "async function wifiStatus(){$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/status'),null,2)}"
+    "async function j(u,o){const r=await fetch(u,o);return r.json()}function showNetPanel(n){['wifi','ap','net_status'].forEach(p=>$('panel_'+p).hidden=p!==n)}"
+    "function fill(){['source','action','gpio_profile','hat_source'].forEach(i=>$(i).innerHTML='');(caps.sources||[]).forEach(v=>opt($('source'),v));(caps.actions||[]).forEach(v=>opt($('action'),v));"
+    "(caps.gpio_profiles||[]).forEach(g=>opt($('gpio_profile'),g.name||g,g.supported===false?(g.name+' (disabled)'):g.name||g));(caps.hat_sources||[]).forEach(h=>opt($('hat_source'),h.name,h.supported?(h.name+' (present)'):(h.name+' ('+h.reason+')')))}"
+    "function body(){let b={source:$('source').value,action:$('action').value,comparator:$('comparator').value,threshold:$('threshold').value,http_url:$('http_url').value,http_bearer_token:$('http_bearer_token').value};if(b.source.startsWith('gpio.'))Object.assign(b,{gpio_pin:+$('gpio_pin').value,gpio_profile:$('gpio_profile').value,gpio_debounce_ms:+$('gpio_debounce_ms').value,gpio_active_low:$('gpio_active_low').checked});return JSON.stringify(b)}"
+    "function renderNetworks(ns){const root=$('wifi_networks');root.innerHTML='';(ns||[]).forEach(n=>{const row=document.createElement('button');row.type='button';row.className='network-row';row.textContent=(n.ssid||'(hidden)')+' '+n.rssi+' dBm ch '+n.channel+(n.secure?' LOCK':' OPEN');row.onclick=()=>{$('wifi_ssid').value=n.ssid||''};root.appendChild(row)})}"
+    "async function wifiStatus(){const d=await j('/api/wifi/status');$('wifi_status').textContent=JSON.stringify(d,null,2);if(d.ap_ssid&&!$('ap_ssid').value)$('ap_ssid').value=d.ap_ssid;if(d.ap_channel&&!$('ap_channel').value)$('ap_channel').value=d.ap_channel;$('wifi_saved').textContent='Saved:'+(d.sta_ssid||'-')}"
+    "async function setWifiMode(m){$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/mode',{method:'POST',body:JSON.stringify({mode:m})}),null,2);await wifiStatus()}"
     "async function refresh(){caps=await j('/api/capabilities');fill();$('capabilities').textContent=JSON.stringify(caps,null,2);$('status').textContent=JSON.stringify(await j('/api/status'),null,2);$('config_json').value=JSON.stringify(await j('/api/config'),null,2);await wifiStatus()}"
-    "$('wifi_scan').onclick=async()=>{const d=await j('/api/wifi/scan',{method:'POST'});$('wifi_ssid_select').innerHTML='';(d.networks||[]).forEach(n=>opt($('wifi_ssid_select'),n.ssid,n.ssid+' ('+n.rssi+' dBm)'));$('wifi_status').textContent=JSON.stringify(d,null,2)};"
-    "$('wifi_ssid_select').onchange=()=>{$('wifi_ssid').value=$('wifi_ssid_select').value};"
-    "$('wifi_connect').onclick=async()=>{const ssid=$('wifi_ssid').value||$('wifi_ssid_select').value;$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/connect',{method:'POST',body:JSON.stringify({ssid:ssid,password:$('wifi_password').value})}),null,2)};"
-    "$('wifi_ap').onclick=async()=>$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/ap',{method:'POST'}),null,2);"
-    "$('load_config').onclick=refresh;$('export_config').onclick=async()=>$('config_json').value=JSON.stringify(await j('/api/config'),null,2);"
-    "$('save_config').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/config',{method:'POST',body:body()}),null,2);"
-    "$('import_config').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/config',{method:'POST',body:$('config_json').value}),null,2);"
-    "$('test_rule').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/rules/test',{method:'POST'}),null,2);"
-    "$('gpio_test').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/gpio/test',{method:'POST',body:body()}),null,2);"
-    "$('hat_probe').onclick=async()=>$('hat_status').textContent=JSON.stringify(await j('/api/hat/probe',{method:'POST',body:JSON.stringify({source:$('hat_source').value})}),null,2);refresh();</script></body></html>";
+    "$('tab_wifi').onclick=()=>showNetPanel('wifi');$('tab_ap').onclick=()=>showNetPanel('ap');$('tab_net_status').onclick=()=>showNetPanel('net_status');$('mode_wifi').onclick=()=>setWifiMode('wifi');$('mode_ap').onclick=()=>setWifiMode('ap');"
+    "$('wifi_scan').onclick=async()=>{const d=await j('/api/wifi/scan',{method:'POST'});renderNetworks(d.networks||[]);$('wifi_status').textContent=JSON.stringify(d,null,2)};"
+    "$('wifi_connect').onclick=async()=>{$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/connect',{method:'POST',body:JSON.stringify({ssid:$('wifi_ssid').value,password:$('wifi_password').value})}),null,2);await wifiStatus()};"
+    "$('wifi_reconnect').onclick=()=>setWifiMode('wifi');$('wifi_forget').onclick=async()=>{$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/forget',{method:'POST'}),null,2);await wifiStatus()};"
+    "$('ap_start').onclick=async()=>{$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/ap',{method:'POST',body:JSON.stringify({ssid:$('ap_ssid').value,password:$('ap_password').value,channel:+$('ap_channel').value})}),null,2);await wifiStatus()};"
+    "$('load_config').onclick=refresh;$('export_config').onclick=async()=>$('config_json').value=JSON.stringify(await j('/api/config'),null,2);$('save_config').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/config',{method:'POST',body:body()}),null,2);"
+    "$('import_config').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/config',{method:'POST',body:$('config_json').value}),null,2);$('test_rule').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/rules/test',{method:'POST'}),null,2);"
+    "$('gpio_test').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/gpio/test',{method:'POST',body:body()}),null,2);$('hat_probe').onclick=async()=>$('hat_status').textContent=JSON.stringify(await j('/api/hat/probe',{method:'POST',body:JSON.stringify({source:$('hat_source').value})}),null,2);refresh();</script></body></html>";
 
 bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len)
 {
@@ -806,8 +818,78 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
         const int written = snprintf(out, out_len, "{\"ok\":%s,\"status\":%s}", ok ? "true" : "false", status);
         return written > 0 && (size_t)written < out_len;
     }
+    if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/wifi/forget") == 0) {
+        const bool ok = app_wifi_forget_sta_credentials();
+        char status[512];
+        if (!app_wifi_status_json(status, sizeof(status))) {
+            (void)snprintf(status, sizeof(status), "{\"enabled\":false}");
+        }
+        const int written = snprintf(out, out_len, "{\"ok\":%s,\"status\":%s}", ok ? "true" : "false", status);
+        return written > 0 && (size_t)written < out_len;
+    }
     if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/wifi/ap") == 0) {
-        const bool ok = app_wifi_start_ap();
+        app_wifi_config_t config;
+        char ap_ssid[33];
+        char ap_password[65];
+        int32_t ap_channel = 0;
+        if (!app_wifi_get_config(&config)) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"config_unavailable\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        (void)snprintf(ap_ssid, sizeof(ap_ssid), "%s", config.ap_ssid);
+        (void)snprintf(ap_password, sizeof(ap_password), "%s", config.ap_password);
+        ap_channel = config.ap_channel;
+        if (body != NULL && body[0] != '\0') {
+            const bool body_has_ssid = json_get_string(body, "ssid", ap_ssid, sizeof(ap_ssid));
+            if (body_has_ssid && !json_get_string(body, "password", ap_password, sizeof(ap_password))) {
+                ap_password[0] = '\0';
+            } else if (!body_has_ssid) {
+                (void)json_get_string(body, "password", ap_password, sizeof(ap_password));
+            }
+            (void)json_get_i32(body, "channel", &ap_channel);
+        }
+        const size_t ap_ssid_len = strlen(ap_ssid);
+        const size_t ap_password_len = strlen(ap_password);
+        if (ap_ssid_len == 0u || ap_ssid_len > 32u) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"invalid_ap_ssid\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        if (ap_password_len > 0u && (ap_password_len < 8u || ap_password_len > 63u)) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"invalid_ap_password\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        if (ap_channel < 1 || ap_channel > 13) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"invalid_ap_channel\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        const bool ok = app_wifi_start_ap_configured(ap_ssid, ap_password, (uint8_t)ap_channel, true);
+        char status[512];
+        if (!app_wifi_status_json(status, sizeof(status))) {
+            (void)snprintf(status, sizeof(status), "{\"enabled\":false}");
+        }
+        const int written = snprintf(out, out_len, "{\"ok\":%s,\"status\":%s}", ok ? "true" : "false", status);
+        return written > 0 && (size_t)written < out_len;
+    }
+    if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/wifi/mode") == 0) {
+        char mode_name[16];
+        app_wifi_mode_t mode = APP_WIFI_MODE_OFF;
+        if (!json_get_string(body, "mode", mode_name, sizeof(mode_name))) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"missing_mode\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        if (strcmp(mode_name, "wifi") == 0 || strcmp(mode_name, "sta") == 0) {
+            mode = APP_WIFI_MODE_STA;
+        } else if (strcmp(mode_name, "ap") == 0) {
+            mode = APP_WIFI_MODE_AP;
+        } else if (strcmp(mode_name, "apsta") == 0) {
+            mode = APP_WIFI_MODE_APSTA;
+        } else if (strcmp(mode_name, "off") == 0) {
+            mode = APP_WIFI_MODE_OFF;
+        } else {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"invalid_mode\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        const bool ok = app_wifi_set_mode(mode);
         char status[512];
         if (!app_wifi_status_json(status, sizeof(status))) {
             (void)snprintf(status, sizeof(status), "{\"enabled\":false}");

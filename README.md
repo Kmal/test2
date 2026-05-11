@@ -37,7 +37,7 @@ The sound-meter task reads 16 kHz, 16-bit mono PCM from I2S, computes 100 ms RMS
 
 ### Wi-Fi and web UI
 
-`CONFIG_APP_WIFI_ENABLE=y` starts Wi-Fi during boot. The firmware attempts saved station credentials and can fall back to a setup AP named `M5StickS3-Setup`. When `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING=y`, the LCD keyboard can collect Wi-Fi credentials before AP fallback.
+`CONFIG_APP_WIFI_ENABLE=y` starts Wi-Fi during boot. The firmware attempts saved station credentials and can fall back to the configured setup AP name, which defaults to `M5StickS3-Setup`. When `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING=y`, the LCD keyboard can collect Wi-Fi credentials before AP fallback.
 
 The web server exposes a small local configuration UI at `/` plus JSON endpoints:
 
@@ -46,13 +46,64 @@ The web server exposes a small local configuration UI at `/` plus JSON endpoints
 | `/api/status` | GET | Rule/web status, last action result, HTTP network readiness, and Wi-Fi status. |
 | `/api/capabilities` | GET | Supported/disabled trigger sources, actions, GPIO profiles, HAT placeholders, and pin-conflict classes. |
 | `/api/config` | GET/POST | Export/import the automation config, save it to NVS, and replace the running rule engine config. |
-| `/api/wifi/status` | GET | Wi-Fi station/AP state. |
+| `/api/wifi/status` | GET | Wi-Fi station/AP state, AP name, AP channel/max connections, and web URL. |
 | `/api/wifi/scan` | POST | Scan nearby Wi-Fi networks. |
 | `/api/wifi/connect` | POST | Connect and persist station credentials. |
-| `/api/wifi/ap` | POST | Start the setup AP. |
+| `/api/wifi/forget` | POST | Forget saved station credentials. |
+| `/api/wifi/ap` | POST | Start AP mode with a configurable AP name, optional password, and channel. |
+| `/api/wifi/mode` | POST | Select Wi-Fi, AP, AP+Wi-Fi, or off mode. |
 | `/api/rules/test` | POST | Inject a test fact through the current rule runtime. |
 | `/api/gpio/test` | POST | Validate a candidate GPIO rule/config against safe-pin rules. |
 | `/api/hat/probe` | POST | Fail-closed HAT capability probe placeholder; HAT drivers are not enabled yet. |
+
+
+#### Network setup hierarchy
+
+The local web UI and LCD menu now expose the same Network hierarchy so setup is explicit instead of a flat Wi-Fi form:
+
+```text
+Network
+├── Wi-Fi Mode
+│   ├── Scan Nearby Wi-Fi
+│   ├── Select SSID
+│   ├── Enter Password
+│   ├── Hidden / Manual SSID
+│   │   ├── Enter SSID
+│   │   ├── Enter Password
+│   │   └── Connect and Save
+│   ├── Connect and Save
+│   └── Saved Wi-Fi
+│       ├── Show Saved SSID
+│       ├── Reconnect
+│       └── Forget Saved Credentials
+├── AP Mode
+│   ├── Set AP Name
+│   ├── Set AP Password
+│   ├── Set Channel
+│   ├── Start AP Mode
+│   └── Show AP URL
+└── Network Status
+    ├── Current mode
+    ├── Station SSID/IP
+    ├── AP SSID/IP
+    ├── AP channel/max connections
+    └── Web UI URL
+```
+
+Browser flow for router Wi-Fi is `Network > Wi-Fi Mode > Use Wi-Fi Mode > Scan Nearby Wi-Fi > select a scanned network row > enter password > Connect and Save`. Hidden networks use the same `Selected SSID` field by typing the SSID manually.
+
+Browser flow for hotspot setup is `Network > AP Mode > Use AP Mode > AP Name > optional AP Password/Channel > Start AP Mode`. Empty AP password means an open AP. WPA2 AP passwords must be 8–63 characters. AP names must be non-empty and at most 32 bytes.
+
+LCD flow uses the onboard buttons when the menu is open:
+
+| Input | Menu behavior |
+| --- | --- |
+| KEY1 short | Move to the next menu item or next scanned Wi-Fi network. |
+| KEY2 short | Select the highlighted item or scanned Wi-Fi network. |
+| KEY2 long | Back. |
+| KEY1 long from dashboard | Open `Home`. |
+
+On boot, saved station credentials are tried first. If station connection fails, the firmware starts AP mode for setup. The web UI is reachable at the reported station or AP URL shown in Network Status.
 
 ### Local automation runtime
 

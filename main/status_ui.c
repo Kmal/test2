@@ -2,6 +2,8 @@
 
 #include "board_sticks3.h"
 #include "audio_metrics.h"
+#include "app_wifi.h"
+#include "ui_nav.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -68,6 +70,15 @@ static uint32_t s_key1_press_count = 0;
 static uint32_t s_key2_press_count = 0;
 static status_ui_sound_meter_snapshot_t s_sound_snapshot;
 static app_display_mode_t s_display_mode = APP_DISPLAY_VU;
+static ui_nav_state_t s_nav;
+static bool s_menu_mode;
+#if CONFIG_APP_STATUS_UI_LCD
+static app_wifi_scan_results_t s_wifi_scan_results;
+static size_t s_wifi_selected_network;
+static char s_wifi_selected_ssid[33];
+static char s_wifi_password[65];
+static app_wifi_config_t s_wifi_draft_config;
+#endif
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 
@@ -231,6 +242,234 @@ app_display_mode_t status_ui_get_display_mode(void)
     return mode;
 }
 
+
+void status_ui_open_screen(ui_screen_id_t screen)
+{
+    portENTER_CRITICAL(&s_state_mux);
+    ui_nav_enter(&s_nav, screen);
+    s_menu_mode = true;
+    portEXIT_CRITICAL(&s_state_mux);
+}
+
+ui_screen_id_t status_ui_get_screen(void)
+{
+    ui_screen_id_t screen;
+    portENTER_CRITICAL(&s_state_mux);
+    screen = s_nav.current;
+    portEXIT_CRITICAL(&s_state_mux);
+    return screen;
+}
+
+#if CONFIG_APP_STATUS_UI_LCD
+static bool status_ui_start_wifi_scan(void)
+{
+    memset(&s_wifi_scan_results, 0, sizeof(s_wifi_scan_results));
+    s_wifi_selected_network = 0u;
+    bool ok = app_wifi_scan(&s_wifi_scan_results);
+    ESP_LOGI(TAG, "Wi-Fi scan from LCD menu: ok=%d count=%u error=%s",
+             ok ? 1 : 0, (unsigned)s_wifi_scan_results.count, s_wifi_scan_results.error);
+    return ok;
+}
+
+static bool status_ui_connect_selected_wifi(void)
+{
+    if (s_wifi_selected_ssid[0] == '\0' && s_wifi_scan_results.count > 0u &&
+        s_wifi_selected_network < s_wifi_scan_results.count) {
+        (void)snprintf(s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid), "%s",
+                       s_wifi_scan_results.items[s_wifi_selected_network].ssid);
+    }
+    if (s_wifi_selected_ssid[0] == '\0') {
+        app_wifi_config_t config;
+        if (app_wifi_get_config(&config) && config.sta_ssid[0] != '\0') {
+            (void)snprintf(s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid), "%s", config.sta_ssid);
+            (void)snprintf(s_wifi_password, sizeof(s_wifi_password), "%s", config.sta_password);
+        }
+    }
+    if (s_wifi_selected_ssid[0] == '\0') {
+        ESP_LOGW(TAG, "LCD Wi-Fi connect requested without SSID");
+        return false;
+    }
+    if (s_wifi_password[0] == '\0') {
+        (void)status_ui_keyboard_read_line("WiFi PASSWORD", "", s_wifi_password,
+                                           sizeof(s_wifi_password), 63, true,
+                                           CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+    }
+    return app_wifi_connect(s_wifi_selected_ssid, s_wifi_password, true);
+}
+
+static bool status_ui_start_configured_ap(void)
+{
+    if (!app_wifi_get_config(&s_wifi_draft_config)) {
+        return false;
+    }
+    if (s_wifi_draft_config.ap_ssid[0] == '\0') {
+        (void)snprintf(s_wifi_draft_config.ap_ssid, sizeof(s_wifi_draft_config.ap_ssid), "StickS3-Setup");
+    }
+    return app_wifi_start_ap_configured(s_wifi_draft_config.ap_ssid,
+                                        s_wifi_draft_config.ap_password,
+                                        s_wifi_draft_config.ap_channel,
+                                        true);
+}
+
+static void status_ui_open_keyboard_for_current_field(void)
+{
+    switch (s_nav.current) {
+    case UI_SCREEN_NETWORK_WIFI:
+    case UI_SCREEN_NETWORK_WIFI_MANUAL_SSID:
+        if (status_ui_keyboard_read_line("WiFi SSID", s_wifi_selected_ssid,
+                                         s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid),
+                                         32, false, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS)) {
+            (void)status_ui_keyboard_read_line("WiFi PASSWORD", "", s_wifi_password,
+                                               sizeof(s_wifi_password), 63, true,
+                                               CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+        }
+        break;
+    case UI_SCREEN_NETWORK_WIFI_SELECT:
+    case UI_SCREEN_NETWORK_WIFI_PASSWORD:
+        (void)status_ui_keyboard_read_line("WiFi PASSWORD", s_wifi_password,
+                                           s_wifi_password, sizeof(s_wifi_password), 63,
+                                           true, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+        break;
+    case UI_SCREEN_NETWORK_AP:
+    case UI_SCREEN_NETWORK_AP_NAME:
+        if (app_wifi_get_config(&s_wifi_draft_config)) {
+            (void)status_ui_keyboard_read_line("AP NAME", s_wifi_draft_config.ap_ssid,
+                                               s_wifi_draft_config.ap_ssid,
+                                               sizeof(s_wifi_draft_config.ap_ssid), 32,
+                                               false, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+            (void)app_wifi_set_config(&s_wifi_draft_config, true);
+        }
+        break;
+    case UI_SCREEN_NETWORK_AP_PASSWORD:
+        if (app_wifi_get_config(&s_wifi_draft_config)) {
+            (void)status_ui_keyboard_read_line("AP PASSWORD", s_wifi_draft_config.ap_password,
+                                               s_wifi_draft_config.ap_password,
+                                               sizeof(s_wifi_draft_config.ap_password), 63,
+                                               true, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+            (void)app_wifi_set_config(&s_wifi_draft_config, true);
+        }
+        break;
+    case UI_SCREEN_NETWORK_AP_CHANNEL:
+        if (app_wifi_get_config(&s_wifi_draft_config)) {
+            char channel[4];
+            (void)snprintf(channel, sizeof(channel), "%u", (unsigned)s_wifi_draft_config.ap_channel);
+            if (status_ui_keyboard_read_line("AP CHANNEL", channel, channel, sizeof(channel), 2,
+                                             false, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS)) {
+                unsigned parsed = 0;
+                (void)sscanf(channel, "%u", &parsed);
+                if (parsed >= 1u && parsed <= 13u) {
+                    s_wifi_draft_config.ap_channel = (uint8_t)parsed;
+                    (void)app_wifi_set_config(&s_wifi_draft_config, true);
+                }
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+#endif
+
+static void status_ui_activate_selected_item(void)
+{
+    const ui_menu_item_t *item = NULL;
+    if (!ui_nav_activate(&s_nav, &item) || item == NULL) {
+        return;
+    }
+#if CONFIG_APP_STATUS_UI_LCD
+    switch (item->action) {
+    case UI_ITEM_ACTION_START_WIFI_SCAN:
+        (void)status_ui_start_wifi_scan();
+        (void)ui_nav_enter(&s_nav, UI_SCREEN_NETWORK_WIFI_SCAN);
+        break;
+    case UI_ITEM_ACTION_CONNECT_WIFI:
+        (void)status_ui_connect_selected_wifi();
+        break;
+    case UI_ITEM_ACTION_START_AP:
+        (void)status_ui_start_configured_ap();
+        (void)ui_nav_enter(&s_nav, UI_SCREEN_NETWORK_AP_CONFIRM);
+        break;
+    case UI_ITEM_ACTION_SAVE_AP_CONFIG:
+        (void)app_wifi_set_config(&s_wifi_draft_config, true);
+        (void)ui_nav_enter(&s_nav, item->target);
+        break;
+    case UI_ITEM_ACTION_FORGET_WIFI:
+        (void)app_wifi_forget_sta_credentials();
+        break;
+    case UI_ITEM_ACTION_OPEN_KEYBOARD:
+        (void)ui_nav_enter(&s_nav, item->target);
+        status_ui_open_keyboard_for_current_field();
+        break;
+    default:
+        break;
+    }
+#endif
+}
+
+void status_ui_handle_input(status_ui_input_t input)
+{
+    bool activate = false;
+
+    portENTER_CRITICAL(&s_state_mux);
+    if (!s_menu_mode && input != STATUS_UI_INPUT_BACK) {
+        s_menu_mode = true;
+        (void)ui_nav_enter(&s_nav, UI_SCREEN_HOME);
+        portEXIT_CRITICAL(&s_state_mux);
+        return;
+    }
+    switch (input) {
+    case STATUS_UI_INPUT_SELECT:
+#if CONFIG_APP_STATUS_UI_LCD
+        if (s_nav.current == UI_SCREEN_NETWORK_WIFI_SCAN && s_wifi_scan_results.count > 0u) {
+            (void)snprintf(s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid), "%s",
+                           s_wifi_scan_results.items[s_wifi_selected_network].ssid);
+            (void)ui_nav_enter(&s_nav, UI_SCREEN_NETWORK_WIFI_SELECT);
+        } else
+#endif
+        {
+            activate = true;
+        }
+        break;
+    case STATUS_UI_INPUT_NEXT:
+#if CONFIG_APP_STATUS_UI_LCD
+        if (s_nav.current == UI_SCREEN_NETWORK_WIFI_SCAN && s_wifi_scan_results.count > 0u) {
+            s_wifi_selected_network = (s_wifi_selected_network + 1u) % s_wifi_scan_results.count;
+        } else
+#endif
+        {
+            (void)ui_nav_next(&s_nav);
+        }
+        break;
+    case STATUS_UI_INPUT_PREV:
+#if CONFIG_APP_STATUS_UI_LCD
+        if (s_nav.current == UI_SCREEN_NETWORK_WIFI_SCAN && s_wifi_scan_results.count > 0u) {
+            s_wifi_selected_network = s_wifi_selected_network == 0u ?
+                                      s_wifi_scan_results.count - 1u :
+                                      s_wifi_selected_network - 1u;
+        } else
+#endif
+        {
+            (void)ui_nav_prev(&s_nav);
+        }
+        break;
+    case STATUS_UI_INPUT_BACK:
+        if (s_menu_mode && s_nav.current == UI_SCREEN_HOME) {
+            s_menu_mode = false;
+        } else if (s_menu_mode) {
+            (void)ui_nav_back(&s_nav);
+        }
+        break;
+    default:
+        break;
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+
+    if (activate) {
+        status_ui_activate_selected_item();
+    }
+}
+
+
 static bool button_is_pressed(gpio_num_t gpio)
 {
     return gpio_get_level(gpio) == BOARD_BUTTON_ACTIVE_LEVEL;
@@ -280,12 +519,17 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
     }
 
 #if CONFIG_APP_STATUS_UI_LCD
-    if (keyboard_is_active()) {
-        if (pressed && button->stable_pressed && !button->long_sent &&
-            button->gpio == BOARD_BUTTON_KEY2_GPIO &&
-            (now - button->pressed_since_tick) >= pdMS_TO_TICKS(STATUS_UI_KEYBOARD_LONG_MS)) {
+    if (pressed && button->stable_pressed && !button->long_sent &&
+        (now - button->pressed_since_tick) >= pdMS_TO_TICKS(STATUS_UI_KEYBOARD_LONG_MS)) {
+        if (keyboard_is_active() && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
             button->long_sent = true;
             keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+        } else if (s_menu_mode && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
+            button->long_sent = true;
+            status_ui_handle_input(STATUS_UI_INPUT_BACK);
+        } else if (!s_menu_mode && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
+            button->long_sent = true;
+            status_ui_open_screen(UI_SCREEN_HOME);
         }
     }
 #endif
@@ -309,8 +553,26 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
         return;
     }
 #endif
+#if CONFIG_APP_STATUS_UI_LCD
+    if (s_menu_mode) {
+        if (pressed) {
+            record_button_press(button->gpio);
+            button->pressed_since_tick = now;
+            button->long_sent = false;
+            ESP_LOGI(TAG, "menu button pressed: %s", button->name);
+        } else if (!button->long_sent) {
+            status_ui_handle_input(button->gpio == BOARD_BUTTON_KEY1_GPIO ?
+                                   STATUS_UI_INPUT_NEXT : STATUS_UI_INPUT_SELECT);
+        }
+        return;
+    }
+#endif
     if (pressed) {
         record_button_press(button->gpio);
+#if CONFIG_APP_STATUS_UI_LCD
+        button->pressed_since_tick = now;
+        button->long_sent = false;
+#endif
         ESP_LOGI(TAG, "button pressed: %s", button->name);
         if (button->handler != NULL) {
             button->handler(s_handlers.ctx);
@@ -925,6 +1187,100 @@ static void status_ui_render_waiting_lcd(void)
     lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 124, "CLOCK/CODEC", STATUS_UI_LCD_DIM, 1);
 }
 
+
+static void status_ui_render_menu_lcd(const ui_nav_state_t *nav)
+{
+    const ui_screen_def_t *screen = ui_nav_current(nav);
+    if (screen == NULL) {
+        return;
+    }
+    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
+    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, STATUS_UI_LCD_HEADER_BG);
+    lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD,
+                          screen->title, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE, 15);
+
+    if (screen->id == UI_SCREEN_NETWORK_STATUS) {
+        char status_json[256];
+        char line[48];
+        app_wifi_status_t status;
+        if (app_wifi_get_status(&status)) {
+            snprintf(line, sizeof(line), "Mode:%s", app_wifi_mode_name(status.active_mode));
+            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_TEXT, 1);
+            snprintf(line, sizeof(line), "STA:%s", status.sta_ssid[0] ? status.sta_ssid : "-");
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 50, line, STATUS_UI_LCD_TEXT, 1, 19);
+            snprintf(line, sizeof(line), "IP:%s", status.sta_ip);
+            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 66, line, STATUS_UI_LCD_TEXT, 1);
+            snprintf(line, sizeof(line), "AP:%s", status.ap_ssid);
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 82, line, STATUS_UI_LCD_TEXT, 1, 19);
+            snprintf(line, sizeof(line), "AP IP:%s", status.ap_ip);
+            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 98, line, STATUS_UI_LCD_TEXT, 1);
+            snprintf(line, sizeof(line), "CH:%u MAX:%u", (unsigned)status.ap_channel,
+                     (unsigned)status.ap_max_connections);
+            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 114, line, STATUS_UI_LCD_TEXT, 1);
+            snprintf(line, sizeof(line), "URL:%s", status.web_url);
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 130, line, STATUS_UI_LCD_TEXT, 1, 19);
+        } else if (app_wifi_status_json(status_json, sizeof(status_json))) {
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, status_json, STATUS_UI_LCD_TEXT, 1, 19);
+        }
+    } else if (screen->id == UI_SCREEN_NETWORK_AP_CONFIRM) {
+        char line[48];
+        app_wifi_status_t status;
+        if (app_wifi_get_status(&status)) {
+            snprintf(line, sizeof(line), "AP:%s", status.ap_ssid);
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_TEXT, 1, 19);
+            snprintf(line, sizeof(line), "IP:%s", status.ap_ip);
+            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 50, line, STATUS_UI_LCD_TEXT, 1);
+            snprintf(line, sizeof(line), "URL:%s", status.web_url);
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 66, line, STATUS_UI_LCD_OK, 1, 19);
+        }
+    } else if (screen->id == UI_SCREEN_NETWORK_WIFI_SAVED) {
+        char line[48];
+        app_wifi_config_t config;
+        if (app_wifi_get_config(&config) && config.sta_ssid[0] != '\0') {
+            snprintf(line, sizeof(line), "Saved:%s", config.sta_ssid);
+        } else {
+            snprintf(line, sizeof(line), "Saved:-");
+        }
+        lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_TEXT, 1, 19);
+    } else if (screen->id == UI_SCREEN_NETWORK_WIFI_SCAN) {
+        char line[48];
+        if (!s_wifi_scan_results.ok) {
+            snprintf(line, sizeof(line), "Scan: %s", s_wifi_scan_results.error[0] ? s_wifi_scan_results.error : "not run");
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_WARN, 1, 19);
+        }
+        const size_t visible_rows = s_wifi_scan_results.count < 5u ? s_wifi_scan_results.count : 5u;
+        size_t first = 0u;
+        if (visible_rows > 0u && s_wifi_selected_network >= visible_rows) {
+            first = s_wifi_selected_network - visible_rows + 1u;
+        }
+        for (size_t row = 0; row < visible_rows; ++row) {
+            const size_t i = first + row;
+            snprintf(line, sizeof(line), "%c%s %ddBm ch%u",
+                     i == s_wifi_selected_network ? '>' : ' ',
+                     s_wifi_scan_results.items[i].ssid[0] ? s_wifi_scan_results.items[i].ssid : "(hidden)",
+                     s_wifi_scan_results.items[i].rssi,
+                     (unsigned)s_wifi_scan_results.items[i].channel);
+            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34 + (int)row * STATUS_UI_LCD_LINE_HEIGHT,
+                                  line, i == s_wifi_selected_network ? STATUS_UI_LCD_OK : STATUS_UI_LCD_TEXT, 1, 19);
+        }
+    }
+
+    int y = 118;
+    if (screen->id != UI_SCREEN_NETWORK_WIFI_SCAN && screen->id != UI_SCREEN_NETWORK_STATUS &&
+        screen->id != UI_SCREEN_NETWORK_WIFI_SAVED && screen->id != UI_SCREEN_NETWORK_AP_CONFIRM) {
+        y = 34;
+    }
+    for (size_t i = 0; i < screen->item_count && y < BOARD_LCD_V_RES - 16; ++i) {
+        const bool selected = i == nav->selected_index;
+        char label[32];
+        snprintf(label, sizeof(label), "%c %s", selected ? '>' : ' ', screen->items[i].label);
+        lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, y, label,
+                              selected ? STATUS_UI_LCD_OK : STATUS_UI_LCD_TEXT, 1, 19);
+        y += STATUS_UI_LCD_LINE_HEIGHT;
+    }
+    lcd_draw_text(4, BOARD_LCD_V_RES - 13, "K1 NEXT K2 SEL HOLD BACK", STATUS_UI_LCD_DIM, 1);
+}
+
 static void status_ui_render_lcd(void)
 {
     status_ui_lcd_context_t ctx;
@@ -945,6 +1301,14 @@ static void status_ui_render_lcd(void)
     }
     if (keyboard_is_active()) {
         status_ui_render_keyboard_lcd();
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+    if (s_menu_mode) {
+        status_ui_render_menu_lcd(&s_nav);
         esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
@@ -1178,6 +1542,11 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
             return ESP_ERR_NO_MEM;
         }
     }
+#endif
+
+    ui_nav_init(&s_nav);
+#if CONFIG_APP_STATUS_UI_LCD
+    (void)app_wifi_get_config(&s_wifi_draft_config);
 #endif
 
     if (handlers != NULL) {
