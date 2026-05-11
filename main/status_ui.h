@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "app_mode.h"
 #include "esp_err.h"
@@ -59,6 +60,7 @@ void status_ui_set_sound_meter_snapshot(const status_ui_sound_meter_snapshot_t *
 bool status_ui_get_sound_meter_snapshot(status_ui_sound_meter_snapshot_t *out);
 void status_ui_set_display_mode(app_display_mode_t mode);
 app_display_mode_t status_ui_get_display_mode(void);
+bool status_ui_keyboard_read_line(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, bool secret, uint32_t timeout_ms);
 
 #ifdef __cplusplus
 }

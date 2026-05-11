@@ -1,6 +1,7 @@
 #include "rule_web.h"
 #include "capability_registry.h"
 #include "action_http.h"
+#include "app_wifi.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -107,6 +108,10 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
         !register_uri(web->server, "/api/config", HTTP_POST, web) ||
         !register_uri(web->server, "/api/capabilities", HTTP_GET, web) ||
         !register_uri(web->server, "/api/status", HTTP_GET, web) ||
+        !register_uri(web->server, "/api/wifi/status", HTTP_GET, web) ||
+        !register_uri(web->server, "/api/wifi/scan", HTTP_POST, web) ||
+        !register_uri(web->server, "/api/wifi/connect", HTTP_POST, web) ||
+        !register_uri(web->server, "/api/wifi/ap", HTTP_POST, web) ||
         !register_uri(web->server, "/api/rules/test", HTTP_POST, web) ||
         !register_uri(web->server, "/api/gpio/test", HTTP_POST, web) ||
         !register_uri(web->server, "/api/hat/probe", HTTP_POST, web)) {
@@ -144,6 +149,11 @@ static const char s_rule_setup_page[] =
     "input,select,textarea,button{font:inherit;margin:.15rem}textarea{width:100%;min-height:8rem}"
     "section{border:1px solid #ccc;border-radius:.5rem;padding:1rem;margin:1rem 0}.status{white-space:pre-wrap}</style></head>"
     "<body><h1>StickS3 local rule automation</h1>"
+    "<section><h2>Wi-Fi setup</h2><p>Connect to a router or keep the setup AP active, then open this UI at the reported IP.</p>"
+    "<label>Scanned SSID <select id=\"wifi_ssid_select\"></select></label><label>Manual/hidden SSID <input id=\"wifi_ssid\" maxlength=\"32\"></label>"
+    "<label>Password <input id=\"wifi_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\"></label>"
+    "<button id=\"wifi_scan\" type=\"button\">Scan Wi-Fi</button><button id=\"wifi_connect\" type=\"button\">Connect and save</button>"
+    "<button id=\"wifi_ap\" type=\"button\">Start setup AP</button><pre id=\"wifi_status\" class=\"status\"></pre></section>"
     "<section><h2>WHEN trigger</h2>"
     "<label>Trigger source <select id=\"source\"></select></label>"
     "<label>Comparator <select id=\"comparator\"><option value=\"eq\">equals</option><option value=\"ne\">not equals</option>"
@@ -170,7 +180,12 @@ static const char s_rule_setup_page[] =
     "(caps.hat_sources||[]).forEach(h=>opt($('hat_source'),h.name,h.supported?(h.name+' (present)'):(h.name+' ('+h.reason+')')))}"
     "function body(){let b={source:$('source').value,action:$('action').value,comparator:$('comparator').value,threshold:$('threshold').value,http_url:$('http_url').value,http_bearer_token:$('http_bearer_token').value};"
     "if(b.source.startsWith('gpio.'))Object.assign(b,{gpio_pin:+$('gpio_pin').value,gpio_profile:$('gpio_profile').value,gpio_debounce_ms:+$('gpio_debounce_ms').value,gpio_active_low:$('gpio_active_low').checked});return JSON.stringify(b)}"
-    "async function refresh(){caps=await j('/api/capabilities');fill();$('capabilities').textContent=JSON.stringify(caps,null,2);$('status').textContent=JSON.stringify(await j('/api/status'),null,2);$('config_json').value=JSON.stringify(await j('/api/config'),null,2)}"
+    "async function wifiStatus(){$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/status'),null,2)}"
+    "async function refresh(){caps=await j('/api/capabilities');fill();$('capabilities').textContent=JSON.stringify(caps,null,2);$('status').textContent=JSON.stringify(await j('/api/status'),null,2);$('config_json').value=JSON.stringify(await j('/api/config'),null,2);await wifiStatus()}"
+    "$('wifi_scan').onclick=async()=>{const d=await j('/api/wifi/scan',{method:'POST'});$('wifi_ssid_select').innerHTML='';(d.networks||[]).forEach(n=>opt($('wifi_ssid_select'),n.ssid,n.ssid+' ('+n.rssi+' dBm)'));$('wifi_status').textContent=JSON.stringify(d,null,2)};"
+    "$('wifi_ssid_select').onchange=()=>{$('wifi_ssid').value=$('wifi_ssid_select').value};"
+    "$('wifi_connect').onclick=async()=>{const ssid=$('wifi_ssid').value||$('wifi_ssid_select').value;$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/connect',{method:'POST',body:JSON.stringify({ssid:ssid,password:$('wifi_password').value})}),null,2)};"
+    "$('wifi_ap').onclick=async()=>$('wifi_status').textContent=JSON.stringify(await j('/api/wifi/ap',{method:'POST'}),null,2);"
     "$('load_config').onclick=refresh;$('export_config').onclick=async()=>$('config_json').value=JSON.stringify(await j('/api/config'),null,2);"
     "$('save_config').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/config',{method:'POST',body:body()}),null,2);"
     "$('import_config').onclick=async()=>$('status').textContent=JSON.stringify(await j('/api/config',{method:'POST',body:$('config_json').value}),null,2);"
@@ -183,11 +198,15 @@ bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len)
     if (web == NULL || out == NULL || out_len == 0) {
         return false;
     }
+    char wifi[512];
+    if (!app_wifi_status_json(wifi, sizeof(wifi))) {
+        (void)snprintf(wifi, sizeof(wifi), "{\"enabled\":false}");
+    }
     action_result_t result = rule_runtime_get_last_action_result(web->runtime);
     const int written = snprintf(out, out_len,
-                                 "{\"started\":%s,\"last_action\":%d,\"capabilities_ready\":true,\"http_network_ready\":%s}",
+                                 "{\"started\":%s,\"last_action\":%d,\"capabilities_ready\":true,\"http_network_ready\":%s,\"wifi\":%s}",
                                  web->started ? "true" : "false", (int)result.code,
-                                 action_http_network_ready() ? "true" : "false");
+                                 action_http_network_ready() ? "true" : "false", wifi);
     return written > 0 && (size_t)written < out_len;
 }
 
@@ -762,6 +781,39 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
     }
     if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/status") == 0) {
         return rule_web_get_status_json(web, out, out_len);
+    }
+    if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/wifi/status") == 0) {
+        return app_wifi_status_json(out, out_len);
+    }
+    if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/wifi/scan") == 0) {
+        return app_wifi_scan_json(out, out_len);
+    }
+    if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/wifi/connect") == 0) {
+        char ssid[33];
+        char password[65];
+        if (!json_get_string(body, "ssid", ssid, sizeof(ssid))) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"missing_ssid\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        if (!json_get_string(body, "password", password, sizeof(password))) {
+            password[0] = '\0';
+        }
+        const bool ok = app_wifi_connect(ssid, password, true);
+        char status[512];
+        if (!app_wifi_status_json(status, sizeof(status))) {
+            (void)snprintf(status, sizeof(status), "{\"enabled\":false}");
+        }
+        const int written = snprintf(out, out_len, "{\"ok\":%s,\"status\":%s}", ok ? "true" : "false", status);
+        return written > 0 && (size_t)written < out_len;
+    }
+    if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/wifi/ap") == 0) {
+        const bool ok = app_wifi_start_ap();
+        char status[512];
+        if (!app_wifi_status_json(status, sizeof(status))) {
+            (void)snprintf(status, sizeof(status), "{\"enabled\":false}");
+        }
+        const int written = snprintf(out, out_len, "{\"ok\":%s,\"status\":%s}", ok ? "true" : "false", status);
+        return written > 0 && (size_t)written < out_len;
     }
     if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/config") == 0) {
         return write_config_json(&web->runtime->engine.config, out, out_len);
