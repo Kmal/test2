@@ -10,9 +10,12 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
+#include "esp_log.h"
 
 #define RULE_WEB_MAX_BODY 512u
 #define RULE_WEB_MAX_RESPONSE 8192u
+
+static const char *TAG = "RULE_WEB";
 
 static esp_err_t rule_web_http_handler(httpd_req_t *req)
 {
@@ -68,7 +71,13 @@ static bool register_uri(httpd_handle_t server, const char *uri, httpd_method_t 
         .handler = rule_web_http_handler,
         .user_ctx = web,
     };
-    return httpd_register_uri_handler(server, &handler) == ESP_OK;
+    esp_err_t err = httpd_register_uri_handler(server, &handler);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "register URI failed: method=%d uri=%s err=%s", (int)method, uri, esp_err_to_name(err));
+        return false;
+    }
+    ESP_LOGI(TAG, "registered URI: method=%d uri=%s", (int)method, uri);
+    return true;
 }
 #endif
 
@@ -83,9 +92,16 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
     web->store = store;
 #ifdef ESP_PLATFORM
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    if (httpd_start(&web->server, &config) != ESP_OK) {
+    ESP_LOGI(TAG, "starting HTTP server: port=%u max_uri_handlers=%u stack=%u",
+             (unsigned)config.server_port,
+             (unsigned)config.max_uri_handlers,
+             (unsigned)config.stack_size);
+    esp_err_t err = httpd_start(&web->server, &config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "HTTP server start failed: %s", esp_err_to_name(err));
         return false;
     }
+    ESP_LOGI(TAG, "HTTP server started");
     if (!register_uri(web->server, "/", HTTP_GET, web) ||
         !register_uri(web->server, "/api/config", HTTP_GET, web) ||
         !register_uri(web->server, "/api/config", HTTP_POST, web) ||
@@ -94,12 +110,16 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
         !register_uri(web->server, "/api/rules/test", HTTP_POST, web) ||
         !register_uri(web->server, "/api/gpio/test", HTTP_POST, web) ||
         !register_uri(web->server, "/api/hat/probe", HTTP_POST, web)) {
+        ESP_LOGE(TAG, "HTTP server URI registration failed; stopping server");
         httpd_stop(web->server);
         web->server = NULL;
         return false;
     }
 #endif
     web->started = true;
+#ifdef ESP_PLATFORM
+    ESP_LOGI(TAG, "rule web ready");
+#endif
     return true;
 }
 
@@ -108,6 +128,7 @@ void rule_web_stop(rule_web_t *web)
     if (web != NULL) {
 #ifdef ESP_PLATFORM
         if (web->server != NULL) {
+            ESP_LOGI(TAG, "stopping HTTP server");
             httpd_stop(web->server);
             web->server = NULL;
         }
