@@ -39,11 +39,13 @@ static uint16_t s_char_handle;
 static uint16_t s_metrics_char_handle;
 static uint16_t s_control_char_handle;
 static uint16_t s_status_char_handle;
+static uint16_t s_rule_event_char_handle;
 static uint16_t s_mtu = BLE_GATT_PCM_DEFAULT_MTU;
 static bool s_connected;
 static bool s_notify_enabled;
 static bool s_metrics_notify_enabled;
 static bool s_status_notify_enabled;
+static bool s_rule_event_notify_enabled;
 static bool s_pcm_debug_enabled;
 static bool s_started;
 static transport_ble_control_cb_t s_control_cb;
@@ -57,6 +59,7 @@ static const ble_uuid16_t s_char_uuid = BLE_UUID16_INIT(BLE_GATT_PCM_CHAR_UUID);
 static const ble_uuid16_t s_metrics_char_uuid = BLE_UUID16_INIT(BLE_GATT_SOUND_LEVEL_CHAR_UUID);
 static const ble_uuid16_t s_control_char_uuid = BLE_UUID16_INIT(BLE_GATT_CONTROL_CHAR_UUID);
 static const ble_uuid16_t s_status_char_uuid = BLE_UUID16_INIT(BLE_GATT_STATUS_CHAR_UUID);
+static const ble_uuid16_t s_rule_event_char_uuid = BLE_UUID16_INIT(BLE_GATT_RULE_EVENT_CHAR_UUID);
 
 /* Last-readable value; notifications carry framed PCM payloads. */
 static uint8_t s_initial_char_value[] = {0};
@@ -171,6 +174,46 @@ static int gatt_status_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+
+static ble_rule_event_packet_t make_rule_event_packet(const rule_event_t *event)
+{
+    ble_rule_event_packet_t packet = {
+        .magic = BLE_RULE_EVENT_MAGIC,
+        .version = BLE_RULE_EVENT_VERSION,
+        .packet_bytes = sizeof(ble_rule_event_packet_t),
+    };
+    if (event != NULL) {
+        packet.sequence = event->sequence;
+        packet.uptime_ms = event->uptime_ms;
+        packet.rule_id = event->rule_id;
+        packet.source = (uint16_t)event->source;
+        packet.action = (uint16_t)event->action;
+        packet.fire_count = event->fire_count;
+        if (event->measured_value.kind == RULE_VALUE_BOOL) {
+            packet.measured_i32 = event->measured_value.as.bool_value ? 1 : 0;
+        } else if (event->measured_value.kind == RULE_VALUE_I32) {
+            packet.measured_i32 = event->measured_value.as.i32_value;
+        }
+        memcpy(packet.rule_name, event->rule_name, sizeof(packet.rule_name));
+        packet.rule_name[sizeof(packet.rule_name) - 1u] = '\0';
+    }
+    return packet;
+}
+
+static int gatt_rule_event_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                     struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
+    ble_rule_event_packet_t packet = make_rule_event_packet(NULL);
+    int rc = os_mbuf_append(ctxt->om, &packet, sizeof(packet));
+    return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static int gap_event_cb(struct ble_gap_event *event, void *arg);
 
 static const struct ble_gatt_svc_def s_gatt_svcs[] = {
@@ -201,6 +244,12 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
                 .access_cb = gatt_status_access_cb,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &s_status_char_handle,
+            },
+            {
+                .uuid = &s_rule_event_char_uuid.u,
+                .access_cb = gatt_rule_event_access_cb,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &s_rule_event_char_handle,
             },
             {0},
         },
@@ -250,6 +299,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             s_notify_enabled = false;
             s_metrics_notify_enabled = false;
             s_status_notify_enabled = false;
+            s_rule_event_notify_enabled = false;
             s_conn_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "BLE client connected: handle=%u", s_conn_handle);
         } else {
@@ -263,6 +313,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_notify_enabled = false;
         s_metrics_notify_enabled = false;
         s_status_notify_enabled = false;
+        s_rule_event_notify_enabled = false;
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_mtu = BLE_GATT_PCM_DEFAULT_MTU;
         advertise();
@@ -281,6 +332,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         } else if (event->subscribe.attr_handle == s_status_char_handle) {
             s_status_notify_enabled = event->subscribe.cur_notify;
             ESP_LOGI(TAG, "status notifications %s", s_status_notify_enabled ? "enabled" : "disabled");
+        } else if (event->subscribe.attr_handle == s_rule_event_char_handle) {
+            s_rule_event_notify_enabled = event->subscribe.cur_notify;
+            ESP_LOGI(TAG, "rule event notifications %s", s_rule_event_notify_enabled ? "enabled" : "disabled");
         }
         return 0;
     case BLE_GAP_EVENT_MTU:
@@ -451,6 +505,27 @@ bool transport_ble_gatt_pcm_pcm_notify_enabled(void)
     return s_notify_enabled;
 }
 
+bool transport_ble_rule_event_notify_enabled(void)
+{
+    return s_rule_event_notify_enabled;
+}
+
+esp_err_t transport_ble_send_rule_event(const rule_event_t *event)
+{
+    if (event == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_connected || !s_rule_event_notify_enabled || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    ble_rule_event_packet_t packet = make_rule_event_packet(event);
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(&packet, sizeof(packet));
+    if (om == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_rule_event_char_handle, om);
+    return rc == 0 ? ESP_OK : ESP_FAIL;
+}
 
 void transport_ble_gatt_pcm_set_control_callback(transport_ble_control_cb_t cb, void *ctx)
 {

@@ -7,6 +7,7 @@
 #include "app_mode.h"
 #include "audio_metrics.h"
 #include "ble_sound_level_protocol.h"
+#include "rule_engine.h"
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -43,6 +44,8 @@ bool transport_ble_gatt_pcm_get_pcm_debug_enabled(void);
 bool transport_ble_gatt_pcm_is_connected(void);
 bool transport_ble_gatt_pcm_metrics_notify_enabled(void);
 bool transport_ble_gatt_pcm_pcm_notify_enabled(void);
+bool transport_ble_rule_event_notify_enabled(void);
+esp_err_t transport_ble_send_rule_event(const rule_event_t *event);
 void transport_ble_gatt_pcm_set_control_callback(transport_ble_control_cb_t cb, void *ctx);
 void transport_ble_gatt_pcm_set_pcm_reader(transport_ble_pcm_read_cb_t cb, void *ctx);
 void transport_ble_gatt_pcm_update_status(const transport_ble_status_snapshot_t *status);

@@ -69,6 +69,9 @@
 #define BOARD_LCD_RST_GPIO     GPIO_NUM_21
 #define BOARD_LCD_BL_GPIO      GPIO_NUM_38
 #define BOARD_LCD_BL_ON_LEVEL  1
+
+#define BOARD_IR_TX_GPIO      GPIO_NUM_46
+#define BOARD_IR_RX_GPIO      GPIO_NUM_42
 #define BOARD_LCD_X_GAP        52
 #define BOARD_LCD_Y_GAP        40
 #define BOARD_LCD_CMD_BITS     8

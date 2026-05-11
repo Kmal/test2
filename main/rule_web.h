@@ -1,0 +1,31 @@
+#pragma once
+
+#include "rule_config_store.h"
+#include "rule_runtime.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef ESP_PLATFORM
+#include "esp_http_server.h"
+#endif
+
+
+typedef enum {
+    RULE_WEB_METHOD_GET = 0,
+    RULE_WEB_METHOD_POST,
+} rule_web_method_t;
+
+typedef struct {
+    bool started;
+    rule_runtime_t *runtime;
+    rule_config_store_t *store;
+#ifdef ESP_PLATFORM
+    httpd_handle_t server;
+#endif
+} rule_web_t;
+
+bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_t *store);
+void rule_web_stop(rule_web_t *web);
+bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len);
+bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const char *path, const char *body, char *out, size_t out_len);
