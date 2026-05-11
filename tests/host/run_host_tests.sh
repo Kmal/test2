@@ -42,6 +42,22 @@ compile test_board_audio -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}
   "${ROOT}/main/board_audio.c" "${ROOT}/tests/host/fakes/fake_board_deps.c" "${ROOT}/tests/host/test_board_audio.c"
 compile test_board_audio_clock -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/board_audio_clock.c" "${ROOT}/tests/host/test_board_audio_clock.c"
+compile test_rule_types -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_rule_types.c"
+compile test_rule_engine -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/tests/host/test_rule_engine.c"
+compile test_trigger_sources -I"${ROOT}/main" \
+  "${ROOT}/main/trigger_sources.c" "${ROOT}/tests/host/test_trigger_sources.c"
+compile test_action_dispatcher -I"${ROOT}/main" \
+  "${ROOT}/main/action_dispatcher.c" "${ROOT}/tests/host/test_action_dispatcher.c"
+compile test_rule_runtime -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/main/trigger_sources.c" "${ROOT}/main/trigger_gpio.c" "${ROOT}/main/action_dispatcher.c" "${ROOT}/main/rule_runtime.c" "${ROOT}/tests/host/test_rule_runtime.c"
+compile test_rule_config_store -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_config_store.c" "${ROOT}/tests/host/test_rule_config_store.c"
+compile test_action_modules -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/action_http.c" "${ROOT}/main/action_ir.c" "${ROOT}/main/action_hat.c" "${ROOT}/tests/host/test_action_modules.c"
+compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/main/trigger_sources.c" "${ROOT}/main/action_dispatcher.c" "${ROOT}/main/rule_runtime.c" "${ROOT}/main/rule_config_store.c" "${ROOT}/main/action_http.c" "${ROOT}/main/rule_web.c" "${ROOT}/main/trigger_gpio.c" "${ROOT}/main/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
 "${BUILD_DIR}/test_button_state"
 "${BUILD_DIR}/test_audio_resample"
 "${BUILD_DIR}/test_audio_pipeline"
@@ -53,3 +69,11 @@ compile test_board_audio_clock -I"${FAKE_INC}" -I"${ROOT}/main" \
 "${BUILD_DIR}/test_m5pm1_gpio"
 "${BUILD_DIR}/test_board_audio"
 "${BUILD_DIR}/test_board_audio_clock"
+"${BUILD_DIR}/test_rule_types"
+"${BUILD_DIR}/test_rule_engine"
+"${BUILD_DIR}/test_trigger_sources"
+"${BUILD_DIR}/test_action_dispatcher"
+"${BUILD_DIR}/test_rule_runtime"
+"${BUILD_DIR}/test_rule_config_store"
+"${BUILD_DIR}/test_action_modules"
+"${BUILD_DIR}/test_external_triggers_and_web"
