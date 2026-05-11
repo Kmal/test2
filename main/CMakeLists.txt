@@ -10,6 +10,7 @@ set(APP_SRCS
     "es8311.c"
     "status_ui.c"
     "app_mode.c"
+    "ui_nav.c"
     "app_wifi.c"
     "audio_metrics.c"
     "sound_meter.c"
