@@ -102,9 +102,18 @@ The automation plan is now summarized here instead of in a separate planning REA
 
 The remaining automation roadmap is hardware/product work: validate the runtime on physical StickS3 hardware, improve the web editor UX, document network-security assumptions, add a host BLE client example, and only then implement additional source-backed HAT, GPIO pulse/frequency, battery, BMI270, ADC, or speaker features.
 
+## Factory image and flashing
+
+`tools/make_factory_image.py` reads `build/flasher_args.json` when present, falls back to `build/flash_args`, verifies the referenced bootloader, partition table, app, and any other ESP-IDF flash artifacts exist, and writes `build/m5sticks3_bluetooth_mic.bin`. This merged factory image is the only single-file artifact intended for offset `0x0`; the application-partition image is named `build/m5sticks3_bluetooth_mic_app.bin` and must only be flashed at the app offset shown in `build/flash_args`.
+
+The factory-image tool validates the `0x0` boot image before merging and rejects a plan that would put the application artifact at offset `0x0`. If the ROM banner reaches `Invalid image block, can't boot`, erase and reflash the generated factory image rather than any app-only `.bin` file.
+
+GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256`, so workflow artifacts include a ready-to-flash `0x0` image for each successful build.
+
+Flash the merged image with the same ESP-IDF/esptool environment used for the build.
+
 ## Hardware smoke checklist
 
-   The script reads `build/flasher_args.json` when present, falls back to `build/flash_args`, verifies the referenced bootloader, partition table, app, and any other ESP-IDF flash artifacts exist, and writes `build/m5sticks3_bluetooth_mic.bin`. This merged factory image is the only single-file artifact intended for offset `0x0`; the application-partition image is named `build/m5sticks3_bluetooth_mic_app.bin` and must only be flashed at the app offset shown in `build/flash_args`. Flash the merged image with the same ESP-IDF/esptool environment used for the build:
 Before claiming end-to-end hardware validation, run these checks on a physical StickS3 and any required external fixtures:
 
 | Item | Hardware validation steps |
@@ -122,9 +131,6 @@ Before claiming end-to-end hardware validation, run these checks on a physical S
 | Audio clocks | Measure GPIO18 MCLK at 12.288 MHz, GPIO17 BCLK at the documented 512 kHz target, and GPIO15 LRCK at 16 kHz. |
 | Capture-only safety | Confirm default boot does not drive I2S TX, unmute the ES8311 DAC, or pulse the speaker amplifier. |
 
-   The factory-image tool validates the 0x0 boot image before merging and rejects a plan that would put the application artifact at offset `0x0`. If the ROM banner reaches `Invalid image block, can't boot`, erase and reflash the generated factory image rather than any app-only `.bin` file.
-
-   GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256`, so workflow artifacts include a ready-to-flash `0x0` image for each successful build.
 ## Acceptance and failure checks
 
 The project can claim working StickS3 firmware only when these checks match the current custom BLE sound-meter and local automation product:
