@@ -10,16 +10,23 @@
  */
 
 #include <stdbool.h>
+#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 
+#include "action_http.h"
+#include "action_ir.h"
 #include "app_mode.h"
 #include "board_audio.h"
 #include "board_sticks3.h"
+#include "rule_config_store.h"
+#include "rule_runtime.h"
+#include "rule_web.h"
 #include "sound_meter.h"
 #include "status_ui.h"
 #include "sdkconfig.h"
@@ -39,6 +46,226 @@
 static const char *TAG = "STICKS3_APP";
 static app_runtime_state_t s_runtime_state;
 static portMUX_TYPE s_runtime_mux = portMUX_INITIALIZER_UNLOCKED;
+static rule_runtime_t s_rule_runtime;
+static rule_config_store_t s_rule_store;
+static rule_web_t s_rule_web;
+static SemaphoreHandle_t s_rule_mutex;
+static TaskHandle_t s_rule_gpio_task;
+static TaskHandle_t s_rule_network_task;
+static bool s_rule_network_state_known;
+static bool s_rule_network_ready;
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+static TaskHandle_t s_rule_ble_task;
+static bool s_rule_ble_state_known;
+static bool s_rule_ble_connected;
+#endif
+
+
+
+static action_result_t app_send_http_rule_action(const rule_event_t *event, void *ctx)
+{
+    (void)ctx;
+    action_result_t result = {
+        .code = ACTION_RESULT_OK,
+    };
+    if (event != NULL) {
+        result.sequence = event->sequence;
+        result.rule_id = event->rule_id;
+        result.action = event->action;
+    }
+    action_http_result_t http = action_http_post_event(event != NULL ? &event->action_config : NULL, event);
+    if (http == ACTION_HTTP_RESULT_NOT_READY) {
+        result.code = ACTION_RESULT_NOT_STARTED;
+    } else if (http != ACTION_HTTP_RESULT_OK) {
+        result.code = ACTION_RESULT_UNSUPPORTED;
+    }
+    return result;
+}
+
+
+static action_result_t app_send_ir_rule_action(const rule_event_t *event, void *ctx)
+{
+    (void)ctx;
+    action_result_t result = {
+        .code = ACTION_RESULT_OK,
+    };
+    if (event != NULL) {
+        result.sequence = event->sequence;
+        result.rule_id = event->rule_id;
+        result.action = event->action;
+    }
+    if (!action_ir_send_event(event)) {
+        result.code = ACTION_RESULT_UNSUPPORTED;
+    }
+    return result;
+}
+
+
+static action_result_t app_send_local_ui_rule_action(const rule_event_t *event, void *ctx)
+{
+    (void)ctx;
+    action_result_t result = {
+        .code = ACTION_RESULT_OK,
+    };
+    if (event != NULL) {
+        result.sequence = event->sequence;
+        result.rule_id = event->rule_id;
+        result.action = event->action;
+    }
+    status_ui_set_state(STATUS_UI_STATE_READY);
+    status_ui_set_service_enabled(true);
+    return result;
+}
+
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+static action_result_t app_send_ble_rule_action(const rule_event_t *event, void *ctx)
+{
+    (void)ctx;
+    action_result_t result = {
+        .code = ACTION_RESULT_OK,
+    };
+    if (event != NULL) {
+        result.sequence = event->sequence;
+        result.rule_id = event->rule_id;
+        result.action = event->action;
+    }
+    esp_err_t err = transport_ble_send_rule_event(event);
+    if (err == ESP_ERR_INVALID_STATE) {
+        result.code = ACTION_RESULT_NOT_STARTED;
+    } else if (err != ESP_OK) {
+        result.code = ACTION_RESULT_UNSUPPORTED;
+    }
+    return result;
+}
+#endif
+
+
+
+
+static void app_emit_wifi_connected_rule_fact(bool connected, uint32_t uptime_ms)
+{
+    trigger_fact_t fact;
+    memset(&fact, 0, sizeof(fact));
+    fact.source = RULE_SOURCE_WIFI_CONNECTED;
+    fact.value = rule_value_bool(connected);
+    fact.uptime_ms = uptime_ms;
+    if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        (void)trigger_emit_fact(&s_rule_runtime.trigger_adapter, &fact);
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
+
+static void app_rule_network_state_task(void *ctx)
+{
+    (void)ctx;
+    while (true) {
+        const bool ready = action_http_network_ready();
+        const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (!s_rule_network_state_known || ready != s_rule_network_ready) {
+            s_rule_network_state_known = true;
+            s_rule_network_ready = ready;
+            app_emit_wifi_connected_rule_fact(ready, uptime_ms);
+        }
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+}
+
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+static void app_emit_ble_connected_rule_fact(bool connected, uint32_t uptime_ms)
+{
+    trigger_fact_t fact;
+    memset(&fact, 0, sizeof(fact));
+    fact.source = RULE_SOURCE_BLE_CONNECTED;
+    fact.value = rule_value_bool(connected);
+    fact.uptime_ms = uptime_ms;
+    if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        (void)trigger_emit_fact(&s_rule_runtime.trigger_adapter, &fact);
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
+
+static void app_rule_ble_state_task(void *ctx)
+{
+    (void)ctx;
+    while (true) {
+        const bool connected = transport_ble_gatt_pcm_is_connected();
+        const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (!s_rule_ble_state_known || connected != s_rule_ble_connected) {
+            s_rule_ble_state_known = true;
+            s_rule_ble_connected = connected;
+            app_emit_ble_connected_rule_fact(connected, uptime_ms);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+#endif
+
+static void app_rule_gpio_poll_task(void *ctx)
+{
+    (void)ctx;
+    while (true) {
+        const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            (void)rule_runtime_poll_gpio(&s_rule_runtime, uptime_ms);
+            xSemaphoreGive(s_rule_mutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+static void app_rule_runtime_init(void)
+{
+    automation_config_t config;
+    if (!rule_config_store_open(&s_rule_store) || !rule_config_store_load(&s_rule_store, &config)) {
+        automation_config_set_defaults(&config);
+    }
+    if (s_rule_mutex == NULL) {
+        s_rule_mutex = xSemaphoreCreateMutex();
+    }
+    if (s_rule_mutex != NULL) {
+        (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
+    }
+    (void)rule_runtime_init(&s_rule_runtime, &config);
+    rule_runtime_set_http_sender(&s_rule_runtime, app_send_http_rule_action, NULL);
+    rule_runtime_set_ir_sender(&s_rule_runtime, app_send_ir_rule_action, NULL);
+    rule_runtime_set_local_ui_sender(&s_rule_runtime, app_send_local_ui_rule_action, NULL);
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+    rule_runtime_set_ble_sender(&s_rule_runtime, app_send_ble_rule_action, NULL);
+#endif
+    (void)rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store);
+    if (s_rule_mutex != NULL) {
+        xSemaphoreGive(s_rule_mutex);
+    }
+    if (s_rule_gpio_task == NULL) {
+        (void)xTaskCreate(app_rule_gpio_poll_task, "rule_gpio_poll", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_gpio_task);
+    }
+    if (s_rule_network_task == NULL) {
+        (void)xTaskCreate(app_rule_network_state_task, "rule_net_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_network_task);
+    }
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+    if (s_rule_ble_task == NULL) {
+        (void)xTaskCreate(app_rule_ble_state_task, "rule_ble_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_ble_task);
+    }
+#endif
+}
+
+static void app_process_rule_metrics(const audio_level_metrics_t *metrics)
+{
+    const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, 0) == pdTRUE) {
+        (void)rule_runtime_process_metrics(&s_rule_runtime, metrics, uptime_ms);
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
+
+static void app_emit_button_rule_fact(button_state_event_t event)
+{
+    const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        (void)rule_runtime_process_button_event(&s_rule_runtime, event, uptime_ms);
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
 
 static app_runtime_state_t app_get_runtime_snapshot(void *ctx)
 {
@@ -172,6 +399,7 @@ static esp_err_t app_publish_metrics_adapter(const audio_level_metrics_t *metric
                                              void *ctx)
 {
     (void)ctx;
+    app_process_rule_metrics(metrics);
     return transport_ble_gatt_pcm_publish_metrics(metrics, app_mode, display_mode);
 }
 
@@ -232,12 +460,14 @@ static void app_status_update_adapter(const sound_meter_stats_t *stats,
 static void key1_pressed_cb(void *ctx)
 {
     (void)ctx;
+    app_emit_button_rule_fact(BUTTON_STATE_EVENT_KEY1_SHORT);
     app_cycle_display_mode();
 }
 
 static void key2_pressed_cb(void *ctx)
 {
     (void)ctx;
+    app_emit_button_rule_fact(BUTTON_STATE_EVENT_KEY2_SHORT);
     app_cycle_app_mode();
 }
 
@@ -266,6 +496,7 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+    app_rule_runtime_init();
 
     ESP_ERROR_CHECK(status_ui_init(&status_handlers));
     status_ui_set_state(STATUS_UI_STATE_BOOTING);

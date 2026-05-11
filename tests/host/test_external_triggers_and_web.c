@@ -1,0 +1,132 @@
+#include "rule_web.h"
+#include "trigger_gpio.h"
+#include "trigger_hat.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define ASSERT_TRUE(value) do { if (!(value)) { fprintf(stderr, "%s:%d assertion failed: %s\n", __FILE__, __LINE__, #value); exit(1); } } while (0)
+#define ASSERT_FALSE(value) ASSERT_TRUE(!(value))
+#define ASSERT_EQ_U32(expected, actual) ASSERT_TRUE((uint32_t)(expected) == (uint32_t)(actual))
+
+static trigger_fact_t s_last_fact;
+static size_t s_fact_count;
+
+static bool capture_fact(const trigger_fact_t *fact, void *ctx)
+{
+    (void)ctx;
+    ASSERT_TRUE(fact != NULL);
+    s_last_fact = *fact;
+    s_fact_count++;
+    return true;
+}
+
+static void test_gpio_digital_debounce_emits_safe_pin(void)
+{
+    trigger_gpio_t gpio;
+    rule_gpio_config_t cfg = {.pin = 4, .profile = RULE_GPIO_PROFILE_DIGITAL_HIGH_LOW, .debounce_ms = 10};
+    trigger_adapter_t adapter;
+    trigger_adapter_init(&adapter, capture_fact, NULL);
+    s_fact_count = 0;
+
+    ASSERT_TRUE(trigger_gpio_init(&gpio, RULE_SOURCE_GPIO_DIGITAL, &cfg));
+    ASSERT_TRUE(trigger_gpio_probe(&gpio));
+    trigger_gpio_set_host_level(&gpio, false);
+    ASSERT_EQ_U32(0, trigger_gpio_poll(&gpio, &adapter, 100));
+    trigger_gpio_set_host_level(&gpio, true);
+    ASSERT_EQ_U32(0, trigger_gpio_poll(&gpio, &adapter, 105));
+    ASSERT_EQ_U32(1, trigger_gpio_poll(&gpio, &adapter, 116));
+    ASSERT_EQ_U32(1, s_fact_count);
+    ASSERT_TRUE(s_last_fact.source == RULE_SOURCE_GPIO_DIGITAL);
+    ASSERT_TRUE(s_last_fact.value.kind == RULE_VALUE_BOOL);
+    ASSERT_TRUE(s_last_fact.value.as.bool_value);
+}
+
+static void test_disabled_hat_does_not_probe(void)
+{
+    trigger_hat_t hat;
+    ASSERT_FALSE(trigger_hat_probe(&hat, RULE_SOURCE_HAT_PIR_MOTION));
+}
+
+static void test_rule_web_status(void)
+{
+    automation_config_t config;
+    automation_config_set_defaults(&config);
+    rule_runtime_t runtime;
+    rule_config_store_t store;
+    rule_web_t web;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    ASSERT_TRUE(rule_config_store_open(&store));
+    ASSERT_TRUE(rule_web_start(&web, &runtime, &store));
+    char json[8192];
+    ASSERT_TRUE(rule_web_get_status_json(&web, json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "http_network_ready") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/", NULL, json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "Trigger source") != NULL);
+    ASSERT_TRUE(strstr(json, "Import / export JSON") != NULL);
+    ASSERT_TRUE(strstr(json, "Test GPIO safety") != NULL);
+    ASSERT_TRUE(strstr(json, "Probe HAT") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/capabilities", NULL, json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "pin_conflicts") != NULL);
+    ASSERT_TRUE(strstr(json, "hat.thermal.avg_c") != NULL);
+    ASSERT_TRUE(strstr(json, "pulse_count") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/config", NULL, json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "threshold_kind") != NULL);
+    char exported[8192];
+    snprintf(exported, sizeof(exported), "%s", json);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", exported, json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "config rejected") == NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", "defaults", json, sizeof(json)));
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/rules/test", NULL, json, sizeof(json)));
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", "{\"preset\":\"sound_local_ui\"}", json, sizeof(json)));
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/rules/test", NULL, json, sizeof(json)));
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"button.key1.short\",\"action\":\"http_post\",\"http_url\":\"https://example.invalid/hook\",\"http_bearer_token\":\"secret-token\"}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "masked") != NULL);
+    ASSERT_TRUE(strstr(json, "secret-token") == NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"button.key1.short\",\"action\":\"http_post\",\"http_url\":\"ftp://bad.invalid/hook\"}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "config rejected") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"gpio.digital\",\"action\":\"local_ui\",\"gpio_pin\":4,\"gpio_profile\":\"digital_high_low\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "gpio.digital") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
+                                        "{\"gpio_pin\":4,\"gpio_profile\":\"digital_high_low\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\":true") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
+                                        "{\"gpio_pin\":39,\"gpio_profile\":\"digital_high_low\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\":false") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"gpio.edge\",\"action\":\"local_ui\",\"gpio_pin\":4,\"gpio_profile\":\"rising_edge\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "gpio.edge") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
+                                        "{\"source\":\"gpio.edge\",\"gpio_pin\":4,\"gpio_profile\":\"rising_edge\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\":true") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
+                                        "{\"source\":\"gpio.pulse_count\",\"gpio_pin\":4,\"gpio_profile\":\"pulse_count\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\":false") != NULL);
+    ASSERT_TRUE(strstr(json, "\"supported\":false") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/hat/probe",
+                                        "{\"source\":\"hat.thermal.avg_c\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "missing_hat_driver") != NULL);
+    rule_web_stop(&web);
+    rule_config_store_close(&store);
+}
+
+int main(void)
+{
+    test_gpio_digital_debounce_emits_safe_pin();
+    test_disabled_hat_does_not_probe();
+    test_rule_web_status();
+    puts("external_triggers_and_web tests passed");
+    return 0;
+}

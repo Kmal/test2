@@ -11,11 +11,15 @@ extern "C" {
 #define BLE_GATT_SOUND_LEVEL_CHAR_UUID 0xFFF2
 #define BLE_GATT_CONTROL_CHAR_UUID 0xFFF3
 #define BLE_GATT_STATUS_CHAR_UUID 0xFFF4
+#define BLE_GATT_RULE_EVENT_CHAR_UUID 0xFFF5
 
 #define BLE_SOUND_LEVEL_MAGIC 0x4d4c354dU /* "M5LM" little-endian */
 #define BLE_SOUND_LEVEL_VERSION 1U
 #define BLE_SOUND_STATUS_MAGIC 0x5354354dU /* "M5TS" little-endian */
 #define BLE_SOUND_STATUS_VERSION 1U
+#define BLE_RULE_EVENT_MAGIC 0x4552354dU /* "M5RE" little-endian */
+#define BLE_RULE_EVENT_VERSION 1U
+#define BLE_RULE_EVENT_NAME_BYTES 20U
 
 typedef enum {
     BLE_CONTROL_CYCLE_APP_MODE = 0x01,
@@ -66,6 +70,20 @@ typedef struct __attribute__((packed)) {
     uint32_t windows_completed;
     uint32_t i2s_read_errors;
 } ble_sound_status_packet_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t packet_bytes;
+    uint32_t sequence;
+    uint32_t uptime_ms;
+    uint32_t rule_id;
+    uint16_t source;
+    uint16_t action;
+    int32_t measured_i32;
+    uint32_t fire_count;
+    char rule_name[BLE_RULE_EVENT_NAME_BYTES];
+} ble_rule_event_packet_t;
 
 #ifdef __cplusplus
 }
