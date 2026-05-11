@@ -113,11 +113,13 @@ The code includes bit-preserving M5PM1 GPIO helpers, a tested source-backed GPIO
    python3 tools/make_factory_image.py
    ```
 
-   The script reads `build/flash_args`, verifies the referenced bootloader, partition table, app, and any other ESP-IDF flash artifacts exist, and writes `build/m5sticks3_bluetooth_mic.bin`. This merged factory image is the only single-file artifact intended for offset `0x0`; the application-partition image is named `build/m5sticks3_bluetooth_mic_app.bin` and must only be flashed at the app offset shown in `build/flash_args`. Flash the merged image with the same ESP-IDF/esptool environment used for the build:
+   The script reads `build/flasher_args.json` when present, falls back to `build/flash_args`, verifies the referenced bootloader, partition table, app, and any other ESP-IDF flash artifacts exist, and writes `build/m5sticks3_bluetooth_mic.bin`. This merged factory image is the only single-file artifact intended for offset `0x0`; the application-partition image is named `build/m5sticks3_bluetooth_mic_app.bin` and must only be flashed at the app offset shown in `build/flash_args`. Flash the merged image with the same ESP-IDF/esptool environment used for the build:
 
    ```sh
    esptool.py --chip esp32s3 -p <PORT> write_flash 0x0 build/m5sticks3_bluetooth_mic.bin
    ```
+
+   The factory-image tool validates the 0x0 boot image before merging and rejects a plan that would put the application artifact at offset `0x0`. If the ROM banner reaches `Invalid image block, can't boot`, erase and reflash the generated factory image rather than any app-only `.bin` file.
 
    GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256`, so workflow artifacts include a ready-to-flash `0x0` image for each successful build.
 
