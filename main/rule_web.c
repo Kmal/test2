@@ -2,6 +2,8 @@
 #include "capability_registry.h"
 #include "action_http.h"
 
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -194,6 +196,85 @@ static const char *gpio_profile_name(rule_gpio_profile_t profile)
     }
 }
 
+static bool json_appendf(char **cursor, size_t *remaining, const char *fmt, ...)
+{
+    if (cursor == NULL || *cursor == NULL || remaining == NULL || *remaining == 0 || fmt == NULL) {
+        return false;
+    }
+
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(*cursor, *remaining, fmt, args);
+    va_end(args);
+    if (written < 0 || (size_t)written >= *remaining) {
+        return false;
+    }
+
+    *cursor += written;
+    *remaining -= (size_t)written;
+    return true;
+}
+
+static bool json_append_string(char **cursor, size_t *remaining, const char *value)
+{
+    if (!json_appendf(cursor, remaining, "\"")) {
+        return false;
+    }
+
+    if (value != NULL) {
+        for (const unsigned char *ch = (const unsigned char *)value; *ch != '\0'; ++ch) {
+            switch (*ch) {
+            case '\"':
+                if (!json_appendf(cursor, remaining, "\\\"")) {
+                    return false;
+                }
+                break;
+            case '\\':
+                if (!json_appendf(cursor, remaining, "\\\\")) {
+                    return false;
+                }
+                break;
+            case '\b':
+                if (!json_appendf(cursor, remaining, "\\b")) {
+                    return false;
+                }
+                break;
+            case '\f':
+                if (!json_appendf(cursor, remaining, "\\f")) {
+                    return false;
+                }
+                break;
+            case '\n':
+                if (!json_appendf(cursor, remaining, "\\n")) {
+                    return false;
+                }
+                break;
+            case '\r':
+                if (!json_appendf(cursor, remaining, "\\r")) {
+                    return false;
+                }
+                break;
+            case '\t':
+                if (!json_appendf(cursor, remaining, "\\t")) {
+                    return false;
+                }
+                break;
+            default:
+                if (*ch < 0x20u) {
+                    if (!json_appendf(cursor, remaining, "\\u%04x", (unsigned)*ch)) {
+                        return false;
+                    }
+                } else if (!json_appendf(cursor, remaining, "%c", *ch)) {
+                    return false;
+                }
+                break;
+            }
+        }
+    }
+
+    return json_appendf(cursor, remaining, "\"");
+}
+
 static bool write_config_json(const automation_config_t *config, char *out, size_t out_len)
 {
     if (config == NULL || out == NULL || out_len == 0) {
@@ -208,42 +289,53 @@ static bool write_config_json(const automation_config_t *config, char *out, size
     const char *auth_state = (action != NULL && action->http_bearer_token[0] != '\0') ? "masked" : "empty";
     const rule_gpio_config_t empty_gpio = {.pin = RULE_GPIO_UNUSED_PIN, .profile = RULE_GPIO_PROFILE_NONE};
     const rule_gpio_config_t *gpio = rule != NULL ? &rule->when.gpio : &empty_gpio;
-    const int written = snprintf(out, out_len,
-                                 "{\"schema_version\":%lu,\"rule_count\":%u,"
-                                 "\"enabled\":%s,\"name\":\"%s\",\"source\":\"%s\",\"action\":\"%s\","
-                                 "\"comparator\":\"%s\",\"threshold_kind\":\"%s\",\"threshold_bool\":%s,\"threshold_i32\":%ld,"
-                                 "\"cooldown_ms\":%lu,\"sustain_ms\":%lu,"
-                                 "\"gpio_pin\":%d,\"gpio_profile\":\"%s\",\"gpio_active_low\":%s,\"gpio_debounce_ms\":%lu,"
-                                 "\"http_url\":\"%s\",\"http_bearer_token\":\"%s\","
-                                 "\"rules\":[{\"id\":%lu,\"enabled\":%s,\"name\":\"%s\","
-                                 "\"source\":\"%s\",\"action\":\"%s\",\"http_bearer_token\":\"%s\"}]}",
-                                 (unsigned long)config->schema_version,
-                                 (unsigned)config->rule_count,
-                                 (rule != NULL && rule->enabled) ? "true" : "false",
-                                 rule != NULL ? rule->name : "",
-                                 rule != NULL ? rule_source_name(rule->when.source) : "invalid",
-                                 action != NULL ? rule_action_name(action->type) : "invalid",
-                                 rule != NULL ? comparator_name(rule->when.comparator) : "invalid",
-                                 threshold_kind,
-                                 threshold_bool ? "true" : "false",
-                                 (long)threshold_i32,
-                                 rule != NULL ? (unsigned long)rule->cooldown_ms : 0ul,
-                                 rule != NULL ? (unsigned long)rule->when.sustain_ms : 0ul,
-                                 gpio->pin,
-                                 gpio_profile_name(gpio->profile),
-                                 gpio->active_low ? "true" : "false",
-                                 (unsigned long)gpio->debounce_ms,
-                                 action != NULL ? action->http_url : "",
-                                 auth_state,
-                                 rule != NULL ? (unsigned long)rule->id : 0ul,
-                                 (rule != NULL && rule->enabled) ? "true" : "false",
-                                 rule != NULL ? rule->name : "",
-                                 rule != NULL ? rule_source_name(rule->when.source) : "invalid",
-                                 action != NULL ? rule_action_name(action->type) : "invalid",
-                                 auth_state);
-    return written > 0 && (size_t)written < out_len;
-}
+    char *cursor = out;
+    size_t remaining = out_len;
 
+    bool ok = json_appendf(&cursor, &remaining,
+                           "{\"schema_version\":%lu,\"rule_count\":%u,"
+                           "\"enabled\":%s,\"name\":",
+                           (unsigned long)config->schema_version,
+                           (unsigned)config->rule_count,
+                           (rule != NULL && rule->enabled) ? "true" : "false") &&
+              json_append_string(&cursor, &remaining, rule != NULL ? rule->name : "") &&
+              json_appendf(&cursor, &remaining,
+                           ",\"source\":\"%s\",\"action\":\"%s\","
+                           "\"comparator\":\"%s\",\"threshold_kind\":\"%s\","
+                           "\"threshold_bool\":%s,\"threshold_i32\":%ld,"
+                           "\"cooldown_ms\":%lu,\"sustain_ms\":%lu,"
+                           "\"gpio_pin\":%d,\"gpio_profile\":\"%s\","
+                           "\"gpio_active_low\":%s,\"gpio_debounce_ms\":%lu,\"http_url\":",
+                           rule != NULL ? rule_source_name(rule->when.source) : "invalid",
+                           action != NULL ? rule_action_name(action->type) : "invalid",
+                           rule != NULL ? comparator_name(rule->when.comparator) : "invalid",
+                           threshold_kind,
+                           threshold_bool ? "true" : "false",
+                           (long)threshold_i32,
+                           rule != NULL ? (unsigned long)rule->cooldown_ms : 0ul,
+                           rule != NULL ? (unsigned long)rule->when.sustain_ms : 0ul,
+                           gpio->pin,
+                           gpio_profile_name(gpio->profile),
+                           gpio->active_low ? "true" : "false",
+                           (unsigned long)gpio->debounce_ms) &&
+              json_append_string(&cursor, &remaining, action != NULL ? action->http_url : "") &&
+              json_appendf(&cursor, &remaining, ",\"http_bearer_token\":\"%s\",\"rules\":[{\"id\":%lu,\"enabled\":%s,\"name\":",
+                           auth_state,
+                           rule != NULL ? (unsigned long)rule->id : 0ul,
+                           (rule != NULL && rule->enabled) ? "true" : "false") &&
+              json_append_string(&cursor, &remaining, rule != NULL ? rule->name : "") &&
+              json_appendf(&cursor, &remaining, ",\"source\":\"%s\",\"action\":\"%s\",\"http_bearer_token\":\"%s\"}]}",
+                           rule != NULL ? rule_source_name(rule->when.source) : "invalid",
+                           action != NULL ? rule_action_name(action->type) : "invalid",
+                           auth_state);
+    if (!ok) {
+        if (out_len > 0) {
+            out[0] = '\0';
+        }
+        return false;
+    }
+    return true;
+}
 
 static bool json_get_string(const char *body, const char *key, char *out, size_t out_len)
 {
@@ -251,7 +343,10 @@ static bool json_get_string(const char *body, const char *key, char *out, size_t
         return false;
     }
     char pattern[40];
-    (void)snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    int pattern_len = snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    if (pattern_len <= 0 || (size_t)pattern_len >= sizeof(pattern)) {
+        return false;
+    }
     const char *pos = strstr(body, pattern);
     if (pos == NULL) {
         return false;
@@ -269,11 +364,44 @@ static bool json_get_string(const char *body, const char *key, char *out, size_t
     }
     pos++;
     size_t used = 0;
-    while (*pos != '\0' && *pos != '\"' && used + 1u < out_len) {
-        if (*pos == '\\' && pos[1] != '\0') {
-            pos++;
+    while (*pos != '\0' && *pos != '\"') {
+        char decoded = *pos++;
+        if (decoded == '\\') {
+            switch (*pos) {
+            case '\"':
+            case '\\':
+            case '/':
+                decoded = *pos++;
+                break;
+            case 'b':
+                decoded = '\b';
+                pos++;
+                break;
+            case 'f':
+                decoded = '\f';
+                pos++;
+                break;
+            case 'n':
+                decoded = '\n';
+                pos++;
+                break;
+            case 'r':
+                decoded = '\r';
+                pos++;
+                break;
+            case 't':
+                decoded = '\t';
+                pos++;
+                break;
+            default:
+                return false;
+            }
         }
-        out[used++] = *pos++;
+        if (used + 1u >= out_len) {
+            out[0] = '\0';
+            return false;
+        }
+        out[used++] = decoded;
     }
     out[used] = '\0';
     return *pos == '\"';
@@ -316,7 +444,10 @@ static bool json_get_i32(const char *body, const char *key, int32_t *out)
         return false;
     }
     char pattern[40];
-    (void)snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    int pattern_len = snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    if (pattern_len <= 0 || (size_t)pattern_len >= sizeof(pattern)) {
+        return false;
+    }
     const char *pos = strstr(body, pattern);
     if (pos == NULL) {
         return false;
@@ -337,12 +468,16 @@ static bool json_get_i32(const char *body, const char *key, int32_t *out)
     if (*pos < '0' || *pos > '9') {
         return false;
     }
-    int32_t value = 0;
+    int64_t value = 0;
+    const int64_t limit = negative ? 2147483648LL : 2147483647LL;
     while (*pos >= '0' && *pos <= '9') {
         value = (value * 10) + (*pos - '0');
+        if (value > limit) {
+            return false;
+        }
         pos++;
     }
-    *out = negative ? -value : value;
+    *out = negative ? (int32_t)-value : (int32_t)value;
     return true;
 }
 

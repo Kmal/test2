@@ -87,6 +87,11 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "masked") != NULL);
     ASSERT_TRUE(strstr(json, "secret-token") == NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"button.key1.short\",\"action\":\"local_ui\",\"name\":\"Quote \\\"slash\\\\ line\\n\"}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "Quote \\\"slash\\\\ line\\n") != NULL);
+    ASSERT_TRUE(strstr(json, "Quote \"slash") == NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
                                         "{\"source\":\"button.key1.short\",\"action\":\"http_post\",\"http_url\":\"ftp://bad.invalid/hook\"}",
                                         json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "config rejected") != NULL);
