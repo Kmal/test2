@@ -31,6 +31,9 @@ jobs:
       - name: Validate transport config
         run: python3 tools/check_transport_config.py
 
+      - name: Validate factory image tool
+        run: python3 tests/tools/test_make_factory_image.py
+
       - name: Validate docs consistency
         run: python3 tools/check_docs_consistency.py
 
