@@ -113,7 +113,7 @@ bool action_ir_send(const action_ir_config_t *config, const rule_event_t *event)
         .frequency_hz = config->carrier_hz,
         .duty_cycle = 0.33f,
     };
-    rmt_copy_encoder_config_t encoder_config = {0};
+    rmt_copy_encoder_config_t encoder_config = {};
     bool ok = rmt_apply_carrier(channel, &carrier) == ESP_OK &&
               rmt_new_copy_encoder(&encoder_config, &encoder) == ESP_OK &&
               rmt_enable(channel) == ESP_OK;
