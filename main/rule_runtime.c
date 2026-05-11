@@ -1,5 +1,6 @@
 #include "rule_runtime.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 
@@ -54,22 +55,30 @@ bool rule_runtime_init(rule_runtime_t *runtime, const automation_config_t *confi
         return false;
     }
     memset(runtime, 0, sizeof(*runtime));
-    automation_config_t defaults;
+    automation_config_t *defaults = NULL;
     if (config == NULL) {
-        automation_config_set_defaults(&defaults);
-        config = &defaults;
+        defaults = malloc(sizeof(*defaults));
+        if (defaults == NULL) {
+            return false;
+        }
+        automation_config_set_defaults(defaults);
+        config = defaults;
     }
     if (!rule_engine_init(&runtime->engine, config)) {
+        free(defaults);
         return false;
     }
     if (!action_dispatcher_start(&runtime->dispatcher)) {
+        free(defaults);
         return false;
     }
     trigger_adapter_init(&runtime->trigger_adapter, runtime_fact_sink, runtime);
     if (!runtime_apply_gpio_triggers(runtime, config)) {
         action_dispatcher_stop(&runtime->dispatcher);
+        free(defaults);
         return false;
     }
+    free(defaults);
     return true;
 }
 

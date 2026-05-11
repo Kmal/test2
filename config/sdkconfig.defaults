@@ -30,3 +30,7 @@ CONFIG_APP_SOUND_METER_LOUD_DBFS=-12
 CONFIG_APP_SOUND_METER_CALIBRATION_WINDOWS=30
 CONFIG_APP_SOUND_METER_ENABLE_PCM_DEBUG=n
 CONFIG_APP_STATUS_UI_LCD_REFRESH_MS=100
+## The rule automation config is intentionally kept off app_main()'s stack,
+## but ESP-IDF startup plus board/BLE bring-up still benefits from explicit
+## headroom over the default main task stack.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
