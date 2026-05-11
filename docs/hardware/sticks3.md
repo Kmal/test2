@@ -40,7 +40,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a Bluetooth LE sound-level meter. It initializes status UI, initializes the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence, starts an onboard ST7789P3 135x240 VU/status dashboard when `CONFIG_APP_STATUS_UI_LCD` is enabled, skips the optional M5PM1 audio probe, configures the ESP32-S3 I2S standard driver for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends `M5LM` sound-level telemetry on characteristic UUID `0xFFF2`, accepts control writes on `0xFFF3`, exposes status on `0xFFF4`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1` when explicitly enabled. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+The current default firmware is a Bluetooth LE sound-level meter and local automation device. It initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the web configuration server, status UI, and the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence. It starts an onboard ST7789P3 135x240 VU/status dashboard when `CONFIG_APP_STATUS_UI_LCD` is enabled, skips the optional M5PM1 audio probe, configures the ESP32-S3 I2S standard driver for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends `M5LM` sound-level telemetry on characteristic UUID `0xFFF2`, accepts control writes on `0xFFF3`, exposes status on `0xFFF4`, emits `M5RE` automation rule events on `0xFFF5`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1` when explicitly enabled. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ## Shared I2C bus
 
@@ -68,11 +68,11 @@ This L3B enable sequence is not treated as evidence that local speaker output is
 
 Only GPIO11 (`KEY1`) and GPIO12 (`KEY2`) are treated as StickS3 user keys. GPIO35, GPIO37, and GPIO39 are not used as status buttons. GPIO39 is documented as LCD MOSI and must not be configured as a button.
 
-The exact safe end-user gesture set is intentionally minimal until the physical relationship between `KEY1`, `KEY2`, and the side power/download behavior is verified. The current firmware polls the two documented keys, logs their presses, and displays per-key press counters on the optional LCD debug dashboard; product actions that require more than two safe gestures remain transport/UX decisions.
+The current firmware polls the two documented keys, logs their presses, displays per-key press counters on the optional LCD dashboard, and emits normalized automation facts. KEY1 cycles LCD display pages. KEY2 cycles application modes. Product actions that require more than the two documented keys remain transport/UX decisions.
 
 ## LCD debug dashboard
 
-The onboard LCD is documented as an ST7789P3 panel with 135x240 resolution. The firmware maps MOSI=GPIO39, SCLK=GPIO40, RS/DC=GPIO45, CS=GPIO41, RST=GPIO21, and BL=GPIO38, uses SPI3_HOST at 40 MHz, and applies the source-backed ST7789 controller RAM gap X=52/Y=40. `CONFIG_APP_STATUS_UI_LCD` defaults to enabled and makes `status_ui_init()` initialize the panel, enable the backlight, and render debug information: state, BLE service state, monitoring state, 16 kHz PCM rate, key press counters, uptime, and BLE device name. LCD bring-up is intentionally non-fatal so audio and BLE validation can continue if display hardware is unavailable or panel initialization fails.
+The onboard LCD is documented as an ST7789P3 panel with 135x240 resolution. The firmware maps MOSI=GPIO39, SCLK=GPIO40, RS/DC=GPIO45, CS=GPIO41, RST=GPIO21, and BL=GPIO38, uses SPI3_HOST at 40 MHz, and applies the source-backed ST7789 controller RAM gap X=52/Y=40. `CONFIG_APP_STATUS_UI_LCD` defaults to enabled and makes `status_ui_init()` initialize the panel, enable the backlight, and render VU, numeric, BLE/status, and diagnostics pages with state, BLE service state, monitoring state, 16 kHz PCM rate, key press counters, uptime, and BLE device name. LCD bring-up is intentionally non-fatal so audio and BLE validation can continue if display hardware is unavailable or panel initialization fails.
 
 When validating the L3B/LCD fix on UART, the expected M5PM1 lines include `active_level=high`, `out_reg=0x11`, `out_value=0x04`, and a later GPIO output update with `value=0x04`. If the UART still reports `active_level=low` or `GPIO2 driven low`, the board is running an older application image and must be rebuilt/reflashed before judging the LCD or ES8311 result.
 
@@ -90,16 +90,24 @@ BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing thr
 
 `board_audio_init_with_ops()` initializes in this order: shared I2C, optional M5PM1 probe, required source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet.
 
+## Automation hardware scope
+
+Safe GPIO digital and edge triggers are implemented only behind conflict validation. Pins used by LCD, I2C, I2S/audio, the two StickS3 buttons, IR, boot/USB, or internal-risk functions are rejected before a rule can be saved. HAT sensors/actions, GPIO pulse/frequency, ADC, battery/power, and BMI270 facts remain disabled until their hardware behavior and routing are verified.
+
 ## Unknowns / deferred decisions
 
-- Replacement audio transport for StickS3.
+- Whether a future product requires a standard USB Audio or BLE Audio class instead of the selected custom BLE sound meter.
 - Exact M5PM1 speaker amplifier command sequence.
-- Final safe button gesture UX beyond detecting `KEY1` and `KEY2` presses.
-- Whether BMI270 is needed by any future product feature.
+- Whether BMI270, ADC, battery, or HAT features are needed by a future product feature.
 
 ## Source references
 
 - M5Stack StickS3 documentation and pin map: https://docs.m5stack.com/en/core/StickS3
+- M5Stack StickS3 Arduino programming documentation: https://docs.m5stack.com/en/arduino/m5sticks3/program
+- M5Stack StickS3 M5PM1 Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/m5pm1
+- M5Stack M5PM1 source repository: https://github.com/m5stack/M5PM1
+- M5Stack M5Unified source repository: https://github.com/m5stack/M5Unified
+- M5Stack M5GFX source repository: https://github.com/m5stack/M5GFX
 - M5Stack M5GFX StickS3 initialization source: https://github.com/m5stack/M5GFX/blob/master/src/M5GFX.cpp
 - StickS3 schematic PDF: https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1207/K150_Stick_S3_PRJ_V0.6_20251111_2025_11_17_16_10_24.pdf
 - ES8311 datasheet: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/products/atom/Atomic%20Echo%20Base/ES8311.pdf
