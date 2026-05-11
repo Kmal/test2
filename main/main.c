@@ -624,7 +624,7 @@ void app_main(void)
 #else
     status_ui_set_service_enabled(false);
     status_ui_set_state(STATUS_UI_STATE_NO_TRANSPORT);
-    ESP_LOGW(TAG, "No StickS3-compatible audio transport is selected; see docs/transport-feasibility.md");
+    ESP_LOGW(TAG, "No StickS3-compatible audio transport is selected; see README.md");
 #endif
 
     app_idle_forever();
