@@ -33,6 +33,8 @@ The default transport is a custom Bluetooth LE GATT sound-meter service advertis
 
 The sound-meter task reads 16 kHz, 16-bit mono PCM from I2S, computes 100 ms RMS/peak/VU/clipping metrics by default, updates the LCD, publishes BLE telemetry, feeds automation facts, and can provide optional PCM debug chunks. The default profile is capture-only: the I2S TX path, ES8311 DAC path, speaker amplifier, and local speaker monitoring remain disabled.
 
+**Transport decision:** Classic Bluetooth HFP is rejected because StickS3 uses ESP32-S3-PICO-1-N8R8 and ESP32-S3 does not support Bluetooth Classic / BR/EDR. Raw PCM over custom BLE remains debug-only, not a product microphone class. USB Audio and BLE Audio are deferred until official support, roles, memory, host compatibility, and product requirements are verified.
+
 ### Wi-Fi and web UI
 
 `CONFIG_APP_WIFI_ENABLE=y` starts Wi-Fi during boot. The firmware attempts saved station credentials and can fall back to a setup AP named `M5StickS3-Setup`. When `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING=y`, the LCD keyboard can collect Wi-Fi credentials before AP fallback.
@@ -119,6 +121,30 @@ Before claiming end-to-end hardware validation, run these checks on a physical S
 | Audio clocks | Measure GPIO18 MCLK at 12.288 MHz, GPIO17 BCLK at the documented 512 kHz target, and GPIO15 LRCK at 16 kHz. |
 | Capture-only safety | Confirm default boot does not drive I2S TX, unmute the ES8311 DAC, or pulse the speaker amplifier. |
 
+## Acceptance and failure checks
+
+The project can claim working StickS3 firmware only when these checks match the current custom BLE sound-meter and local automation product:
+
+- **Static checks:** run the five validation scripts in the development-checks section below.
+- **Host checks:** run `tests/host/run_host_tests.sh`; host tests cover pure helpers, audio metrics, app mode cycling, fake-bus ES8311 sequencing, bit-preserving M5PM1 GPIO helpers, board-audio ordering, failure cleanup, BLE protocol helpers, rule validation, engine transitions/sustain/cooldown, config storage, trigger adapters, GPIO safety, web handlers, and action modules.
+- **ESP-IDF checks:** build the default `esp32s3` BLE sound-meter/automation transport; keep legacy Classic Bluetooth HFP blocked for `esp32s3`; verify the default profile uses capture-only I2S RX and the ES8311 ADC-only path; generate the merged factory image with `python3 tools/make_factory_image.py`.
+- **Automation checks:** verify `/api/capabilities`, `/api/config`, `/api/gpio/test`, sound/button/BLE/Wi-Fi/GPIO facts, cooldown/sustain behavior, HTTP POST actions, and NEC IR actions against the current supported feature set.
+- **Failure checks:** if shared I2C, required L3B audio-power enable, I2S, ES8311, BLE, or sound-meter startup fails, later dependent work must not run and the app must remain alive in an error/diagnostic state instead of guessing unsafe hardware cleanup or reset-looping.
+
+## Documentation and change policy
+
+Keep the documentation set intentionally small:
+
+- `README.md` is the single entry point for product status, transport decision, automation status/roadmap, smoke checks, development checks, and change policy.
+- `docs/hardware/sticks3.md` stays separate because it is the detailed source-backed board/hardware evidence file used by documentation consistency checks.
+- `docs/ble-sound-meter-protocol.md` stays separate because it is a detailed packet/UUID reference for host applications and tests.
+
+For every hardware, transport, web, or automation change, update or explicitly confirm `README.md`, `docs/hardware/sticks3.md`, `docs/hardware/sticks3.board.json` when board facts change, `docs/ble-sound-meter-protocol.md` when BLE packets/UUIDs/commands change, touched source comments, Kconfig/default config, CMake/source layout, static validation scripts, host tests, and factory-image flow as applicable.
+
+Every new hardware write sequence must document or cite the source document or source code, device address, register address, bit mask, intended value, reset/default behavior if known, read-modify-write requirements, unrelated fields that must be preserved, and host tests proving bit preservation for shared registers. If required hardware behavior is unknown, keep it blocked or feature-gated; do not guess M5PM1 L3B polarity, M5PM1 speaker-amplifier pulses, ES8311 volatile readback, BMI270 interrupt routing, HAT protocols, ADC paths, or safe external GPIO routes.
+
+Documentation must describe the current product as a custom BLE sound-meter and local automation device, must not call it a Classic Bluetooth HFP or OS-native microphone, and must clearly label each capability as implemented, debug-only, planned, or deliberately disabled.
+
 ## Hardware and pin mapping
 
 `main/board_sticks3.h` is the authoritative source for board-specific pins and hardware constants, and `docs/hardware/sticks3.md` records the source-backed hardware facts.
@@ -175,6 +201,4 @@ ESP-IDF build/flash validation still requires an ESP-IDF environment and attache
 - ES8311 audio codec datasheet PDF: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/products/atom/Atomic%20Echo%20Base/ES8311.pdf
 - BMI270 IMU datasheet PDF: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/core/K128%20CoreS3/BMI270.PDF
 - Repository hardware notes: `docs/hardware/sticks3.md`
-- Transport notes: `docs/transport-feasibility.md`
 - BLE protocol notes: `docs/ble-sound-meter-protocol.md`
-- Acceptance notes: `docs/acceptance-tests.md`
