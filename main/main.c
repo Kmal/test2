@@ -16,7 +16,9 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_err.h"
+#include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "nvs_flash.h"
 
 #include "action_http.h"
@@ -61,7 +63,22 @@ static bool s_rule_ble_state_known;
 static bool s_rule_ble_connected;
 #endif
 
+static esp_err_t app_network_stack_init(void)
+{
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "TCP/IP stack init failed: %s", esp_err_to_name(err));
+        return err;
+    }
 
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "default event loop init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ESP_OK;
+}
 
 static action_result_t app_send_http_rule_action(const rule_event_t *event, void *ctx)
 {
@@ -496,6 +513,7 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+    ESP_ERROR_CHECK(app_network_stack_init());
     app_rule_runtime_init();
 
     ESP_ERROR_CHECK(status_ui_init(&status_handlers));
