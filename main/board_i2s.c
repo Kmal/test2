@@ -18,6 +18,26 @@ static i2s_chan_handle_t s_tx_handle;
 static board_audio_profile_t s_active_profile;
 static bool s_i2s_ready;
 
+
+static void board_i2s_cleanup_partial(bool rx_enabled, bool tx_enabled)
+{
+    if (s_tx_handle != NULL) {
+        if (tx_enabled) {
+            (void)i2s_channel_disable(s_tx_handle);
+        }
+        (void)i2s_del_channel(s_tx_handle);
+        s_tx_handle = NULL;
+    }
+    if (s_rx_handle != NULL) {
+        if (rx_enabled) {
+            (void)i2s_channel_disable(s_rx_handle);
+        }
+        (void)i2s_del_channel(s_rx_handle);
+        s_rx_handle = NULL;
+    }
+    s_i2s_ready = false;
+}
+
 static esp_err_t board_i2s_enable_channel(i2s_chan_handle_t handle, const char *name)
 {
     esp_err_t err = i2s_channel_enable(handle);
@@ -35,6 +55,11 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
     if (s_i2s_ready) {
         return (s_active_profile == profile) ? ESP_OK : ESP_ERR_INVALID_STATE;
     }
+
+    s_rx_handle = NULL;
+    s_tx_handle = NULL;
+    bool rx_enabled = false;
+    bool tx_enabled = false;
 
     const board_audio_clock_profile_t *clock = board_audio_clock_get_profile();
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(BOARD_I2S_PORT, I2S_ROLE_MASTER);
@@ -74,25 +99,31 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
     err = i2s_channel_init_std_mode(s_rx_handle, &std_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S RX standard-mode init failed: %s", esp_err_to_name(err));
+        board_i2s_cleanup_partial(rx_enabled, tx_enabled);
         return err;
     }
     if (s_tx_handle != NULL) {
         err = i2s_channel_init_std_mode(s_tx_handle, &std_cfg);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "I2S TX standard-mode init failed: %s", esp_err_to_name(err));
+            board_i2s_cleanup_partial(rx_enabled, tx_enabled);
             return err;
         }
     }
 
     err = board_i2s_enable_channel(s_rx_handle, "RX");
     if (err != ESP_OK) {
+        board_i2s_cleanup_partial(rx_enabled, tx_enabled);
         return err;
     }
+    rx_enabled = true;
     if (s_tx_handle != NULL) {
         err = board_i2s_enable_channel(s_tx_handle, "TX");
         if (err != ESP_OK) {
+            board_i2s_cleanup_partial(rx_enabled, tx_enabled);
             return err;
         }
+        tx_enabled = true;
     }
 
     s_active_profile = profile;
