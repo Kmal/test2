@@ -16,7 +16,10 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_err.h"
+#include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 
 #include "action_http.h"
@@ -61,7 +64,29 @@ static bool s_rule_ble_state_known;
 static bool s_rule_ble_connected;
 #endif
 
+static esp_err_t app_network_stack_init(void)
+{
+    ESP_LOGI(TAG, "network stack init: starting");
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "network stack init: esp_netif_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "network stack init: esp_netif ready");
 
+    err = esp_event_loop_create_default();
+    if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "network stack init: default event loop already exists");
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "network stack init: default event loop failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    ESP_LOGI(TAG, "network stack init: default event loop ready");
+    return ESP_OK;
+}
 
 static action_result_t app_send_http_rule_action(const rule_event_t *event, void *ctx)
 {
@@ -216,35 +241,48 @@ static void app_rule_gpio_poll_task(void *ctx)
 
 static void app_rule_runtime_init(void)
 {
+    ESP_LOGI(TAG, "rule runtime init: loading automation config");
     if (!rule_config_store_open(&s_rule_store) || !rule_config_store_load(&s_rule_store, &s_rule_config)) {
         automation_config_set_defaults(&s_rule_config);
+        ESP_LOGW(TAG, "rule runtime init: using default automation config");
+    } else {
+        ESP_LOGI(TAG, "rule runtime init: automation config loaded from NVS");
     }
     if (s_rule_mutex == NULL) {
         s_rule_mutex = xSemaphoreCreateMutex();
+        ESP_LOGI(TAG, "rule runtime init: mutex %s", s_rule_mutex != NULL ? "created" : "create failed");
     }
     if (s_rule_mutex != NULL) {
         (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
     }
     (void)rule_runtime_init(&s_rule_runtime, &s_rule_config);
+    ESP_LOGI(TAG, "rule runtime init: core runtime ready");
     rule_runtime_set_http_sender(&s_rule_runtime, app_send_http_rule_action, NULL);
     rule_runtime_set_ir_sender(&s_rule_runtime, app_send_ir_rule_action, NULL);
     rule_runtime_set_local_ui_sender(&s_rule_runtime, app_send_local_ui_rule_action, NULL);
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     rule_runtime_set_ble_sender(&s_rule_runtime, app_send_ble_rule_action, NULL);
 #endif
-    (void)rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store);
+    if (rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store)) {
+        ESP_LOGI(TAG, "rule runtime init: rule web server started");
+    } else {
+        ESP_LOGE(TAG, "rule runtime init: rule web server failed to start");
+    }
     if (s_rule_mutex != NULL) {
         xSemaphoreGive(s_rule_mutex);
     }
     if (s_rule_gpio_task == NULL) {
-        (void)xTaskCreate(app_rule_gpio_poll_task, "rule_gpio_poll", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_gpio_task);
+        BaseType_t created = xTaskCreate(app_rule_gpio_poll_task, "rule_gpio_poll", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_gpio_task);
+        ESP_LOGI(TAG, "rule runtime init: gpio poll task %s", created == pdPASS ? "created" : "create failed");
     }
     if (s_rule_network_task == NULL) {
-        (void)xTaskCreate(app_rule_network_state_task, "rule_net_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_network_task);
+        BaseType_t created = xTaskCreate(app_rule_network_state_task, "rule_net_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_network_task);
+        ESP_LOGI(TAG, "rule runtime init: network state task %s", created == pdPASS ? "created" : "create failed");
     }
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     if (s_rule_ble_task == NULL) {
-        (void)xTaskCreate(app_rule_ble_state_task, "rule_ble_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_ble_task);
+        BaseType_t created = xTaskCreate(app_rule_ble_state_task, "rule_ble_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_ble_task);
+        ESP_LOGI(TAG, "rule runtime init: BLE state task %s", created == pdPASS ? "created" : "create failed");
     }
 #endif
 }
@@ -483,21 +521,30 @@ void app_main(void)
 #if CONFIG_APP_TRANSPORT_HFP_LEGACY
     transport_hfp_legacy_run();
 #else
+    ESP_LOGI(TAG, "app_main: starting, reset_reason=%d, free_heap=%lu",
+             (int)esp_reset_reason(), (unsigned long)esp_get_free_heap_size());
     app_runtime_state_init(&s_runtime_state);
+    ESP_LOGI(TAG, "app_main: runtime defaults mode=%s display=%s",
+             app_mode_name(s_runtime_state.app_mode), app_display_mode_name(s_runtime_state.display_mode));
 
     const status_ui_button_handlers_t status_handlers = {
         .key1_pressed = key1_pressed_cb,
         .key2_pressed = key2_pressed_cb,
     };
 
+    ESP_LOGI(TAG, "app_main: NVS init start");
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "app_main: NVS reinitializing after %s", esp_err_to_name(ret));
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "app_main: NVS ready");
+    ESP_ERROR_CHECK(app_network_stack_init());
     app_rule_runtime_init();
 
+    ESP_LOGI(TAG, "app_main: status UI init start");
     ESP_ERROR_CHECK(status_ui_init(&status_handlers));
     status_ui_set_state(STATUS_UI_STATE_BOOTING);
 
@@ -506,6 +553,8 @@ void app_main(void)
         .probe_m5pm1 = false,
         .require_audio_power_enable = true,
     };
+    ESP_LOGI(TAG, "app_main: audio init start profile=%d sample_rate=%u",
+             (int)audio_config.profile, (unsigned)BOARD_I2S_SAMPLE_RATE);
     ret = board_audio_init(&audio_config);
     if (ret != ESP_OK) {
         status_ui_set_service_enabled(false);
@@ -513,9 +562,11 @@ void app_main(void)
         ESP_LOGE(TAG, "audio initialisation failed: %s; staying alive for diagnostics", esp_err_to_name(ret));
         app_idle_forever();
     }
+    ESP_LOGI(TAG, "app_main: audio ready");
 
     status_ui_set_monitoring_enabled(true);
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+    ESP_LOGI(TAG, "app_main: BLE GATT PCM init start");
     transport_ble_gatt_pcm_set_control_callback(app_handle_control_command, NULL);
     transport_ble_gatt_pcm_set_pcm_reader(app_pcm_debug_read_adapter, NULL);
     ret = transport_ble_gatt_pcm_start();
@@ -526,6 +577,7 @@ void app_main(void)
         app_idle_forever();
     }
     status_ui_set_service_enabled(true);
+    ESP_LOGI(TAG, "app_main: BLE GATT PCM ready");
 #if CONFIG_APP_SOUND_METER_ENABLE
     const sound_meter_config_t meter_config = {
         .sample_rate_hz = BOARD_I2S_SAMPLE_RATE,
@@ -547,12 +599,17 @@ void app_main(void)
         .pcm_debug_enabled = app_pcm_debug_adapter,
         .status_update = app_status_update_adapter,
     };
+    ESP_LOGI(TAG, "app_main: sound meter start sample_rate=%u window_ms=%u telemetry_hz=%u",
+             (unsigned)meter_config.sample_rate_hz,
+             (unsigned)meter_config.metrics_window_ms,
+             (unsigned)CONFIG_APP_SOUND_METER_TELEMETRY_HZ);
     ret = sound_meter_start(&meter_config);
     if (ret != ESP_OK) {
         status_ui_set_state(STATUS_UI_STATE_ERROR);
         ESP_LOGE(TAG, "sound meter failed to start: %s; staying alive for diagnostics", esp_err_to_name(ret));
         app_idle_forever();
     }
+    ESP_LOGI(TAG, "app_main: sound meter ready");
 #endif
     status_ui_set_display_mode(s_runtime_state.display_mode);
     status_ui_set_state(STATUS_UI_STATE_READY);
