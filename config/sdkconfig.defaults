@@ -39,3 +39,10 @@ CONFIG_APP_STATUS_UI_LCD_REFRESH_MS=100
 ## but ESP-IDF startup plus board/BLE bring-up still benefits from explicit
 ## headroom over the default main task stack.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+## Use a custom 8 MB partition table so the BLE/Wi-Fi/LCD/rule-automation app
+## fits. ESP-IDF's default single factory app slot is only 1 MiB, which is too
+## small for this firmware and leaves the board in a bootloader reset loop.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
