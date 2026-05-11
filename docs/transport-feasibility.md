@@ -1,33 +1,38 @@
 # StickS3 transport feasibility decision
 
-## Product criteria
-
-A replacement transport must be selected before the firmware can honestly claim to be a working StickS3 microphone. The decision must answer:
-
-- Must the device appear as a standard operating-system microphone without custom host software?
-- Must audio be wireless?
-- Is a custom host application acceptable?
-- What host platforms are required?
-- What latency and audio bandwidth are acceptable?
-- Is local speaker monitoring required?
-- What pairing, provisioning, or discovery UX is acceptable?
-
 ## Current decision
 
-**Decision: Selected for this repository state.** The default StickS3-compatible product is a custom Bluetooth LE sound-level meter. The firmware advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends compact RMS/peak/VU/clipping telemetry notifications on characteristic UUID `0xFFF2`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1`, one-byte control writes on `0xFFF3`, and status reads/notifications on `0xFFF4`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
-**Decision: Selected for this repository state.** The default StickS3-compatible product is a custom Bluetooth LE sound-level meter. The firmware advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends compact RMS/peak/VU/clipping telemetry notifications on characteristic UUID `0xFFF2`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1`. The Classic Bluetooth HFP path remains quarantined as legacy non-StickS3 code.
+The selected product behavior for this repository is a **custom Bluetooth LE sound-meter and local automation device**. The firmware advertises as `M5StickS3-Meter`, exposes custom service UUID `0xFFF0`, publishes sound telemetry on `0xFFF2`, accepts control writes on `0xFFF3`, exposes status on `0xFFF4`, can optionally stream raw PCM debug frames on `0xFFF1`, and publishes automation rule-event notifications on `0xFFF5`.
+
+This is functional for validation and custom host applications, but it is **not** Bluetooth Classic HFP, BLE Audio, USB Audio, or an operating-system-native microphone class.
+
+## Why Classic Bluetooth HFP is rejected
+
+StickS3 uses ESP32-S3-PICO-1-N8R8. ESP32-S3 does not support Bluetooth Classic / BR/EDR, so Classic Bluetooth HFP is not a valid StickS3 transport. The legacy HFP source remains quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY`, and Kconfig blocks it on `esp32s3`.
 
 ## Candidate matrix
 
 | Candidate | StickS3 status | Notes |
 | --- | --- | --- |
-| Classic Bluetooth HFP | Rejected for StickS3 | ESP32-S3 does not support Bluetooth Classic / BR/EDR. |
-| USB Audio device | Unknown / candidate | Must be verified against official ESP-IDF TinyUSB/UAC support and product requirement for wired operation. |
-| Bluetooth LE sound-level telemetry | Selected | Uses BLE advertising plus custom GATT notify characteristics for sound-level metrics and optional PCM debug; requires a custom BLE central/host receiver and is not an OS-standard microphone class. |
-| BLE custom GATT audio/control | Unknown / candidate | Would require a custom host app and is not a standard OS microphone by itself. |
-| BLE Audio | Unknown | Must not be selected until official ESP-IDF documentation confirms exact ESP32-S3 support and required roles. |
-| Retarget to Classic-BT-capable ESP32 board | Candidate only if product stops being StickS3 | Would require renaming board docs, constants, and CI target. |
+| Classic Bluetooth HFP | Rejected | ESP32-S3 does not support Bluetooth Classic / BR/EDR. |
+| Custom BLE sound-level telemetry | Selected | Current implementation; requires a BLE central/custom host and does not appear as an OS microphone. |
+| Custom BLE GATT PCM/control | Debug only | Raw PCM debug notifications exist for diagnostics, not as a product microphone class. |
+| USB Audio device | Deferred | Must be verified against ESP-IDF/TinyUSB support and a wired-product requirement. |
+| BLE Audio | Deferred | Must not be selected until official support, roles, memory, and host compatibility are verified. |
+| Retarget to Classic-BT-capable ESP32 board | Product change | Only valid if the product stops being StickS3. |
 
-## Local speaker output requirement
+## Local speaker output
 
-Local speaker monitoring is **deferred**. The default BLE GATT PCM firmware uses capture-only I2S and an ES8311 ADC-only profile; it does not enable I2S TX, unmute the DAC, or pulse the speaker amplifier. If the selected transport requires output monitoring, implement verified M5PM1 speaker amplifier control before exposing monitoring as a product feature. If the selected transport is microphone-only, remove or keep disabled monitoring UI actions. Legacy HFP code is historical and is not authoritative for StickS3 audio bring-up.
+Local speaker monitoring remains disabled. The default profile is capture-only: no I2S TX, no ES8311 DAC path, and no AW8737/M5PM1 speaker-amplifier pulse. Speaker output can only be enabled after the exact M5PM1/AW8737 control sequence is source-backed, implemented, tested, and reflected in the hardware safety checks.
+
+## Product criteria for future transport changes
+
+Before replacing the selected transport, decide and document:
+
+- whether the device must appear as a standard OS microphone;
+- whether audio must be wireless;
+- whether a custom host application is acceptable;
+- required host platforms;
+- latency and bandwidth expectations;
+- whether local speaker monitoring is required;
+- pairing, provisioning, discovery, and security UX.
