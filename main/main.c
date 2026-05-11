@@ -49,6 +49,7 @@ static portMUX_TYPE s_runtime_mux = portMUX_INITIALIZER_UNLOCKED;
 static rule_runtime_t s_rule_runtime;
 static rule_config_store_t s_rule_store;
 static rule_web_t s_rule_web;
+static automation_config_t s_rule_config;
 static SemaphoreHandle_t s_rule_mutex;
 static TaskHandle_t s_rule_gpio_task;
 static TaskHandle_t s_rule_network_task;
@@ -215,9 +216,8 @@ static void app_rule_gpio_poll_task(void *ctx)
 
 static void app_rule_runtime_init(void)
 {
-    automation_config_t config;
-    if (!rule_config_store_open(&s_rule_store) || !rule_config_store_load(&s_rule_store, &config)) {
-        automation_config_set_defaults(&config);
+    if (!rule_config_store_open(&s_rule_store) || !rule_config_store_load(&s_rule_store, &s_rule_config)) {
+        automation_config_set_defaults(&s_rule_config);
     }
     if (s_rule_mutex == NULL) {
         s_rule_mutex = xSemaphoreCreateMutex();
@@ -225,7 +225,7 @@ static void app_rule_runtime_init(void)
     if (s_rule_mutex != NULL) {
         (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
     }
-    (void)rule_runtime_init(&s_rule_runtime, &config);
+    (void)rule_runtime_init(&s_rule_runtime, &s_rule_config);
     rule_runtime_set_http_sender(&s_rule_runtime, app_send_http_rule_action, NULL);
     rule_runtime_set_ir_sender(&s_rule_runtime, app_send_ir_rule_action, NULL);
     rule_runtime_set_local_ui_sender(&s_rule_runtime, app_send_local_ui_rule_action, NULL);

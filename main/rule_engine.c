@@ -1,5 +1,6 @@
 #include "rule_engine.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static bool source_key_matches(const char *rule_key, const char *fact_key)
@@ -58,16 +59,22 @@ bool rule_engine_init(rule_engine_t *engine, const automation_config_t *config)
     if (engine == NULL) {
         return false;
     }
-    automation_config_t defaults;
+    automation_config_t *defaults = NULL;
     if (config == NULL) {
-        automation_config_set_defaults(&defaults);
-        config = &defaults;
+        defaults = malloc(sizeof(*defaults));
+        if (defaults == NULL) {
+            return false;
+        }
+        automation_config_set_defaults(defaults);
+        config = defaults;
     }
     if (!automation_config_validate(config, NULL, 0)) {
+        free(defaults);
         return false;
     }
     memset(engine, 0, sizeof(*engine));
     engine->config = *config;
+    free(defaults);
     reset_runtime_state(engine);
     return true;
 }

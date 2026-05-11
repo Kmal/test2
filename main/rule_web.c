@@ -3,6 +3,7 @@
 #include "action_http.h"
 
 #include <stdarg.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,14 +17,22 @@
 static esp_err_t rule_web_http_handler(httpd_req_t *req)
 {
     rule_web_t *web = (rule_web_t *)req->user_ctx;
-    char body[RULE_WEB_MAX_BODY];
-    char response[RULE_WEB_MAX_RESPONSE];
-    body[0] = '\0';
+    char *body = calloc(1, RULE_WEB_MAX_BODY);
+    char *response = malloc(RULE_WEB_MAX_RESPONSE);
+    if (body == NULL || response == NULL) {
+        free(body);
+        free(response);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "rule web allocation failed");
+        return ESP_FAIL;
+    }
+
     if (req->method == HTTP_POST) {
         size_t received = 0;
-        while (received < req->content_len && received < sizeof(body) - 1u) {
-            int chunk = httpd_req_recv(req, body + received, (sizeof(body) - 1u) - received);
+        while (received < req->content_len && received < RULE_WEB_MAX_BODY - 1u) {
+            int chunk = httpd_req_recv(req, body + received, (RULE_WEB_MAX_BODY - 1u) - received);
             if (chunk <= 0) {
+                free(body);
+                free(response);
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "failed to read body");
                 return ESP_FAIL;
             }
@@ -31,18 +40,24 @@ static esp_err_t rule_web_http_handler(httpd_req_t *req)
         }
         body[received] = '\0';
         if (received < req->content_len) {
+            free(body);
+            free(response);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body too large");
             return ESP_FAIL;
         }
     }
     rule_web_method_t method = req->method == HTTP_POST ? RULE_WEB_METHOD_POST : RULE_WEB_METHOD_GET;
-    if (!rule_web_handle_request(web, method, req->uri, body, response, sizeof(response))) {
+    if (!rule_web_handle_request(web, method, req->uri, body, response, RULE_WEB_MAX_RESPONSE)) {
+        free(body);
+        free(response);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "rule web request failed");
         return ESP_FAIL;
     }
     httpd_resp_set_type(req, strcmp(req->uri, "/") == 0 ? "text/html" : "application/json");
-    httpd_resp_sendstr(req, response);
-    return ESP_OK;
+    esp_err_t err = httpd_resp_sendstr(req, response) == ESP_OK ? ESP_OK : ESP_FAIL;
+    free(body);
+    free(response);
+    return err;
 }
 
 static bool register_uri(httpd_handle_t server, const char *uri, httpd_method_t method, rule_web_t *web)
@@ -731,19 +746,29 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
         return write_config_json(&web->runtime->engine.config, out, out_len);
     }
     if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/config") == 0) {
-        automation_config_t config;
+        automation_config_t *config = calloc(1, sizeof(*config));
+        if (config == NULL) {
+            const int written = snprintf(out, out_len, "{\"error\":\"config allocation failed\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
         const char *preset = config_preset_from_body(body);
+        bool accepted = true;
         if (preset != NULL) {
-            make_preset_config(&config, preset);
-        } else if (!make_json_config(&config, body)) {
+            make_preset_config(config, preset);
+        } else if (!make_json_config(config, body)) {
+            accepted = false;
             const int written = snprintf(out, out_len, "{\"error\":\"unsupported config body\"}");
+            free(config);
             return written > 0 && (size_t)written < out_len;
         }
-        if (!rule_config_store_save(web->store, &config) || !rule_runtime_replace_config(web->runtime, &config)) {
+        if (accepted && (!rule_config_store_save(web->store, config) || !rule_runtime_replace_config(web->runtime, config))) {
             const int written = snprintf(out, out_len, "{\"error\":\"config rejected\"}");
+            free(config);
             return written > 0 && (size_t)written < out_len;
         }
-        return write_config_json(&config, out, out_len);
+        const bool written = write_config_json(config, out, out_len);
+        free(config);
+        return written;
     }
     if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/rules/test") == 0) {
         const automation_rule_t *rule = web->runtime->engine.config.rule_count > 0 ? &web->runtime->engine.config.rules[0] : NULL;
