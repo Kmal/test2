@@ -3,13 +3,12 @@
 For every hardware, transport, web, or automation change, update or explicitly confirm:
 
 - `README.md`
-- `docs/README.md`
 - `docs/hardware/sticks3.md`
 - `docs/hardware/sticks3.board.json` when board facts change
 - `docs/transport-feasibility.md` when transport behavior changes
 - `docs/ble-sound-meter-protocol.md` when BLE packets, UUIDs, commands, or semantics change
-- `docs/rule-automation-firmware-plan.md` when rule capabilities, endpoints, or roadmap status change
-- `docs/rule-automation-smoke-checklist.md` and `docs/acceptance-tests.md` when validation steps change
+- `README.md` automation status/roadmap sections when rule capabilities, endpoints, or roadmap status change
+- `README.md` hardware smoke checklist and `docs/acceptance-tests.md` when validation steps change
 - Source comments in touched code
 - `config/sdkconfig.defaults` when default config behavior changes
 - `main/Kconfig.projbuild` when options change

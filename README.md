@@ -87,6 +87,38 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 6. Keep speaker output disabled until the AW8737/M5PM1 speaker-amplifier sequence is documented, implemented, and tested; current speaker-amplifier control stays blocked and returns `ESP_ERR_NOT_SUPPORTED`.
 7. Revisit whether the product needs a standard USB Audio or BLE Audio class; until then, this firmware should be described as a custom BLE sound meter and automation device, not an OS-native microphone.
 
+## Automation implementation status
+
+The automation plan is now summarized here instead of in a separate planning README/checklist pair. The implemented runtime includes:
+
+- **Rule model and validation:** schema version 1, up to 8 rules, up to 3 actions per rule, bounded names/source keys/HTTP fields, cooldown and sustain limits, source/action validation, and safe defaults.
+- **Rule engine:** deterministic source matching, comparators, false-to-true transition detection, sustain-duration tracking, cooldown enforcement, event sequencing, and fire counts.
+- **Trigger runtime:** sound facts, KEY1/KEY2 facts, BLE connection facts, Wi-Fi readiness facts, and safe GPIO digital/edge facts.
+- **Capability gating:** `/api/capabilities` reports supported and disabled sources/actions, and validation rejects unsupported HAT, power, BMI270, ADC, GPIO pulse/frequency, and HAT-action features.
+- **Action dispatch:** BLE rule-event notifications, HTTP POST events, NEC IR send, and local UI feedback are implemented; HAT actions return unsupported.
+- **Web/storage path:** `/` serves the compact setup UI, `/api/config` imports/exports/saves bounded NVS configs, and invalid stored configs fall back to safe defaults.
+
+The remaining automation roadmap is hardware/product work: validate the runtime on physical StickS3 hardware, improve the web editor UX, document network-security assumptions, add a host BLE client example, and only then implement additional source-backed HAT, GPIO pulse/frequency, battery, BMI270, ADC, or speaker features.
+
+## Hardware smoke checklist
+
+Before claiming end-to-end hardware validation, run these checks on a physical StickS3 and any required external fixtures:
+
+| Item | Hardware validation steps |
+| --- | --- |
+| Boot | Flash the merged ESP-IDF image or use `idf.py flash`, power-cycle StickS3, and confirm the app reaches the sound-meter UI without error state. |
+| Sound telemetry | Subscribe to BLE service `0xFFF0`, characteristic `0xFFF2`, and confirm `M5LM` RMS/peak/VU/clipping packets change under sound input. |
+| Status/control | Read or subscribe to `0xFFF4`, write commands to `0xFFF3`, and confirm app/display modes update on the LCD. |
+| Rule event | Configure a BLE-message rule, subscribe to `0xFFF5`, fire the rule, and confirm an `M5RE` event packet. |
+| Wi-Fi and web | Verify saved station credentials, setup AP fallback, LCD keyboard provisioning when enabled, `/`, and `/api/status`. |
+| Config save/reload | Save a sound or button rule through `POST /api/config`, reboot, and confirm `GET /api/config` returns the saved rule with secrets masked. |
+| HTTP POST action | Configure an HTTP POST action to a local test endpoint, fire `/api/rules/test`, and confirm one bounded JSON event arrives. |
+| IR send action | Configure a NEC IR action, trigger `/api/rules/test`, and confirm a matching NEC frame on an IR receiver or logic analyzer. |
+| GPIO trigger | Configure a safe GPIO digital/edge rule on a validated pin, toggle the input after debounce, and confirm exactly one normalized GPIO fact fires the action. |
+| Fail-closed HAT probe | Call `/api/hat/probe` for unsupported HAT sources and confirm the response remains unsupported until a real HAT driver is implemented. |
+| Audio clocks | Measure GPIO18 MCLK at 12.288 MHz, GPIO17 BCLK at the documented 512 kHz target, and GPIO15 LRCK at 16 kHz. |
+| Capture-only safety | Confirm default boot does not drive I2S TX, unmute the ES8311 DAC, or pulse the speaker amplifier. |
+
 ## Hardware and pin mapping
 
 `main/board_sticks3.h` is the authoritative source for board-specific pins and hardware constants, and `docs/hardware/sticks3.md` records the source-backed hardware facts.
