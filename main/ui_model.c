@@ -14,6 +14,15 @@
 #define CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME "StickS3 BLE"
 #endif
 
+static void ui_copy_text(char *dest, size_t dest_size, const char *text)
+{
+    if (dest == NULL || dest_size == 0u) return;
+    const char *src = text != NULL ? text : "";
+    size_t len = strnlen(src, dest_size - 1u);
+    memcpy(dest, src, len);
+    dest[len] = '\0';
+}
+
 static const char *ui_rule_source_label(rule_source_t source)
 {
     switch (source) {
@@ -40,8 +49,8 @@ static const char *ui_rule_action_label(rule_action_kind_t action_kind)
 
 static void automation_label(ui_automation_state_t *slot)
 {
-    snprintf(slot->trigger_label, sizeof(slot->trigger_label), "%s", ui_rule_source_label(slot->trigger_source));
-    snprintf(slot->action_label, sizeof(slot->action_label), "%s", ui_rule_action_label(slot->action_kind));
+    ui_copy_text(slot->trigger_label, sizeof(slot->trigger_label), ui_rule_source_label(slot->trigger_source));
+    ui_copy_text(slot->action_label, sizeof(slot->action_label), ui_rule_action_label(slot->action_kind));
 }
 
 static void apply_trigger_preset(rule_condition_t *when, rule_source_t source)
@@ -129,7 +138,7 @@ void ui_runtime_set_toast(ui_runtime_t *ui, ui_toast_kind_t kind, const char *te
 {
     if (ui == NULL) return;
     ui->toast.kind = kind;
-    snprintf(ui->toast.text, sizeof(ui->toast.text), "%s", text != NULL ? text : "");
+    ui_copy_text(ui->toast.text, sizeof(ui->toast.text), text);
     ui->toast.until_tick_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) + ttl_ms;
     ui->dirty = true;
 }
@@ -160,8 +169,8 @@ void ui_runtime_refresh_status_bar(ui_runtime_t *ui)
 void ui_runtime_refresh_bluetooth(ui_runtime_t *ui)
 {
     if (ui == NULL) return;
-    snprintf(ui->bluetooth.device_name, sizeof(ui->bluetooth.device_name), "%s", CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME);
-    snprintf(ui->bluetooth.status_text, sizeof(ui->bluetooth.status_text), "%s", ui->bluetooth.ble_connected ? "connected" : "disconnected");
+    ui_copy_text(ui->bluetooth.device_name, sizeof(ui->bluetooth.device_name), CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME);
+    ui_copy_text(ui->bluetooth.status_text, sizeof(ui->bluetooth.status_text), ui->bluetooth.ble_connected ? "connected" : "disconnected");
 }
 
 bool ui_runtime_load_ap_config(ui_runtime_t *ui)
@@ -172,8 +181,8 @@ bool ui_runtime_load_ap_config(ui_runtime_t *ui)
         snprintf(ui->ap.last_error, sizeof(ui->ap.last_error), "AP config load failed");
         return false;
     }
-    snprintf(ui->ap.ap_name, sizeof(ui->ap.ap_name), "%s", config.ap_ssid[0] ? config.ap_ssid : "StickS3-Setup");
-    snprintf(ui->ap.ap_password, sizeof(ui->ap.ap_password), "%s", config.ap_password);
+    ui_copy_text(ui->ap.ap_name, sizeof(ui->ap.ap_name), config.ap_ssid[0] ? config.ap_ssid : "StickS3-Setup");
+    ui_copy_text(ui->ap.ap_password, sizeof(ui->ap.ap_password), config.ap_password);
     ui->ap.channel = config.ap_channel >= UI_AP_CHANNEL_MIN && config.ap_channel <= UI_AP_CHANNEL_MAX ? config.ap_channel : 6u;
     ui->ap.loaded_from_config = true;
     return true;
@@ -231,7 +240,7 @@ bool ui_runtime_save_automation(ui_runtime_t *ui, uint8_t automation_index)
     automation_label(slot);
     slot->loaded = ok;
     if (!ok) {
-        snprintf(slot->last_error, sizeof(slot->last_error), "%s", error[0] ? error : "Automation save failed");
+        ui_copy_text(slot->last_error, sizeof(slot->last_error), error[0] ? error : "Automation save failed");
     } else {
         slot->last_error[0] = '\0';
     }
