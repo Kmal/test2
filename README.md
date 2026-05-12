@@ -37,7 +37,7 @@ The sound-meter task reads 16 kHz, 16-bit mono PCM from I2S, computes 100 ms RMS
 
 ### Wi-Fi and web UI
 
-`CONFIG_APP_WIFI_ENABLE=y` starts Wi-Fi during boot. The firmware attempts saved station credentials and can fall back to the configured setup AP name, which defaults to `M5StickS3-Setup`. When `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING=y`, the LCD keyboard can collect Wi-Fi credentials before AP fallback.
+`CONFIG_APP_WIFI_ENABLE=y` starts Wi-Fi during boot. The firmware attempts saved station credentials and can fall back to the configured setup AP name, which defaults to `M5StickS3-Setup`. `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING` defaults to `n` so the LCD stays in the normal dashboard/menu hierarchy at boot; when enabled, the LCD keyboard can collect Wi-Fi credentials before AP fallback.
 
 The web server exposes a small local configuration UI at `/` plus JSON endpoints:
 
@@ -90,7 +90,7 @@ Network
     └── Web UI URL
 ```
 
-Browser flow for router Wi-Fi is `Network > Wi-Fi Mode > Use Wi-Fi Mode > Scan Nearby Wi-Fi > select a scanned network row > enter password > Connect and Save`. Hidden networks use the same `Selected SSID` field by typing the SSID manually.
+Browser flow for router Wi-Fi is `Network > Wi-Fi Mode > Use Wi-Fi Mode > Scan Nearby Wi-Fi > select a scanned network row > enter password > Connect and Save`. Hidden networks use the same `Selected SSID` field by typing the SSID manually. LCD keyboard boot provisioning is disabled by default so the firmware reaches the normal dashboard and setup AP; enter credentials from the `Network > Wi-Fi Mode` LCD hierarchy or the setup AP web UI.
 
 Browser flow for hotspot setup is `Network > AP Mode > Use AP Mode > AP Name > optional AP Password/Channel > Start AP Mode`. Empty AP password means an open AP. WPA2 AP passwords must be 8–63 characters. AP names must be non-empty and at most 32 bytes.
 
