@@ -11,6 +11,7 @@ set(APP_SRCS
     "status_ui.c"
     "app_mode.c"
     "ui_nav.c"
+    "ui_model.c"
     "app_wifi.c"
     "audio_metrics.c"
     "sound_meter.c"

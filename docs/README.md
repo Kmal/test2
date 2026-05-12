@@ -57,42 +57,53 @@ The web server exposes a small local configuration UI at `/` plus JSON endpoints
 | `/api/hat/probe` | POST | Fail-closed HAT capability probe placeholder; HAT drivers are not enabled yet. |
 
 
-#### Network setup hierarchy
+#### On-device setup hierarchy
 
-The local web UI and LCD menu now expose the same Network hierarchy so setup is explicit instead of a flat Wi-Fi form:
+The onboard LCD menu uses the canonical product hierarchy for local setup:
 
 ```text
-Network
-├── Wi-Fi Mode
+Main
+├── Configuration Web UI
+│   ├── Wi-Fi Mode
+│   │   ├── Scan Nearby Wi-Fi
+│   │   │   ├── Select SSID
+│   │   │   ├── Enter Password
+│   │   │   └── Connect and Save
+│   │   └── Hidden / Manual SSID
+│   │       ├── Enter SSID
+│   │       ├── Enter Password
+│   │       └── Connect and Save
+│   └── AP Mode
+│       ├── Set AP Name
+│       ├── Set AP Password
+│       ├── Set Channel
+│       ├── Start AP Mode
+│       └── Show AP URL
+├── Connect to Wi-Fi
 │   ├── Scan Nearby Wi-Fi
-│   ├── Select SSID
-│   ├── Enter Password
-│   ├── Hidden / Manual SSID
-│   │   ├── Enter SSID
+│   │   ├── Select SSID
 │   │   ├── Enter Password
 │   │   └── Connect and Save
-│   ├── Connect and Save
-│   └── Saved Wi-Fi
-│       ├── Show Saved SSID
-│       ├── Reconnect
-│       └── Forget Saved Credentials
-├── AP Mode
-│   ├── Set AP Name
-│   ├── Set AP Password
-│   ├── Set Channel
-│   ├── Start AP Mode
-│   └── Show AP URL
-└── Network Status
-    ├── Current mode
-    ├── Station SSID/IP
-    ├── AP SSID/IP
-    ├── AP channel/max connections
-    └── Web UI URL
+│   └── Hidden / Manual SSID
+│       ├── Enter SSID
+│       ├── Enter Password
+│       └── Connect and Save
+├── Connect to Bluetooth
+├── All automations
+│   ├── Automation 1
+│   │   ├── Enable Flag
+│   │   ├── Trigger
+│   │   └── Action
+│   └── Automation 2
+│       ├── Enable Flag
+│       ├── Trigger
+│       └── Action
+└── Settings
 ```
 
-Browser flow for router Wi-Fi is `Network > Wi-Fi Mode > Use Wi-Fi Mode > Scan Nearby Wi-Fi > select a scanned network row > enter password > Connect and Save`. Hidden networks use the same `Selected SSID` field by typing the SSID manually. LCD keyboard boot provisioning is disabled by default so the firmware reaches the normal dashboard and setup AP; enter credentials from the `Network > Wi-Fi Mode` LCD hierarchy or the setup AP web UI.
+The `Configuration Web UI > Wi-Fi Mode` and `Connect to Wi-Fi` station flows both support scanning nearby networks, selecting an SSID, entering a password with the bottom 9-key input overlay, and connecting/saving credentials. Hidden networks use `Hidden / Manual SSID > Enter SSID`. AP setup is only under `Configuration Web UI > AP Mode`, where the device can set AP name/password/channel, start AP mode, and show the AP URL.
 
-Browser flow for hotspot setup is `Network > AP Mode > Use AP Mode > AP Name > optional AP Password/Channel > Start AP Mode`. Empty AP password means an open AP. WPA2 AP passwords must be 8–63 characters. AP names must be non-empty and at most 32 bytes.
+The existing browser web UI still exposes the HTTP Wi-Fi endpoints listed above for station/AP setup from a phone or desktop browser. On boot, saved station credentials are tried first; if station connection fails, the firmware starts AP mode for setup.
 
 LCD flow uses the onboard buttons when the menu is open:
 
@@ -101,9 +112,9 @@ LCD flow uses the onboard buttons when the menu is open:
 | KEY1 short | Move to the next menu item or next scanned Wi-Fi network. |
 | KEY2 short | Select the highlighted item or scanned Wi-Fi network. |
 | KEY2 long | Back. |
-| KEY1 long from dashboard | Open `Home`. |
+| KEY1 long from the idle status view | Open `Main`. |
 
-On boot, saved station credentials are tried first. If station connection fails, the firmware starts AP mode for setup. The web UI is reachable at the reported station or AP URL shown in Network Status.
+When the 9-key input overlay is active, KEY1 short selects the current key, KEY2 short moves to the next key, KEY2 long moves to the previous key, and KEY1 long commits OK.
 
 ### Local automation runtime
 

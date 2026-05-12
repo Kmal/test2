@@ -4,12 +4,14 @@
 #include "audio_metrics.h"
 #include "app_wifi.h"
 #include "ui_nav.h"
+#include "ui_model.h"
 
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -58,11 +60,30 @@
 #define STATUS_UI_LCD_LINE_HEIGHT 16
 #define STATUS_UI_LCD_LEFT_PAD 4
 #define STATUS_UI_LCD_TOP_PAD 4
-#define STATUS_UI_KEYBOARD_ROWS 4
-#define STATUS_UI_KEYBOARD_COLS 10
-#define STATUS_UI_KEYBOARD_CONTROLS 5
-#define STATUS_UI_KEYBOARD_MAX_TEXT 64
+#define STATUS_UI_KEYBOARD_MAX_TEXT UI_TEXT_WIFI_PASSWORD_MAX
 #define STATUS_UI_KEYBOARD_LONG_MS 600
+#define UI_LCD_W BOARD_LCD_H_RES
+#define UI_LCD_H BOARD_LCD_V_RES
+#define UI_STATUS_BAR_H 18
+#define UI_TITLE_Y 22
+#define UI_BODY_Y 42
+#define UI_LINE_H 16
+#define UI_BOTTOM_HINT_H 14
+#define UI_LEFT_PAD 4
+#define UI_RIGHT_PAD 4
+#define UI_MENU_MAX_VISIBLE_ROWS 9
+#define UI_COLOR_BG STATUS_UI_LCD_BG
+#define UI_COLOR_BAR STATUS_UI_LCD_HEADER_BG
+#define UI_COLOR_TEXT STATUS_UI_LCD_TEXT
+#define UI_COLOR_DIM STATUS_UI_LCD_DIM
+#define UI_COLOR_OK STATUS_UI_LCD_OK
+#define UI_COLOR_WARN STATUS_UI_LCD_WARN
+#define UI_COLOR_ERR STATUS_UI_LCD_ERR
+#define UI_KEYBOARD_KEY_COUNT 14
+#define UI_KEYBOARD_CHAR_KEY_COUNT 9
+#define UI_KEYBOARD_CONTROL_KEY_COUNT 5
+#define UI_KEYBOARD_OVERLAY_H 108
+#define UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS 800
 #endif
 
 static const char *TAG = "STATUS_UI";
@@ -75,39 +96,86 @@ static uint32_t s_key1_press_count = 0;
 static uint32_t s_key2_press_count = 0;
 static status_ui_sound_meter_snapshot_t s_sound_snapshot;
 static app_display_mode_t s_display_mode = APP_DISPLAY_VU;
-static ui_nav_state_t s_nav;
-static bool s_menu_mode;
-#if CONFIG_APP_STATUS_UI_LCD
-static app_wifi_scan_results_t s_wifi_scan_results;
-static size_t s_wifi_selected_network;
-static char s_wifi_selected_ssid[33];
-static char s_wifi_password[65];
-static app_wifi_config_t s_wifi_draft_config;
-#endif
+static ui_runtime_t s_ui;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
-
 
 #if CONFIG_APP_STATUS_UI_LCD
 typedef enum {
     STATUS_UI_KEYBOARD_EVENT_SELECT = 0,
     STATUS_UI_KEYBOARD_EVENT_NEXT,
     STATUS_UI_KEYBOARD_EVENT_PREV,
+    STATUS_UI_KEYBOARD_EVENT_OK,
 } status_ui_keyboard_event_t;
+static bool keyboard_is_active(void);
+static void keyboard_queue_event(status_ui_keyboard_event_t event);
+static bool status_ui_keyboard_active_locked(void);
+static void status_ui_route_button_to_keyboard(status_ui_input_t input);
+static void status_ui_route_button_to_menu(status_ui_input_t input);
+#endif
+
+#if CONFIG_APP_STATUS_UI_LCD
+typedef enum {
+    UI_KEYBOARD_MODE_TEXT = 0,
+    UI_KEYBOARD_MODE_PASSWORD,
+    UI_KEYBOARD_MODE_NUMERIC,
+    UI_KEYBOARD_MODE_SYMBOL
+} ui_keyboard_mode_t;
+
+typedef enum {
+    UI_KEYBOARD_RESULT_NONE = 0,
+    UI_KEYBOARD_RESULT_OK,
+    UI_KEYBOARD_RESULT_CANCEL
+} ui_keyboard_result_t;
+
+typedef enum {
+    UI_KEY_KIND_CHAR = 0,
+    UI_KEY_KIND_OK,
+    UI_KEY_KIND_DELETE,
+    UI_KEY_KIND_SPACE,
+    UI_KEY_KIND_MODE,
+    UI_KEY_KIND_CANCEL
+} ui_key_kind_t;
+
+typedef struct {
+    ui_key_kind_t kind;
+    const char *label;
+    const char *chars_text;
+    const char *chars_symbol;
+    char numeric_char;
+} ui_key_def_t;
 
 typedef struct {
     bool active;
+    ui_keyboard_mode_t mode;
+    ui_keyboard_result_t result;
     bool secret;
-    bool caps;
-    bool cancelled;
-    bool done;
-    size_t max_len;
-    int selected;
     char title[24];
     char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
-} status_ui_keyboard_state_t;
+    size_t max_len;
+    uint8_t selected_key;
+    uint8_t last_key;
+    uint8_t cycle_index;
+    bool has_pending_cycle;
+    uint32_t last_key_tick_ms;
+} ui_keyboard_state_t;
+
+typedef struct {
+    bool active;
+    ui_menu_item_t item;
+} ui_keyboard_menu_edit_t;
 
 static QueueHandle_t s_keyboard_queue;
-static status_ui_keyboard_state_t s_keyboard;
+static ui_keyboard_state_t s_keyboard;
+static ui_keyboard_menu_edit_t s_keyboard_edit;
+static bool ui_keyboard_open(ui_keyboard_state_t *kb, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
+static void ui_keyboard_close(ui_keyboard_state_t *kb);
+static void ui_keyboard_handle_next(ui_keyboard_state_t *kb);
+static void ui_keyboard_handle_prev(ui_keyboard_state_t *kb);
+static void ui_keyboard_handle_select(ui_keyboard_state_t *kb);
+static void ui_keyboard_commit_pending(ui_keyboard_state_t *kb);
+static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
+static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event);
+static bool status_ui_keyboard_read_line_mode(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, ui_keyboard_mode_t mode, bool secret, uint32_t timeout_ms);
 #endif
 
 #if CONFIG_APP_STATUS_UI_LCD
@@ -251,8 +319,13 @@ app_display_mode_t status_ui_get_display_mode(void)
 void status_ui_open_screen(ui_screen_id_t screen)
 {
     portENTER_CRITICAL(&s_state_mux);
-    ui_nav_enter(&s_nav, screen);
-    s_menu_mode = true;
+    if (screen == UI_SCREEN_MAIN) {
+        ui_nav_init(&s_ui.nav);
+    } else {
+        ui_nav_enter(&s_ui.nav, screen);
+    }
+    s_ui.menu_active = true;
+    s_ui.dirty = true;
     portEXIT_CRITICAL(&s_state_mux);
 }
 
@@ -260,209 +333,343 @@ ui_screen_id_t status_ui_get_screen(void)
 {
     ui_screen_id_t screen;
     portENTER_CRITICAL(&s_state_mux);
-    screen = s_nav.current;
+    screen = s_ui.nav.current;
     portEXIT_CRITICAL(&s_state_mux);
     return screen;
 }
 
 #if CONFIG_APP_STATUS_UI_LCD
-static bool status_ui_start_wifi_scan(void)
+static ui_wifi_flow_state_t *status_ui_get_wifi_state_for_item(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
-    memset(&s_wifi_scan_results, 0, sizeof(s_wifi_scan_results));
-    s_wifi_selected_network = 0u;
-    bool ok = app_wifi_scan(&s_wifi_scan_results);
-    ESP_LOGI(TAG, "Wi-Fi scan from LCD menu: ok=%d count=%u error=%s",
-             ok ? 1 : 0, (unsigned)s_wifi_scan_results.count, s_wifi_scan_results.error);
+    return item != NULL ? ui_runtime_wifi_flow(ui, item->flow) : NULL;
+}
+
+static void status_ui_clear_wifi_state(ui_wifi_flow_state_t *wifi)
+{
+    if (wifi == NULL) return;
+    memset(&wifi->scan_results, 0, sizeof(wifi->scan_results));
+    wifi->selected_scan_index = 0u;
+    wifi->ssid[0] = '\0';
+    wifi->password[0] = '\0';
+    wifi->has_selected_ssid = false;
+    wifi->has_password = false;
+    wifi->scan_valid = false;
+    wifi->last_error[0] = '\0';
+}
+
+static bool status_ui_wifi_scan(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi)
+{
+    if (ui == NULL || wifi == NULL) return false;
+    status_ui_clear_wifi_state(wifi);
+    bool ok = app_wifi_scan(&wifi->scan_results);
+    wifi->scan_valid = ok;
+    snprintf(wifi->last_error, sizeof(wifi->last_error), "%s", ok ? "" : (wifi->scan_results.error[0] ? wifi->scan_results.error : "Scan failed"));
+    ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "Scan complete" : "Scan failed", 2000u);
     return ok;
 }
 
-static bool status_ui_connect_selected_wifi(void)
+static bool status_ui_wifi_copy_selected_scan(ui_wifi_flow_state_t *wifi)
 {
-    if (s_wifi_selected_ssid[0] == '\0' && s_wifi_scan_results.count > 0u &&
-        s_wifi_selected_network < s_wifi_scan_results.count) {
-        (void)snprintf(s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid), "%s",
-                       s_wifi_scan_results.items[s_wifi_selected_network].ssid);
-    }
-    if (s_wifi_selected_ssid[0] == '\0') {
-        app_wifi_config_t config;
-        if (app_wifi_get_config(&config) && config.sta_ssid[0] != '\0') {
-            (void)snprintf(s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid), "%s", config.sta_ssid);
-            (void)snprintf(s_wifi_password, sizeof(s_wifi_password), "%s", config.sta_password);
-        }
-    }
-    if (s_wifi_selected_ssid[0] == '\0') {
-        ESP_LOGW(TAG, "LCD Wi-Fi connect requested without SSID");
-        return false;
-    }
-    if (s_wifi_password[0] == '\0') {
-        (void)status_ui_keyboard_read_line("WiFi PASSWORD", "", s_wifi_password,
-                                           sizeof(s_wifi_password), 63, true,
-                                           STATUS_UI_KEYBOARD_TIMEOUT_MS);
-    }
-    return app_wifi_connect(s_wifi_selected_ssid, s_wifi_password, true);
+    if (wifi == NULL || wifi->scan_results.count == 0u || wifi->selected_scan_index >= wifi->scan_results.count) return false;
+    snprintf(wifi->ssid, sizeof(wifi->ssid), "%s", wifi->scan_results.items[wifi->selected_scan_index].ssid);
+    wifi->has_selected_ssid = wifi->ssid[0] != '\0';
+    return wifi->has_selected_ssid;
 }
 
-static bool status_ui_start_configured_ap(void)
+static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi)
 {
-    if (!app_wifi_get_config(&s_wifi_draft_config)) {
+    if (ui == NULL || wifi == NULL || wifi->ssid[0] == '\0') {
+        ui_runtime_set_toast(ui, UI_TOAST_WARNING, "SSID required", 2000u);
         return false;
     }
-    if (s_wifi_draft_config.ap_ssid[0] == '\0') {
-        (void)snprintf(s_wifi_draft_config.ap_ssid, sizeof(s_wifi_draft_config.ap_ssid), "StickS3-Setup");
-    }
-    return app_wifi_start_ap_configured(s_wifi_draft_config.ap_ssid,
-                                        s_wifi_draft_config.ap_password,
-                                        s_wifi_draft_config.ap_channel,
-                                        true);
+    bool ok = app_wifi_connect(wifi->ssid, wifi->password, true);
+    ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "Wi-Fi saved" : "Wi-Fi connect failed", 2500u);
+    return ok;
 }
 
-static void status_ui_open_keyboard_for_current_field(void)
+static bool status_ui_ap_load_config(ui_runtime_t *ui)
 {
-    switch (s_nav.current) {
-    case UI_SCREEN_NETWORK_WIFI:
-    case UI_SCREEN_NETWORK_WIFI_MANUAL_SSID:
-        if (status_ui_keyboard_read_line("WiFi SSID", s_wifi_selected_ssid,
-                                         s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid),
-                                         32, false, STATUS_UI_KEYBOARD_TIMEOUT_MS)) {
-            (void)status_ui_keyboard_read_line("WiFi PASSWORD", "", s_wifi_password,
-                                               sizeof(s_wifi_password), 63, true,
-                                               STATUS_UI_KEYBOARD_TIMEOUT_MS);
-        }
-        break;
-    case UI_SCREEN_NETWORK_WIFI_SELECT:
-    case UI_SCREEN_NETWORK_WIFI_PASSWORD:
-        (void)status_ui_keyboard_read_line("WiFi PASSWORD", s_wifi_password,
-                                           s_wifi_password, sizeof(s_wifi_password), 63,
-                                           true, STATUS_UI_KEYBOARD_TIMEOUT_MS);
-        break;
-    case UI_SCREEN_NETWORK_AP:
-    case UI_SCREEN_NETWORK_AP_NAME:
-        if (app_wifi_get_config(&s_wifi_draft_config)) {
-            (void)status_ui_keyboard_read_line("AP NAME", s_wifi_draft_config.ap_ssid,
-                                               s_wifi_draft_config.ap_ssid,
-                                               sizeof(s_wifi_draft_config.ap_ssid), 32,
-                                               false, STATUS_UI_KEYBOARD_TIMEOUT_MS);
-            (void)app_wifi_set_config(&s_wifi_draft_config, true);
-        }
-        break;
-    case UI_SCREEN_NETWORK_AP_PASSWORD:
-        if (app_wifi_get_config(&s_wifi_draft_config)) {
-            (void)status_ui_keyboard_read_line("AP PASSWORD", s_wifi_draft_config.ap_password,
-                                               s_wifi_draft_config.ap_password,
-                                               sizeof(s_wifi_draft_config.ap_password), 63,
-                                               true, STATUS_UI_KEYBOARD_TIMEOUT_MS);
-            (void)app_wifi_set_config(&s_wifi_draft_config, true);
-        }
-        break;
-    case UI_SCREEN_NETWORK_AP_CHANNEL:
-        if (app_wifi_get_config(&s_wifi_draft_config)) {
-            char channel[4];
-            (void)snprintf(channel, sizeof(channel), "%u", (unsigned)s_wifi_draft_config.ap_channel);
-            if (status_ui_keyboard_read_line("AP CHANNEL", channel, channel, sizeof(channel), 2,
-                                             false, STATUS_UI_KEYBOARD_TIMEOUT_MS)) {
-                unsigned parsed = 0;
-                (void)sscanf(channel, "%u", &parsed);
-                if (parsed >= 1u && parsed <= 13u) {
-                    s_wifi_draft_config.ap_channel = (uint8_t)parsed;
-                    (void)app_wifi_set_config(&s_wifi_draft_config, true);
-                }
-            }
-        }
-        break;
-    default:
-        break;
+    return ui_runtime_load_ap_config(ui);
+}
+
+static bool status_ui_ap_save_config(ui_runtime_t *ui)
+{
+    app_wifi_config_t config;
+    if (ui == NULL || !app_wifi_get_config(&config)) return false;
+    snprintf(config.ap_ssid, sizeof(config.ap_ssid), "%s", ui->ap.ap_name[0] ? ui->ap.ap_name : "StickS3-Setup");
+    snprintf(config.ap_password, sizeof(config.ap_password), "%s", ui->ap.ap_password);
+    config.ap_channel = ui->ap.channel >= UI_AP_CHANNEL_MIN && ui->ap.channel <= UI_AP_CHANNEL_MAX ? ui->ap.channel : 6u;
+    return app_wifi_set_config(&config, true);
+}
+
+static bool status_ui_ap_refresh_url(ui_runtime_t *ui)
+{
+    if (ui == NULL) return false;
+    app_wifi_status_t status;
+    if (!app_wifi_get_status(&status)) return false;
+    snprintf(ui->ap.url, sizeof(ui->ap.url), "%s", status.web_url);
+    ui->ap.started = status.ap_started;
+    return true;
+}
+
+static bool status_ui_ap_start(ui_runtime_t *ui)
+{
+    if (ui == NULL) return false;
+    if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
+    if (!status_ui_ap_save_config(ui)) return false;
+    bool ok = app_wifi_start_ap_configured(ui->ap.ap_name, ui->ap.ap_password, ui->ap.channel, true);
+    (void)status_ui_ap_refresh_url(ui);
+    ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "AP Mode started" : "AP start failed", 2500u);
+    return ok;
+}
+
+static bool status_ui_action_wifi_scan(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(ui, item);
+    bool ok = status_ui_wifi_scan(ui, wifi);
+    (void)ui_nav_enter(&ui->nav, item->target);
+    return ok;
+}
+
+static bool status_ui_action_wifi_select_ssid(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(ui, item);
+    if (wifi == NULL || !status_ui_wifi_copy_selected_scan(wifi)) {
+        ui_runtime_set_toast(ui, UI_TOAST_WARNING, "No Wi-Fi found", 2000u);
+        return false;
     }
+    (void)ui_nav_enter(&ui->nav, item->target);
+    return true;
+}
+
+static bool status_ui_action_wifi_enter_ssid(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(ui, item);
+    if (wifi == NULL) return false;
+    return status_ui_keyboard_open_menu_edit(ui, item, "Enter SSID", wifi->ssid, UI_TEXT_SSID_MAX, UI_KEYBOARD_MODE_TEXT, false);
+}
+
+static bool status_ui_action_wifi_enter_password(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(ui, item);
+    if (wifi == NULL) return false;
+    return status_ui_keyboard_open_menu_edit(ui, item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
+}
+
+static bool status_ui_action_wifi_connect_and_save(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    return status_ui_wifi_connect_and_save(ui, status_ui_get_wifi_state_for_item(ui, item));
+}
+
+static bool status_ui_action_ap_enter_name(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
+    return status_ui_keyboard_open_menu_edit(ui, item, "Set AP Name", ui->ap.ap_name, UI_TEXT_AP_NAME_MAX, UI_KEYBOARD_MODE_TEXT, false);
+}
+
+static bool status_ui_action_ap_enter_password(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
+    return status_ui_keyboard_open_menu_edit(ui, item, "Set AP Password", ui->ap.ap_password, UI_TEXT_AP_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
+}
+
+static bool status_ui_action_ap_enter_channel(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
+    char channel[4];
+    snprintf(channel, sizeof(channel), "%u", (unsigned)ui->ap.channel);
+    return status_ui_keyboard_open_menu_edit(ui, item, "Set Channel", channel, 2, UI_KEYBOARD_MODE_NUMERIC, false);
+}
+
+static bool status_ui_action_ap_start_mode(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    bool ok = status_ui_ap_start(ui);
+    if (ok) (void)ui_nav_enter(&ui->nav, UI_SCREEN_CONFIG_AP_SHOW_URL);
+    (void)item;
+    return ok;
+}
+
+static bool status_ui_action_ap_show_url(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    (void)status_ui_ap_refresh_url(ui);
+    (void)ui_nav_enter(&ui->nav, item->target);
+    return true;
+}
+
+static void status_ui_bluetooth_refresh(ui_runtime_t *ui)
+{
+    if (ui == NULL) return;
+    status_ui_sound_meter_snapshot_t snapshot;
+    if (status_ui_get_sound_meter_snapshot(&snapshot)) {
+        ui->bluetooth.ble_connected = snapshot.ble_connected;
+        ui->bluetooth.metrics_notify_enabled = snapshot.ble_metrics_notify_enabled;
+        ui->bluetooth.pcm_notify_enabled = snapshot.ble_pcm_notify_enabled;
+    }
+    ui_runtime_refresh_bluetooth(ui);
+}
+
+static bool status_ui_action_ble_show_status(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    (void)item;
+    status_ui_bluetooth_refresh(ui);
+    ui_runtime_set_toast(ui, UI_TOAST_INFO, "BLE status refreshed", 1500u);
+    return true;
+}
+
+static void status_ui_notify_automation_config_changed(void)
+{
+    if (s_handlers.automation_config_changed != NULL) {
+        s_handlers.automation_config_changed(s_handlers.ctx);
+    }
+}
+
+static bool status_ui_action_automation_toggle_enable(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    uint8_t index = item->automation_index;
+    (void)ui_runtime_load_automation(ui, index);
+    ui->automations[index].enabled = !ui->automations[index].enabled;
+    bool ok = ui_runtime_save_automation(ui, index);
+    if (ok) {
+        status_ui_notify_automation_config_changed();
+    }
+    ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ui->automations[index].enabled ? "Automation enabled" : "Automation disabled", 2000u);
+    return ok;
+}
+
+static const rule_source_t s_trigger_preset_sources[] = { RULE_SOURCE_SOUND_RMS_DBFS, RULE_SOURCE_SOUND_PEAK_DBFS, RULE_SOURCE_KEY1_SHORT, RULE_SOURCE_KEY2_SHORT, RULE_SOURCE_BLE_CONNECTED, RULE_SOURCE_WIFI_CONNECTED };
+static const rule_action_kind_t s_action_preset_kinds[] = { RULE_ACTION_BLE_MESSAGE, RULE_ACTION_HTTP_POST, RULE_ACTION_LOCAL_UI, RULE_ACTION_IR_SEND };
+
+static bool status_ui_action_automation_edit_trigger(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    uint8_t index = item->automation_index;
+    (void)ui_runtime_load_automation(ui, index);
+    ui_automation_state_t *slot = &ui->automations[index];
+    size_t selected = item->flags < (sizeof(s_trigger_preset_sources) / sizeof(s_trigger_preset_sources[0])) ? item->flags : 0u;
+    slot->trigger_source = s_trigger_preset_sources[selected];
+    bool ok = ui_runtime_save_automation(ui, index);
+    if (ok) {
+        status_ui_notify_automation_config_changed();
+        (void)ui_nav_back(&ui->nav);
+    }
+    ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? slot->trigger_label : slot->last_error, 1800u);
+    return ok;
+}
+
+static bool status_ui_action_automation_edit_action(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    uint8_t index = item->automation_index;
+    (void)ui_runtime_load_automation(ui, index);
+    ui_automation_state_t *slot = &ui->automations[index];
+    size_t selected = item->flags < (sizeof(s_action_preset_kinds) / sizeof(s_action_preset_kinds[0])) ? item->flags : 0u;
+    slot->action_kind = s_action_preset_kinds[selected];
+    bool ok = ui_runtime_save_automation(ui, index);
+    if (ok) {
+        status_ui_notify_automation_config_changed();
+        (void)ui_nav_back(&ui->nav);
+    }
+    ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? slot->action_label : slot->last_error, 1800u);
+    return ok;
+}
+
+static bool status_ui_action_settings_open(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    (void)item;
+    ui_runtime_set_toast(ui, UI_TOAST_INFO, "Setting pending", 1500u);
+    return true;
 }
 #endif
+
+static void status_ui_dispatch_action(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    if (ui == NULL || item == NULL) return;
+    switch (item->action) {
+    case UI_ACTION_NONE: break;
+    case UI_ACTION_NAVIGATE: (void)ui_nav_enter(&ui->nav, item->target); break;
+    case UI_ACTION_BACK: (void)ui_nav_back(&ui->nav); break;
+#if CONFIG_APP_STATUS_UI_LCD
+    case UI_ACTION_WIFI_SCAN: (void)status_ui_action_wifi_scan(ui, item); break;
+    case UI_ACTION_WIFI_SELECT_SSID: (void)status_ui_action_wifi_select_ssid(ui, item); break;
+    case UI_ACTION_WIFI_ENTER_SSID: (void)status_ui_action_wifi_enter_ssid(ui, item); break;
+    case UI_ACTION_WIFI_ENTER_PASSWORD: (void)status_ui_action_wifi_enter_password(ui, item); break;
+    case UI_ACTION_WIFI_CONNECT_AND_SAVE: (void)status_ui_action_wifi_connect_and_save(ui, item); break;
+    case UI_ACTION_AP_ENTER_NAME: (void)status_ui_action_ap_enter_name(ui, item); break;
+    case UI_ACTION_AP_ENTER_PASSWORD: (void)status_ui_action_ap_enter_password(ui, item); break;
+    case UI_ACTION_AP_ENTER_CHANNEL: (void)status_ui_action_ap_enter_channel(ui, item); break;
+    case UI_ACTION_AP_START_MODE: (void)status_ui_action_ap_start_mode(ui, item); break;
+    case UI_ACTION_AP_SHOW_URL: (void)status_ui_action_ap_show_url(ui, item); break;
+    case UI_ACTION_BLE_SHOW_STATUS: (void)status_ui_action_ble_show_status(ui, item); break;
+    case UI_ACTION_AUTOMATION_TOGGLE_ENABLE: (void)status_ui_action_automation_toggle_enable(ui, item); break;
+    case UI_ACTION_AUTOMATION_EDIT_TRIGGER: (void)status_ui_action_automation_edit_trigger(ui, item); break;
+    case UI_ACTION_AUTOMATION_EDIT_ACTION: (void)status_ui_action_automation_edit_action(ui, item); break;
+    case UI_ACTION_SETTINGS_OPEN: (void)status_ui_action_settings_open(ui, item); break;
+#else
+    default: break;
+#endif
+    }
+    ui->dirty = true;
+}
 
 static void status_ui_activate_selected_item(void)
 {
-    const ui_menu_item_t *item = NULL;
-    if (!ui_nav_activate(&s_nav, &item) || item == NULL) {
-        return;
-    }
-#if CONFIG_APP_STATUS_UI_LCD
-    switch (item->action) {
-    case UI_ITEM_ACTION_START_WIFI_SCAN:
-        (void)status_ui_start_wifi_scan();
-        (void)ui_nav_enter(&s_nav, UI_SCREEN_NETWORK_WIFI_SCAN);
-        break;
-    case UI_ITEM_ACTION_CONNECT_WIFI:
-        (void)status_ui_connect_selected_wifi();
-        break;
-    case UI_ITEM_ACTION_START_AP:
-        (void)status_ui_start_configured_ap();
-        (void)ui_nav_enter(&s_nav, UI_SCREEN_NETWORK_AP_CONFIRM);
-        break;
-    case UI_ITEM_ACTION_SAVE_AP_CONFIG:
-        (void)app_wifi_set_config(&s_wifi_draft_config, true);
-        (void)ui_nav_enter(&s_nav, item->target);
-        break;
-    case UI_ITEM_ACTION_FORGET_WIFI:
-        (void)app_wifi_forget_sta_credentials();
-        break;
-    case UI_ITEM_ACTION_OPEN_KEYBOARD:
-        (void)ui_nav_enter(&s_nav, item->target);
-        status_ui_open_keyboard_for_current_field();
-        break;
-    default:
-        break;
-    }
-#endif
+    const ui_menu_item_t *item = ui_nav_selected_item(&s_ui.nav);
+    status_ui_dispatch_action(&s_ui, item);
 }
 
 void status_ui_handle_input(status_ui_input_t input)
 {
-    bool activate = false;
-
+#if CONFIG_APP_STATUS_UI_LCD
     portENTER_CRITICAL(&s_state_mux);
-    if (!s_menu_mode && input != STATUS_UI_INPUT_BACK) {
-        s_menu_mode = true;
-        (void)ui_nav_enter(&s_nav, UI_SCREEN_HOME);
+    bool keyboard_active = status_ui_keyboard_active_locked();
+    portEXIT_CRITICAL(&s_state_mux);
+    if (keyboard_active) {
+        status_ui_route_button_to_keyboard(input);
+        return;
+    }
+#endif
+
+    bool activate = false;
+    portENTER_CRITICAL(&s_state_mux);
+    if (!s_ui.menu_active && input != STATUS_UI_INPUT_BACK) {
+        s_ui.menu_active = true;
+        ui_nav_init(&s_ui.nav);
+        s_ui.dirty = true;
         portEXIT_CRITICAL(&s_state_mux);
         return;
     }
+
+    const ui_screen_def_t *screen = ui_nav_current(&s_ui.nav);
+    ui_wifi_flow_state_t *scan_wifi = NULL;
+    if (screen != NULL && (s_ui.nav.current == UI_SCREEN_CONFIG_WIFI_SCAN || s_ui.nav.current == UI_SCREEN_CONNECT_WIFI_SCAN)) {
+        scan_wifi = ui_runtime_wifi_flow(&s_ui, screen->flow);
+    }
+
     switch (input) {
     case STATUS_UI_INPUT_SELECT:
-#if CONFIG_APP_STATUS_UI_LCD
-        if (s_nav.current == UI_SCREEN_NETWORK_WIFI_SCAN && s_wifi_scan_results.count > 0u) {
-            (void)snprintf(s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid), "%s",
-                           s_wifi_scan_results.items[s_wifi_selected_network].ssid);
-            (void)ui_nav_enter(&s_nav, UI_SCREEN_NETWORK_WIFI_SELECT);
-        } else
-#endif
-        {
-            activate = true;
-        }
+        activate = true;
         break;
     case STATUS_UI_INPUT_NEXT:
-#if CONFIG_APP_STATUS_UI_LCD
-        if (s_nav.current == UI_SCREEN_NETWORK_WIFI_SCAN && s_wifi_scan_results.count > 0u) {
-            s_wifi_selected_network = (s_wifi_selected_network + 1u) % s_wifi_scan_results.count;
-        } else
-#endif
-        {
-            (void)ui_nav_next(&s_nav);
+        if (scan_wifi != NULL && scan_wifi->scan_results.count > 0u) {
+            scan_wifi->selected_scan_index = (scan_wifi->selected_scan_index + 1u) % scan_wifi->scan_results.count;
+        } else {
+            (void)ui_nav_next(&s_ui.nav);
         }
+        s_ui.dirty = true;
         break;
     case STATUS_UI_INPUT_PREV:
-#if CONFIG_APP_STATUS_UI_LCD
-        if (s_nav.current == UI_SCREEN_NETWORK_WIFI_SCAN && s_wifi_scan_results.count > 0u) {
-            s_wifi_selected_network = s_wifi_selected_network == 0u ?
-                                      s_wifi_scan_results.count - 1u :
-                                      s_wifi_selected_network - 1u;
-        } else
-#endif
-        {
-            (void)ui_nav_prev(&s_nav);
+        if (scan_wifi != NULL && scan_wifi->scan_results.count > 0u) {
+            scan_wifi->selected_scan_index = scan_wifi->selected_scan_index == 0u ? scan_wifi->scan_results.count - 1u : scan_wifi->selected_scan_index - 1u;
+        } else {
+            (void)ui_nav_prev(&s_ui.nav);
         }
+        s_ui.dirty = true;
         break;
     case STATUS_UI_INPUT_BACK:
-        if (s_menu_mode && s_nav.current == UI_SCREEN_HOME) {
-            s_menu_mode = false;
-        } else if (s_menu_mode) {
-            (void)ui_nav_back(&s_nav);
+        if (s_ui.menu_active && s_ui.nav.current == UI_SCREEN_MAIN) {
+            s_ui.menu_active = false;
+        } else if (s_ui.menu_active) {
+            (void)ui_nav_back(&s_ui.nav);
         }
+        s_ui.dirty = true;
         break;
     default:
         break;
@@ -507,6 +714,40 @@ static void keyboard_queue_event(status_ui_keyboard_event_t event)
         (void)xQueueSend(s_keyboard_queue, &event, 0);
     }
 }
+
+static bool status_ui_keyboard_active_locked(void)
+{
+    return s_keyboard.active;
+}
+
+static void status_ui_route_button_to_keyboard(status_ui_input_t input)
+{
+    status_ui_keyboard_event_t event = STATUS_UI_KEYBOARD_EVENT_PREV;
+    switch (input) {
+    case STATUS_UI_INPUT_SELECT:
+        event = STATUS_UI_KEYBOARD_EVENT_SELECT;
+        break;
+    case STATUS_UI_INPUT_NEXT:
+        event = STATUS_UI_KEYBOARD_EVENT_NEXT;
+        break;
+    case STATUS_UI_INPUT_PREV:
+    case STATUS_UI_INPUT_BACK:
+        event = STATUS_UI_KEYBOARD_EVENT_PREV;
+        break;
+    default:
+        return;
+    }
+    if (s_keyboard_edit.active) {
+        status_ui_keyboard_handle_menu_event(event);
+    } else {
+        keyboard_queue_event(event);
+    }
+}
+
+static void status_ui_route_button_to_menu(status_ui_input_t input)
+{
+    status_ui_handle_input(input);
+}
 #endif
 
 static void maybe_dispatch_button(status_button_t *button, TickType_t now)
@@ -526,15 +767,26 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
 #if CONFIG_APP_STATUS_UI_LCD
     if (pressed && button->stable_pressed && !button->long_sent &&
         (now - button->pressed_since_tick) >= pdMS_TO_TICKS(STATUS_UI_KEYBOARD_LONG_MS)) {
-        if (keyboard_is_active() && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
+        if (keyboard_is_active() && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
             button->long_sent = true;
-            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-        } else if (s_menu_mode && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
+            if (s_keyboard_edit.active) {
+                status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_OK);
+            } else {
+                keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_OK);
+            }
+        } else if (keyboard_is_active() && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
             button->long_sent = true;
-            status_ui_handle_input(STATUS_UI_INPUT_BACK);
-        } else if (!s_menu_mode && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
+            if (s_keyboard_edit.active) {
+                status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+            } else {
+                keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+            }
+        } else if (s_ui.menu_active && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
             button->long_sent = true;
-            status_ui_open_screen(UI_SCREEN_HOME);
+            status_ui_route_button_to_menu(STATUS_UI_INPUT_BACK);
+        } else if (!s_ui.menu_active && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
+            button->long_sent = true;
+            status_ui_open_screen(UI_SCREEN_MAIN);
         }
     }
 #endif
@@ -552,22 +804,27 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
             button->long_sent = false;
             ESP_LOGI(TAG, "keyboard button pressed: %s", button->name);
         } else if (!button->long_sent) {
-            keyboard_queue_event(button->gpio == BOARD_BUTTON_KEY1_GPIO ?
-                                 STATUS_UI_KEYBOARD_EVENT_SELECT : STATUS_UI_KEYBOARD_EVENT_NEXT);
+            status_ui_keyboard_event_t event = button->gpio == BOARD_BUTTON_KEY1_GPIO ?
+                                             STATUS_UI_KEYBOARD_EVENT_SELECT : STATUS_UI_KEYBOARD_EVENT_NEXT;
+            if (s_keyboard_edit.active) {
+                status_ui_keyboard_handle_menu_event(event);
+            } else {
+                keyboard_queue_event(event);
+            }
         }
         return;
     }
 #endif
 #if CONFIG_APP_STATUS_UI_LCD
-    if (s_menu_mode) {
+    if (s_ui.menu_active) {
         if (pressed) {
             record_button_press(button->gpio);
             button->pressed_since_tick = now;
             button->long_sent = false;
             ESP_LOGI(TAG, "menu button pressed: %s", button->name);
         } else if (!button->long_sent) {
-            status_ui_handle_input(button->gpio == BOARD_BUTTON_KEY1_GPIO ?
-                                   STATUS_UI_INPUT_NEXT : STATUS_UI_INPUT_SELECT);
+            status_ui_route_button_to_menu(button->gpio == BOARD_BUTTON_KEY1_GPIO ?
+                                           STATUS_UI_INPUT_NEXT : STATUS_UI_INPUT_SELECT);
         }
         return;
     }
@@ -785,170 +1042,335 @@ static void lcd_draw_text(int x, int y, const char *text, uint16_t color, uint8_
 }
 
 
-static const char s_keyboard_keys[STATUS_UI_KEYBOARD_ROWS][STATUS_UI_KEYBOARD_COLS][2] = {
-    {{'1', '!'}, {'2', '@'}, {'3', '#'}, {'4', '$'}, {'5', '%'}, {'6', '^'}, {'7', '&'}, {'8', '*'}, {'9', '('}, {'0', ')'}},
-    {{'q', 'Q'}, {'w', 'W'}, {'e', 'E'}, {'r', 'R'}, {'t', 'T'}, {'y', 'Y'}, {'u', 'U'}, {'i', 'I'}, {'o', 'O'}, {'p', 'P'}},
-    {{'a', 'A'}, {'s', 'S'}, {'d', 'D'}, {'f', 'F'}, {'g', 'G'}, {'h', 'H'}, {'j', 'J'}, {'k', 'K'}, {'l', 'L'}, {'-', '_'}},
-    {{'z', 'Z'}, {'x', 'X'}, {'c', 'C'}, {'v', 'V'}, {'b', 'B'}, {'n', 'N'}, {'m', 'M'}, {'.', '>'}, {'/', '?'}, {'@', ':'}},
+static const ui_key_def_t s_9key_defs[UI_KEYBOARD_CHAR_KEY_COUNT] = {
+    { UI_KEY_KIND_CHAR, "1", "1.,!?", "1.,!?", '1' },
+    { UI_KEY_KIND_CHAR, "2", "2abc", "2@#$", '2' },
+    { UI_KEY_KIND_CHAR, "3", "3def", "3%&*", '3' },
+    { UI_KEY_KIND_CHAR, "4", "4ghi", "4-_+", '4' },
+    { UI_KEY_KIND_CHAR, "5", "5jkl", "5=:/", '5' },
+    { UI_KEY_KIND_CHAR, "6", "6mno", "6;()'", '6' },
+    { UI_KEY_KIND_CHAR, "7", "7pqrs", "7[]{}", '7' },
+    { UI_KEY_KIND_CHAR, "8", "8tuv", "8<>\\", '8' },
+    { UI_KEY_KIND_CHAR, "9", "9wxyz", "9`~|", '9' },
+};
+
+static const ui_key_def_t s_9key_controls[UI_KEYBOARD_CONTROL_KEY_COUNT] = {
+    { UI_KEY_KIND_OK, "OK", NULL, NULL, 0 },
+    { UI_KEY_KIND_DELETE, "DEL", NULL, NULL, 0 },
+    { UI_KEY_KIND_SPACE, "SPC", NULL, NULL, 0 },
+    { UI_KEY_KIND_MODE, "MODE", NULL, NULL, 0 },
+    { UI_KEY_KIND_CANCEL, "ESC", NULL, NULL, 0 },
 };
 
 static void lcd_draw_text_clipped(int x, int y, const char *text, uint16_t color, uint8_t scale, size_t max_chars)
 {
     char buf[40];
-    if (max_chars >= sizeof(buf)) {
-        max_chars = sizeof(buf) - 1u;
-    }
+    if (max_chars >= sizeof(buf)) max_chars = sizeof(buf) - 1u;
     size_t i = 0;
-    while (i < max_chars && text != NULL && text[i] != '\0') {
-        buf[i] = text[i];
-        ++i;
-    }
+    while (i < max_chars && text != NULL && text[i] != '\0') { buf[i] = text[i]; ++i; }
     buf[i] = '\0';
     lcd_draw_text(x, y, buf, color, scale);
 }
 
-static void keyboard_snapshot(status_ui_keyboard_state_t *out)
+static void keyboard_snapshot(ui_keyboard_state_t *out)
 {
     portENTER_CRITICAL(&s_state_mux);
     *out = s_keyboard;
     portEXIT_CRITICAL(&s_state_mux);
 }
 
-static void status_ui_render_keyboard_lcd(void)
+static const char *ui_keyboard_chars_for_key(const ui_keyboard_state_t *kb, const ui_key_def_t *key)
 {
-    status_ui_keyboard_state_t kb;
-    keyboard_snapshot(&kb);
-    if (!kb.active) {
+    if (kb->mode == UI_KEYBOARD_MODE_NUMERIC) return NULL;
+    return kb->mode == UI_KEYBOARD_MODE_SYMBOL ? key->chars_symbol : key->chars_text;
+}
+
+static void ui_keyboard_append_char(ui_keyboard_state_t *kb, char ch)
+{
+    size_t len = strlen(kb->text);
+    if (len < kb->max_len && len + 1u < sizeof(kb->text)) {
+        kb->text[len] = ch;
+        kb->text[len + 1u] = '\0';
+    }
+}
+
+static void ui_keyboard_commit_pending(ui_keyboard_state_t *kb)
+{
+    kb->has_pending_cycle = false;
+}
+
+static void ui_keyboard_backspace(ui_keyboard_state_t *kb)
+{
+    size_t len = strlen(kb->text);
+    if (len > 0u) kb->text[len - 1u] = '\0';
+    kb->has_pending_cycle = false;
+}
+
+static bool ui_keyboard_open(ui_keyboard_state_t *kb, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret)
+{
+    if (kb == NULL || max_len == 0u) return false;
+    memset(kb, 0, sizeof(*kb));
+    kb->active = true;
+    kb->mode = mode;
+    kb->secret = secret;
+    kb->max_len = max_len > STATUS_UI_KEYBOARD_MAX_TEXT ? STATUS_UI_KEYBOARD_MAX_TEXT : max_len;
+    kb->selected_key = 0u;
+    snprintf(kb->title, sizeof(kb->title), "%s", title != NULL ? title : "Input");
+    snprintf(kb->text, sizeof(kb->text), "%s", initial != NULL ? initial : "");
+    kb->text[kb->max_len] = '\0';
+    return true;
+}
+
+static void ui_keyboard_close(ui_keyboard_state_t *kb)
+{
+    if (kb != NULL) kb->active = false;
+}
+
+static bool ui_keyboard_is_active(const ui_keyboard_state_t *kb)
+{
+    return kb != NULL && kb->active;
+}
+
+
+static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui,
+                                              const ui_menu_item_t *item,
+                                              const char *title,
+                                              const char *initial,
+                                              size_t max_len,
+                                              ui_keyboard_mode_t mode,
+                                              bool secret)
+{
+    if (ui == NULL || item == NULL || s_panel == NULL || s_framebuffer == NULL) {
+        return false;
+    }
+    if (max_len > STATUS_UI_KEYBOARD_MAX_TEXT) {
+        max_len = STATUS_UI_KEYBOARD_MAX_TEXT;
+    }
+    portENTER_CRITICAL(&s_state_mux);
+    bool opened = ui_keyboard_open(&s_keyboard, title, initial, max_len, mode, secret);
+    if (opened) {
+        s_keyboard_edit.active = true;
+        s_keyboard_edit.item = *item;
+        ui->dirty = true;
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+    return opened;
+}
+
+static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
+                                                  ui_keyboard_result_t result,
+                                                  const char *text)
+{
+    if (item == NULL) {
+        return;
+    }
+    if (result == UI_KEYBOARD_RESULT_CANCEL) {
+        ui_runtime_set_toast(&s_ui, UI_TOAST_INFO, "Input cancelled", 1200u);
+        return;
+    }
+    if (result != UI_KEYBOARD_RESULT_OK) {
         return;
     }
 
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 16, STATUS_UI_LCD_HEADER_BG);
-    lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 4, kb.title, STATUS_UI_LCD_TEXT, 1, 20);
-
-    char display[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
-    size_t text_len = strlen(kb.text);
-    for (size_t i = 0; i < text_len && i < sizeof(display) - 1u; ++i) {
-        display[i] = kb.secret ? '*' : kb.text[i];
+    switch (item->action) {
+    case UI_ACTION_WIFI_ENTER_SSID: {
+        ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(&s_ui, item);
+        if (wifi == NULL) return;
+        snprintf(wifi->ssid, sizeof(wifi->ssid), "%s", text != NULL ? text : "");
+        wifi->has_selected_ssid = wifi->ssid[0] != '\0';
+        (void)ui_nav_enter(&s_ui.nav, item->target);
+        break;
     }
-    display[text_len < sizeof(display) ? text_len : sizeof(display) - 1u] = '\0';
-    lcd_fill_rect(3, 19, BOARD_LCD_H_RES - 6, 18, 0x2104);
-    lcd_draw_text_clipped(6, 24, display, STATUS_UI_LCD_TEXT, 1, 19);
-
-    char count[16];
-    snprintf(count, sizeof(count), "%u/%u", (unsigned)text_len, (unsigned)kb.max_len);
-    lcd_draw_text(BOARD_LCD_H_RES - 38, 4, count, STATUS_UI_LCD_DIM, 1);
-
-    static const char *controls[STATUS_UI_KEYBOARD_CONTROLS] = {"OK", "AA", "DEL", "SPC", "ESC"};
-    const int control_w = BOARD_LCD_H_RES / STATUS_UI_KEYBOARD_CONTROLS;
-    for (int i = 0; i < STATUS_UI_KEYBOARD_CONTROLS; ++i) {
-        const bool selected = kb.selected == i;
-        const int x = i * control_w;
-        uint16_t bg = selected ? STATUS_UI_LCD_WARN : 0x3186;
-        uint16_t fg = selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT;
-        lcd_fill_rect(x + 1, 42, control_w - 2, 18, bg);
-        lcd_draw_text(x + 5, 48, controls[i], fg, 1);
+    case UI_ACTION_WIFI_ENTER_PASSWORD: {
+        ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(&s_ui, item);
+        if (wifi == NULL) return;
+        snprintf(wifi->password, sizeof(wifi->password), "%s", text != NULL ? text : "");
+        wifi->has_password = true;
+        (void)ui_nav_enter(&s_ui.nav, item->target);
+        break;
     }
-
-    const int key_w = BOARD_LCD_H_RES / STATUS_UI_KEYBOARD_COLS;
-    const int key_h = 34;
-    const int y0 = 68;
-    for (int row = 0; row < STATUS_UI_KEYBOARD_ROWS; ++row) {
-        for (int col = 0; col < STATUS_UI_KEYBOARD_COLS; ++col) {
-            const int index = STATUS_UI_KEYBOARD_CONTROLS + row * STATUS_UI_KEYBOARD_COLS + col;
-            const bool selected = kb.selected == index;
-            const int x = col * key_w;
-            const int y = y0 + row * key_h;
-            char label[2] = {s_keyboard_keys[row][col][kb.caps ? 1 : 0], '\0'};
-            uint16_t bg = selected ? STATUS_UI_LCD_OK : 0x1082;
-            uint16_t fg = selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT;
-            lcd_fill_rect(x + 1, y + 1, key_w - 2, key_h - 2, bg);
-            lcd_draw_text(x + 4, y + 11, label, fg, 1);
+    case UI_ACTION_AP_ENTER_NAME:
+        snprintf(s_ui.ap.ap_name, sizeof(s_ui.ap.ap_name), "%s", text != NULL ? text : "");
+        (void)status_ui_ap_save_config(&s_ui);
+        (void)ui_nav_enter(&s_ui.nav, item->target);
+        break;
+    case UI_ACTION_AP_ENTER_PASSWORD:
+        snprintf(s_ui.ap.ap_password, sizeof(s_ui.ap.ap_password), "%s", text != NULL ? text : "");
+        (void)status_ui_ap_save_config(&s_ui);
+        (void)ui_nav_enter(&s_ui.nav, item->target);
+        break;
+    case UI_ACTION_AP_ENTER_CHANNEL: {
+        unsigned parsed = (unsigned)strtoul(text != NULL ? text : "", NULL, 10);
+        if (parsed < UI_AP_CHANNEL_MIN || parsed > UI_AP_CHANNEL_MAX) {
+            ui_runtime_set_toast(&s_ui, UI_TOAST_WARNING, "Channel 1-13 only", 2500u);
+            return;
         }
+        s_ui.ap.channel = (uint8_t)parsed;
+        (void)status_ui_ap_save_config(&s_ui);
+        (void)ui_nav_enter(&s_ui.nav, item->target);
+        break;
     }
+    default:
+        break;
+    }
+    s_ui.dirty = true;
+}
 
-    lcd_draw_text(4, BOARD_LCD_V_RES - 13, "K1 SEL K2 NEXT HOLD PREV", STATUS_UI_LCD_DIM, 1);
+static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event)
+{
+    ui_keyboard_result_t result = UI_KEYBOARD_RESULT_NONE;
+    ui_menu_item_t item = {0};
+    char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1] = {0};
+
+    portENTER_CRITICAL(&s_state_mux);
+    if (!s_keyboard_edit.active) {
+        portEXIT_CRITICAL(&s_state_mux);
+        keyboard_queue_event(event);
+        return;
+    }
+    switch (event) {
+    case STATUS_UI_KEYBOARD_EVENT_SELECT:
+        ui_keyboard_handle_select(&s_keyboard);
+        break;
+    case STATUS_UI_KEYBOARD_EVENT_NEXT:
+        ui_keyboard_handle_next(&s_keyboard);
+        break;
+    case STATUS_UI_KEYBOARD_EVENT_PREV:
+        ui_keyboard_handle_prev(&s_keyboard);
+        break;
+    case STATUS_UI_KEYBOARD_EVENT_OK:
+        ui_keyboard_commit_pending(&s_keyboard);
+        s_keyboard.result = UI_KEYBOARD_RESULT_OK;
+        break;
+    default:
+        break;
+    }
+    result = s_keyboard.result;
+    if (result != UI_KEYBOARD_RESULT_NONE) {
+        item = s_keyboard_edit.item;
+        snprintf(text, sizeof(text), "%s", s_keyboard.text);
+        s_keyboard_edit.active = false;
+        ui_keyboard_close(&s_keyboard);
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+
+    if (result != UI_KEYBOARD_RESULT_NONE) {
+        status_ui_complete_menu_keyboard_edit(&item, result, text);
+    }
+}
+
+static void ui_keyboard_handle_next(ui_keyboard_state_t *kb)
+{
+    if (kb == NULL) return;
+    ui_keyboard_commit_pending(kb);
+    kb->selected_key = (uint8_t)((kb->selected_key + 1u) % UI_KEYBOARD_KEY_COUNT);
+}
+
+static void ui_keyboard_handle_prev(ui_keyboard_state_t *kb)
+{
+    if (kb == NULL) return;
+    ui_keyboard_commit_pending(kb);
+    kb->selected_key = kb->selected_key == 0u ? UI_KEYBOARD_KEY_COUNT - 1u : kb->selected_key - 1u;
+}
+
+static void ui_keyboard_handle_select(ui_keyboard_state_t *kb)
+{
+    if (kb == NULL) return;
+    if (kb->selected_key < UI_KEYBOARD_CHAR_KEY_COUNT) {
+        const ui_key_def_t *key = &s_9key_defs[kb->selected_key];
+        if (kb->mode == UI_KEYBOARD_MODE_NUMERIC) {
+            ui_keyboard_append_char(kb, key->numeric_char);
+            return;
+        }
+        const char *chars = ui_keyboard_chars_for_key(kb, key);
+        if (chars == NULL || chars[0] == '\0') return;
+        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (kb->has_pending_cycle && (now_ms - kb->last_key_tick_ms) > UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS) {
+            ui_keyboard_commit_pending(kb);
+        }
+        if (kb->has_pending_cycle && kb->last_key == kb->selected_key && strlen(kb->text) > 0u) {
+            kb->cycle_index = (uint8_t)((kb->cycle_index + 1u) % strlen(chars));
+            kb->text[strlen(kb->text) - 1u] = chars[kb->cycle_index];
+        } else {
+            ui_keyboard_commit_pending(kb);
+            kb->last_key = kb->selected_key;
+            kb->cycle_index = 0u;
+            kb->has_pending_cycle = true;
+            ui_keyboard_append_char(kb, chars[0]);
+        }
+        kb->last_key_tick_ms = now_ms;
+        return;
+    }
+    const ui_key_def_t *control = &s_9key_controls[kb->selected_key - UI_KEYBOARD_CHAR_KEY_COUNT];
+    switch (control->kind) {
+    case UI_KEY_KIND_OK: ui_keyboard_commit_pending(kb); kb->result = UI_KEYBOARD_RESULT_OK; break;
+    case UI_KEY_KIND_DELETE: ui_keyboard_backspace(kb); break;
+    case UI_KEY_KIND_SPACE: ui_keyboard_commit_pending(kb); ui_keyboard_append_char(kb, ' '); break;
+    case UI_KEY_KIND_MODE:
+        ui_keyboard_commit_pending(kb);
+        if (kb->mode == UI_KEYBOARD_MODE_TEXT || kb->mode == UI_KEYBOARD_MODE_PASSWORD) kb->mode = UI_KEYBOARD_MODE_SYMBOL;
+        else if (kb->mode == UI_KEYBOARD_MODE_SYMBOL) kb->mode = kb->secret ? UI_KEYBOARD_MODE_PASSWORD : UI_KEYBOARD_MODE_TEXT;
+        break;
+    case UI_KEY_KIND_CANCEL: kb->result = UI_KEYBOARD_RESULT_CANCEL; break;
+    default: break;
+    }
+}
+
+static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
+{
+    if (!ui_keyboard_is_active(kb)) return;
+    int y0 = BOARD_LCD_V_RES - UI_KEYBOARD_OVERLAY_H;
+    if (y0 < 0) y0 = 0;
+    lcd_fill_rect(0, y0, BOARD_LCD_H_RES, UI_KEYBOARD_OVERLAY_H, 0x1082);
+    lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 4, kb->title, STATUS_UI_LCD_TEXT, 1, 18);
+    char display[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
+    size_t len = strlen(kb->text);
+    for (size_t i = 0; i < len && i < sizeof(display) - 1u; ++i) display[i] = kb->secret ? '*' : kb->text[i];
+    display[len < sizeof(display) ? len : sizeof(display) - 1u] = '\0';
+    lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 18, display, STATUS_UI_LCD_OK, 1, 19);
+    const int key_w = BOARD_LCD_H_RES / 5;
+    for (uint8_t i = 0; i < UI_KEYBOARD_KEY_COUNT; ++i) {
+        const bool selected = kb->selected_key == i;
+        const int col = i % 5;
+        const int row = i / 5;
+        const int x = col * key_w;
+        const int y = y0 + 34 + row * 22;
+        const char *label = i < UI_KEYBOARD_CHAR_KEY_COUNT ? s_9key_defs[i].label : s_9key_controls[i - UI_KEYBOARD_CHAR_KEY_COUNT].label;
+        lcd_fill_rect(x + 1, y, key_w - 2, 20, selected ? STATUS_UI_LCD_OK : 0x2104);
+        lcd_draw_text(x + 4, y + 6, label, selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT, 1);
+    }
+}
+
+static void status_ui_render_keyboard_lcd(void)
+{
+    ui_keyboard_state_t kb;
+    keyboard_snapshot(&kb);
+    ui_render_keyboard_overlay(&kb);
 }
 
 static void keyboard_move(int delta)
 {
-    const int total = STATUS_UI_KEYBOARD_CONTROLS + STATUS_UI_KEYBOARD_ROWS * STATUS_UI_KEYBOARD_COLS;
     portENTER_CRITICAL(&s_state_mux);
-    s_keyboard.selected = (s_keyboard.selected + delta + total) % total;
+    if (delta > 0) ui_keyboard_handle_next(&s_keyboard); else ui_keyboard_handle_prev(&s_keyboard);
     portEXIT_CRITICAL(&s_state_mux);
 }
 
 static void keyboard_select(void)
 {
     portENTER_CRITICAL(&s_state_mux);
-    if (s_keyboard.selected < STATUS_UI_KEYBOARD_CONTROLS) {
-        switch (s_keyboard.selected) {
-        case 0:
-            s_keyboard.done = true;
-            break;
-        case 1:
-            s_keyboard.caps = !s_keyboard.caps;
-            break;
-        case 2: {
-            size_t len = strlen(s_keyboard.text);
-            if (len > 0) {
-                s_keyboard.text[len - 1u] = '\0';
-            }
-            break;
-        }
-        case 3: {
-            size_t len = strlen(s_keyboard.text);
-            if (len < s_keyboard.max_len && len + 1u < sizeof(s_keyboard.text)) {
-                s_keyboard.text[len] = ' ';
-                s_keyboard.text[len + 1u] = '\0';
-            }
-            break;
-        }
-        case 4:
-            s_keyboard.cancelled = true;
-            break;
-        default:
-            break;
-        }
-    } else {
-        const int key_index = s_keyboard.selected - STATUS_UI_KEYBOARD_CONTROLS;
-        const int row = key_index / STATUS_UI_KEYBOARD_COLS;
-        const int col = key_index % STATUS_UI_KEYBOARD_COLS;
-        size_t len = strlen(s_keyboard.text);
-        if (row >= 0 && row < STATUS_UI_KEYBOARD_ROWS && col >= 0 && col < STATUS_UI_KEYBOARD_COLS &&
-            len < s_keyboard.max_len && len + 1u < sizeof(s_keyboard.text)) {
-            s_keyboard.text[len] = s_keyboard_keys[row][col][s_keyboard.caps ? 1 : 0];
-            s_keyboard.text[len + 1u] = '\0';
-        }
-    }
+    ui_keyboard_handle_select(&s_keyboard);
     portEXIT_CRITICAL(&s_state_mux);
 }
 
-bool status_ui_keyboard_read_line(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, bool secret, uint32_t timeout_ms)
+static bool status_ui_keyboard_read_line_mode(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, ui_keyboard_mode_t mode, bool secret, uint32_t timeout_ms)
 {
-    if (out == NULL || out_len == 0 || max_len == 0 || s_keyboard_queue == NULL || s_panel == NULL || s_framebuffer == NULL) {
-        return false;
-    }
-    if (max_len >= out_len) {
-        max_len = out_len - 1u;
-    }
-    if (max_len > STATUS_UI_KEYBOARD_MAX_TEXT) {
-        max_len = STATUS_UI_KEYBOARD_MAX_TEXT;
-    }
-
+    if (out == NULL || out_len == 0 || max_len == 0 || s_keyboard_queue == NULL || s_panel == NULL || s_framebuffer == NULL) return false;
+    if (max_len >= out_len) max_len = out_len - 1u;
+    if (max_len > STATUS_UI_KEYBOARD_MAX_TEXT) max_len = STATUS_UI_KEYBOARD_MAX_TEXT;
     xQueueReset(s_keyboard_queue);
     portENTER_CRITICAL(&s_state_mux);
-    memset(&s_keyboard, 0, sizeof(s_keyboard));
-    s_keyboard.active = true;
-    s_keyboard.secret = secret;
-    s_keyboard.max_len = max_len;
-    s_keyboard.selected = STATUS_UI_KEYBOARD_CONTROLS;
-    snprintf(s_keyboard.title, sizeof(s_keyboard.title), "%s", title != NULL ? title : "Keyboard");
-    snprintf(s_keyboard.text, sizeof(s_keyboard.text), "%s", initial != NULL ? initial : "");
-    s_keyboard.text[max_len] = '\0';
+    (void)ui_keyboard_open(&s_keyboard, title, initial, max_len, mode, secret);
     portEXIT_CRITICAL(&s_state_mux);
-
-    ESP_LOGI(TAG, "virtual keyboard start: %s", title != NULL ? title : "Keyboard");
     const TickType_t start = xTaskGetTickCount();
     const TickType_t timeout = timeout_ms == 0 ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
     bool ok = false;
@@ -957,41 +1379,37 @@ bool status_ui_keyboard_read_line(const char *title, const char *initial, char *
         TickType_t wait = pdMS_TO_TICKS(100);
         if (timeout != portMAX_DELAY) {
             TickType_t elapsed = xTaskGetTickCount() - start;
-            if (elapsed >= timeout) {
-                break;
-            }
+            if (elapsed >= timeout) break;
             TickType_t remaining = timeout - elapsed;
-            if (remaining < wait) {
-                wait = remaining;
-            }
+            if (remaining < wait) wait = remaining;
         }
         if (xQueueReceive(s_keyboard_queue, &event, wait) == pdTRUE) {
-            if (event == STATUS_UI_KEYBOARD_EVENT_SELECT) {
-                keyboard_select();
-            } else if (event == STATUS_UI_KEYBOARD_EVENT_NEXT) {
-                keyboard_move(1);
-            } else if (event == STATUS_UI_KEYBOARD_EVENT_PREV) {
-                keyboard_move(-1);
+            if (event == STATUS_UI_KEYBOARD_EVENT_SELECT) keyboard_select();
+            else if (event == STATUS_UI_KEYBOARD_EVENT_NEXT) keyboard_move(1);
+            else if (event == STATUS_UI_KEYBOARD_EVENT_PREV) keyboard_move(-1);
+            else if (event == STATUS_UI_KEYBOARD_EVENT_OK) {
+                portENTER_CRITICAL(&s_state_mux);
+                ui_keyboard_commit_pending(&s_keyboard);
+                s_keyboard.result = UI_KEYBOARD_RESULT_OK;
+                portEXIT_CRITICAL(&s_state_mux);
             }
         }
         portENTER_CRITICAL(&s_state_mux);
-        bool done = s_keyboard.done;
-        bool cancelled = s_keyboard.cancelled;
+        ui_keyboard_result_t result = s_keyboard.result;
+        if (result == UI_KEYBOARD_RESULT_OK) snprintf(out, out_len, "%s", s_keyboard.text);
+        if (result != UI_KEYBOARD_RESULT_NONE) ui_keyboard_close(&s_keyboard);
         portEXIT_CRITICAL(&s_state_mux);
-        if (done || cancelled) {
-            ok = done && !cancelled;
-            break;
-        }
+        if (result != UI_KEYBOARD_RESULT_NONE) { ok = result == UI_KEYBOARD_RESULT_OK; break; }
     }
-
     portENTER_CRITICAL(&s_state_mux);
-    if (ok) {
-        snprintf(out, out_len, "%s", s_keyboard.text);
-    }
     s_keyboard.active = false;
     portEXIT_CRITICAL(&s_state_mux);
-    ESP_LOGI(TAG, "virtual keyboard end: %s", ok ? "ok" : "cancel/timeout");
     return ok;
+}
+
+bool status_ui_keyboard_read_line(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, bool secret, uint32_t timeout_ms)
+{
+    return status_ui_keyboard_read_line_mode(title, initial, out, out_len, max_len, secret ? UI_KEYBOARD_MODE_PASSWORD : UI_KEYBOARD_MODE_TEXT, secret, timeout_ms);
 }
 
 static uint16_t state_color(status_ui_state_t state)
@@ -1193,98 +1611,204 @@ static void status_ui_render_waiting_lcd(void)
 }
 
 
-static void status_ui_render_menu_lcd(const ui_nav_state_t *nav)
+
+static void status_ui_format_time_24h(char out[6])
 {
-    const ui_screen_def_t *screen = ui_nav_current(nav);
-    if (screen == NULL) {
+    if (out == NULL) return;
+    ui_runtime_refresh_status_bar(&s_ui);
+    snprintf(out, 6, "%s", s_ui.status_bar.time_valid ? s_ui.status_bar.time_hhmm : "--:--");
+}
+
+static void status_ui_update_time(ui_status_bar_state_t *bar)
+{
+    if (bar == NULL) return;
+    status_ui_format_time_24h(bar->time_hhmm);
+    bar->time_valid = strcmp(bar->time_hhmm, "--:--") != 0;
+}
+
+#if defined(__GNUC__)
+extern bool board_power_get_battery_percent(uint8_t *out_percent) __attribute__((weak));
+#endif
+
+static void status_ui_update_battery(ui_status_bar_state_t *bar)
+{
+    if (bar == NULL) return;
+    bar->battery_valid = false;
+    bar->battery_percent = 0u;
+#if defined(__GNUC__)
+    if (board_power_get_battery_percent != NULL) {
+        uint8_t percent = 0u;
+        if (board_power_get_battery_percent(&percent)) {
+            if (percent > 100u) {
+                percent = 100u;
+            }
+            bar->battery_percent = percent;
+            bar->battery_valid = true;
+        }
+    }
+#endif
+}
+
+static void ui_render_clear(void)
+{
+    lcd_fill_rect(0, 0, UI_LCD_W, UI_LCD_H, UI_COLOR_BG);
+}
+
+static void ui_render_status_bar(const ui_status_bar_state_t *status)
+{
+    lcd_fill_rect(0, 0, UI_LCD_W, UI_STATUS_BAR_H, UI_COLOR_BAR);
+    lcd_draw_text(UI_LEFT_PAD, 5, (status != NULL && status->time_valid) ? status->time_hhmm : "--:--", UI_COLOR_TEXT, 1);
+    char battery[8];
+    if (status != NULL && status->battery_valid) snprintf(battery, sizeof(battery), "%u%%", (unsigned)status->battery_percent);
+    else snprintf(battery, sizeof(battery), "--%%");
+    lcd_draw_text(UI_LCD_W - 28, 5, battery, UI_COLOR_TEXT, 1);
+}
+
+static void ui_render_title(const char *title)
+{
+    lcd_draw_text_clipped(UI_LEFT_PAD, UI_TITLE_Y, title != NULL ? title : "", UI_COLOR_TEXT, 1, 20);
+}
+
+static void ui_render_bottom_hints(const char *hints)
+{
+    lcd_draw_text_clipped(UI_LEFT_PAD, UI_LCD_H - UI_BOTTOM_HINT_H, hints, UI_COLOR_DIM, 1, 24);
+}
+
+static void ui_render_menu(const ui_runtime_t *ui, const ui_screen_def_t *screen)
+{
+    int y = UI_BODY_Y;
+    size_t start = ui->nav.scroll_offset;
+    for (size_t i = start; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i) {
+        const bool selected = i == ui->nav.selected_index;
+        char line[40];
+        snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
+        lcd_draw_text_clipped(UI_LEFT_PAD, y, line, selected ? UI_COLOR_OK : UI_COLOR_TEXT, 1, 21);
+        y += UI_LINE_H;
+    }
+}
+
+static void ui_render_wifi_scan_results(const ui_runtime_t *ui, const ui_wifi_flow_state_t *wifi)
+{
+    (void)ui;
+    int y = UI_BODY_Y;
+    if (wifi == NULL || wifi->scan_results.count == 0u) {
+        lcd_draw_text_clipped(UI_LEFT_PAD, y, wifi != NULL && wifi->last_error[0] ? wifi->last_error : "No networks", UI_COLOR_WARN, 1, 20);
         return;
     }
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, STATUS_UI_LCD_HEADER_BG);
-    lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD,
-                          screen->title, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE, 15);
-
-    if (screen->id == UI_SCREEN_NETWORK_STATUS) {
-        char status_json[256];
+    size_t visible = wifi->scan_results.count < 7u ? wifi->scan_results.count : 7u;
+    size_t first = wifi->selected_scan_index >= visible ? wifi->selected_scan_index - visible + 1u : 0u;
+    for (size_t row = 0; row < visible && first + row < wifi->scan_results.count; ++row) {
+        size_t i = first + row;
         char line[48];
-        app_wifi_status_t status;
-        if (app_wifi_get_status(&status)) {
-            snprintf(line, sizeof(line), "Mode:%s", app_wifi_mode_name(status.active_mode));
-            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_TEXT, 1);
-            snprintf(line, sizeof(line), "STA:%s", status.sta_ssid[0] ? status.sta_ssid : "-");
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 50, line, STATUS_UI_LCD_TEXT, 1, 19);
-            snprintf(line, sizeof(line), "IP:%s", status.sta_ip);
-            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 66, line, STATUS_UI_LCD_TEXT, 1);
-            snprintf(line, sizeof(line), "AP:%s", status.ap_ssid);
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 82, line, STATUS_UI_LCD_TEXT, 1, 19);
-            snprintf(line, sizeof(line), "AP IP:%s", status.ap_ip);
-            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 98, line, STATUS_UI_LCD_TEXT, 1);
-            snprintf(line, sizeof(line), "CH:%u MAX:%u", (unsigned)status.ap_channel,
-                     (unsigned)status.ap_max_connections);
-            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 114, line, STATUS_UI_LCD_TEXT, 1);
-            snprintf(line, sizeof(line), "URL:%s", status.web_url);
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 130, line, STATUS_UI_LCD_TEXT, 1, 19);
-        } else if (app_wifi_status_json(status_json, sizeof(status_json))) {
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, status_json, STATUS_UI_LCD_TEXT, 1, 19);
-        }
-    } else if (screen->id == UI_SCREEN_NETWORK_AP_CONFIRM) {
-        char line[48];
-        app_wifi_status_t status;
-        if (app_wifi_get_status(&status)) {
-            snprintf(line, sizeof(line), "AP:%s", status.ap_ssid);
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_TEXT, 1, 19);
-            snprintf(line, sizeof(line), "IP:%s", status.ap_ip);
-            lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 50, line, STATUS_UI_LCD_TEXT, 1);
-            snprintf(line, sizeof(line), "URL:%s", status.web_url);
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 66, line, STATUS_UI_LCD_OK, 1, 19);
-        }
-    } else if (screen->id == UI_SCREEN_NETWORK_WIFI_SAVED) {
-        char line[48];
-        app_wifi_config_t config;
-        if (app_wifi_get_config(&config) && config.sta_ssid[0] != '\0') {
-            snprintf(line, sizeof(line), "Saved:%s", config.sta_ssid);
-        } else {
-            snprintf(line, sizeof(line), "Saved:-");
-        }
-        lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_TEXT, 1, 19);
-    } else if (screen->id == UI_SCREEN_NETWORK_WIFI_SCAN) {
-        char line[48];
-        if (!s_wifi_scan_results.ok) {
-            snprintf(line, sizeof(line), "Scan: %s", s_wifi_scan_results.error[0] ? s_wifi_scan_results.error : "not run");
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34, line, STATUS_UI_LCD_WARN, 1, 19);
-        }
-        const size_t visible_rows = s_wifi_scan_results.count < 5u ? s_wifi_scan_results.count : 5u;
-        size_t first = 0u;
-        if (visible_rows > 0u && s_wifi_selected_network >= visible_rows) {
-            first = s_wifi_selected_network - visible_rows + 1u;
-        }
-        for (size_t row = 0; row < visible_rows; ++row) {
-            const size_t i = first + row;
-            snprintf(line, sizeof(line), "%c%s %ddBm ch%u",
-                     i == s_wifi_selected_network ? '>' : ' ',
-                     s_wifi_scan_results.items[i].ssid[0] ? s_wifi_scan_results.items[i].ssid : "(hidden)",
-                     s_wifi_scan_results.items[i].rssi,
-                     (unsigned)s_wifi_scan_results.items[i].channel);
-            lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, 34 + (int)row * STATUS_UI_LCD_LINE_HEIGHT,
-                                  line, i == s_wifi_selected_network ? STATUS_UI_LCD_OK : STATUS_UI_LCD_TEXT, 1, 19);
-        }
+        snprintf(line, sizeof(line), "%c%s %ddBm ch%u", i == wifi->selected_scan_index ? '>' : ' ', wifi->scan_results.items[i].ssid[0] ? wifi->scan_results.items[i].ssid : "(hidden)", wifi->scan_results.items[i].rssi, (unsigned)wifi->scan_results.items[i].channel);
+        lcd_draw_text_clipped(UI_LEFT_PAD, y, line, i == wifi->selected_scan_index ? UI_COLOR_OK : UI_COLOR_TEXT, 1, 21);
+        y += UI_LINE_H;
     }
-
-    int y = 118;
-    if (screen->id != UI_SCREEN_NETWORK_WIFI_SCAN && screen->id != UI_SCREEN_NETWORK_STATUS &&
-        screen->id != UI_SCREEN_NETWORK_WIFI_SAVED && screen->id != UI_SCREEN_NETWORK_AP_CONFIRM) {
-        y = 34;
-    }
-    for (size_t i = 0; i < screen->item_count && y < BOARD_LCD_V_RES - 16; ++i) {
-        const bool selected = i == nav->selected_index;
-        char label[32];
-        snprintf(label, sizeof(label), "%c %s", selected ? '>' : ' ', screen->items[i].label);
-        lcd_draw_text_clipped(STATUS_UI_LCD_LEFT_PAD, y, label,
-                              selected ? STATUS_UI_LCD_OK : STATUS_UI_LCD_TEXT, 1, 19);
-        y += STATUS_UI_LCD_LINE_HEIGHT;
-    }
-    lcd_draw_text(4, BOARD_LCD_V_RES - 13, "K1 NEXT K2 SEL HOLD BACK", STATUS_UI_LCD_DIM, 1);
 }
+
+static void ui_render_ap_url(const ui_runtime_t *ui)
+{
+    char line[72];
+    int y = UI_BODY_Y;
+    snprintf(line, sizeof(line), "SSID: %s", ui->ap.ap_name[0] ? ui->ap.ap_name : "-");
+    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "URL: %s", ui->ap.url[0] ? ui->ap.url : "-");
+    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_OK, 1, 20); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Channel: %u", (unsigned)ui->ap.channel);
+    lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Status: %s", ui->ap.started ? "started" : "not started");
+    lcd_draw_text(UI_LEFT_PAD, y, line, ui->ap.started ? UI_COLOR_OK : UI_COLOR_WARN, 1);
+}
+
+static void ui_render_bluetooth_status(const ui_runtime_t *ui)
+{
+    char line[56];
+    int y = UI_BODY_Y;
+    snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Metrics: %s", ui->bluetooth.metrics_notify_enabled ? "on" : "off"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "PCM: %s", ui->bluetooth.pcm_notify_enabled ? "on" : "off"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Name: %s", ui->bluetooth.device_name); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20);
+}
+
+static void ui_render_automation_detail(const ui_runtime_t *ui, const ui_screen_def_t *screen)
+{
+    uint8_t index = screen->id == UI_SCREEN_AUTOMATION_2 ? 1u : 0u;
+    const ui_automation_state_t *slot = &ui->automations[index];
+    char line[48];
+    int y = UI_BODY_Y;
+    snprintf(line, sizeof(line), "Enabled: %s", slot->enabled ? "on" : "off"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_DIM, 1); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Trigger: %s", slot->trigger_label); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_DIM, 1, 20); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Action: %s", slot->action_label); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_DIM, 1, 20); y += UI_LINE_H;
+    for (size_t i = 0; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i) {
+        bool selected = i == ui->nav.selected_index;
+        snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
+        lcd_draw_text_clipped(UI_LEFT_PAD, y, line, selected ? UI_COLOR_OK : UI_COLOR_TEXT, 1, 21);
+        y += UI_LINE_H;
+    }
+}
+
+static void ui_render_settings(const ui_runtime_t *ui)
+{
+    ui_render_menu(ui, ui_nav_current(&ui->nav));
+}
+
+static void ui_render_toast(const ui_toast_t *toast)
+{
+    if (toast == NULL || toast->kind == UI_TOAST_NONE || toast->text[0] == '\0') return;
+    uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (toast->until_tick_ms != 0u && now_ms > toast->until_tick_ms) {
+        ui_runtime_clear_toast(&s_ui);
+        return;
+    }
+    uint16_t color = toast->kind == UI_TOAST_ERROR ? UI_COLOR_ERR : (toast->kind == UI_TOAST_WARNING ? UI_COLOR_WARN : UI_COLOR_OK);
+    lcd_fill_rect(0, UI_LCD_H - 30, UI_LCD_W, 16, 0x2104);
+    lcd_draw_text_clipped(UI_LEFT_PAD, UI_LCD_H - 27, toast->text, color, 1, 22);
+}
+
+static void ui_render_screen(const ui_runtime_t *ui, const ui_screen_def_t *screen)
+{
+    ui_render_clear();
+    ui_render_status_bar(&ui->status_bar);
+    ui_render_title(screen != NULL ? screen->title : "Main");
+    if (screen == NULL) return;
+    switch (screen->id) {
+    case UI_SCREEN_CONFIG_WIFI_SCAN:
+        ui_render_wifi_scan_results(ui, &ui->config_wifi);
+        break;
+    case UI_SCREEN_CONNECT_WIFI_SCAN:
+        ui_render_wifi_scan_results(ui, &ui->connect_wifi);
+        break;
+    case UI_SCREEN_CONFIG_AP_SHOW_URL:
+        ui_render_ap_url(ui);
+        break;
+    case UI_SCREEN_CONNECT_BLUETOOTH:
+        ui_render_bluetooth_status(ui);
+        break;
+    case UI_SCREEN_AUTOMATION_1:
+    case UI_SCREEN_AUTOMATION_2:
+        ui_render_automation_detail(ui, screen);
+        break;
+    case UI_SCREEN_SETTINGS:
+        ui_render_settings(ui);
+        break;
+    default:
+        ui_render_menu(ui, screen);
+        break;
+    }
+    ui_render_bottom_hints("K1 NEXT K2 SEL HOLD BACK");
+}
+
+static void status_ui_render_menu_lcd(const ui_runtime_t *ui)
+{
+    status_ui_update_time(&((ui_runtime_t *)ui)->status_bar);
+    status_ui_update_battery(&((ui_runtime_t *)ui)->status_bar);
+    if (ui->nav.current == UI_SCREEN_CONNECT_BLUETOOTH) {
+        status_ui_bluetooth_refresh((ui_runtime_t *)ui);
+    }
+    ui_render_screen(ui, ui_nav_current(&ui->nav));
+    ui_render_toast(&ui->toast);
+}
+
 
 static void status_ui_render_lcd(void)
 {
@@ -1304,16 +1828,11 @@ static void status_ui_render_lcd(void)
     if (ctx.snapshot.valid && (ctx.snapshot.flags & AUDIO_METRICS_FLAG_CLIPPING) != 0) {
         accent = STATUS_UI_LCD_ERR;
     }
-    if (keyboard_is_active()) {
-        status_ui_render_keyboard_lcd();
-        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
+    if (s_ui.menu_active) {
+        status_ui_render_menu_lcd(&s_ui);
+        if (keyboard_is_active()) {
+            status_ui_render_keyboard_lcd();
         }
-        return;
-    }
-    if (s_menu_mode) {
-        status_ui_render_menu_lcd(&s_nav);
         esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
@@ -1342,6 +1861,10 @@ static void status_ui_render_lcd(void)
             status_ui_render_diagnostics_lcd(&ctx);
             break;
         }
+    }
+
+    if (keyboard_is_active()) {
+        status_ui_render_keyboard_lcd();
     }
 
     esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
@@ -1549,10 +2072,7 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
     }
 #endif
 
-    ui_nav_init(&s_nav);
-#if CONFIG_APP_STATUS_UI_LCD
-    (void)app_wifi_get_config(&s_wifi_draft_config);
-#endif
+    ui_runtime_init(&s_ui);
 
     if (handlers != NULL) {
         memcpy(&s_handlers, handlers, sizeof(s_handlers));

@@ -23,6 +23,7 @@ typedef enum {
 typedef struct {
     void (*key1_pressed)(void *ctx);
     void (*key2_pressed)(void *ctx);
+    void (*automation_config_changed)(void *ctx);
     void *ctx;
 } status_ui_button_handlers_t;
 
