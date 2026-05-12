@@ -95,16 +95,18 @@ config APP_WIFI_MAX_SCAN_RESULTS
     depends on APP_WIFI_ENABLE
 
 config APP_WIFI_KEYBOARD_PROVISIONING
-    bool "Prompt for Wi-Fi credentials on the LCD keyboard"
-    default y
+    bool "Prompt for Wi-Fi credentials on the LCD keyboard at boot"
+    default n
     depends on APP_WIFI_ENABLE && APP_STATUS_UI_LCD
     help
         When saved station credentials are missing or fail, show a Launcher-style
         virtual keyboard on the StickS3 LCD before falling back to the setup AP.
+        This is disabled by default so boot continues to the normal dashboard and
+        credentials can be entered from Network > Wi-Fi Mode or the setup AP web UI.
 
 config APP_WIFI_KEYBOARD_TIMEOUT_MS
     int "LCD keyboard provisioning timeout in milliseconds"
-    default 60000
+    default 0
     range 0 300000
     depends on APP_WIFI_KEYBOARD_PROVISIONING
     help
