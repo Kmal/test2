@@ -42,6 +42,11 @@
 #else
 #define STATUS_UI_LCD_REFRESH_MS 100
 #endif
+#ifdef CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS
+#define STATUS_UI_KEYBOARD_TIMEOUT_MS CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS
+#else
+#define STATUS_UI_KEYBOARD_TIMEOUT_MS 0
+#endif
 #define STATUS_UI_LCD_TEXT_SCALE 2
 #define STATUS_UI_LCD_BG 0x0000
 #define STATUS_UI_LCD_HEADER_BG 0x001F
@@ -292,7 +297,7 @@ static bool status_ui_connect_selected_wifi(void)
     if (s_wifi_password[0] == '\0') {
         (void)status_ui_keyboard_read_line("WiFi PASSWORD", "", s_wifi_password,
                                            sizeof(s_wifi_password), 63, true,
-                                           CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+                                           STATUS_UI_KEYBOARD_TIMEOUT_MS);
     }
     return app_wifi_connect(s_wifi_selected_ssid, s_wifi_password, true);
 }
@@ -318,17 +323,17 @@ static void status_ui_open_keyboard_for_current_field(void)
     case UI_SCREEN_NETWORK_WIFI_MANUAL_SSID:
         if (status_ui_keyboard_read_line("WiFi SSID", s_wifi_selected_ssid,
                                          s_wifi_selected_ssid, sizeof(s_wifi_selected_ssid),
-                                         32, false, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS)) {
+                                         32, false, STATUS_UI_KEYBOARD_TIMEOUT_MS)) {
             (void)status_ui_keyboard_read_line("WiFi PASSWORD", "", s_wifi_password,
                                                sizeof(s_wifi_password), 63, true,
-                                               CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+                                               STATUS_UI_KEYBOARD_TIMEOUT_MS);
         }
         break;
     case UI_SCREEN_NETWORK_WIFI_SELECT:
     case UI_SCREEN_NETWORK_WIFI_PASSWORD:
         (void)status_ui_keyboard_read_line("WiFi PASSWORD", s_wifi_password,
                                            s_wifi_password, sizeof(s_wifi_password), 63,
-                                           true, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+                                           true, STATUS_UI_KEYBOARD_TIMEOUT_MS);
         break;
     case UI_SCREEN_NETWORK_AP:
     case UI_SCREEN_NETWORK_AP_NAME:
@@ -336,7 +341,7 @@ static void status_ui_open_keyboard_for_current_field(void)
             (void)status_ui_keyboard_read_line("AP NAME", s_wifi_draft_config.ap_ssid,
                                                s_wifi_draft_config.ap_ssid,
                                                sizeof(s_wifi_draft_config.ap_ssid), 32,
-                                               false, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+                                               false, STATUS_UI_KEYBOARD_TIMEOUT_MS);
             (void)app_wifi_set_config(&s_wifi_draft_config, true);
         }
         break;
@@ -345,7 +350,7 @@ static void status_ui_open_keyboard_for_current_field(void)
             (void)status_ui_keyboard_read_line("AP PASSWORD", s_wifi_draft_config.ap_password,
                                                s_wifi_draft_config.ap_password,
                                                sizeof(s_wifi_draft_config.ap_password), 63,
-                                               true, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS);
+                                               true, STATUS_UI_KEYBOARD_TIMEOUT_MS);
             (void)app_wifi_set_config(&s_wifi_draft_config, true);
         }
         break;
@@ -354,7 +359,7 @@ static void status_ui_open_keyboard_for_current_field(void)
             char channel[4];
             (void)snprintf(channel, sizeof(channel), "%u", (unsigned)s_wifi_draft_config.ap_channel);
             if (status_ui_keyboard_read_line("AP CHANNEL", channel, channel, sizeof(channel), 2,
-                                             false, CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS)) {
+                                             false, STATUS_UI_KEYBOARD_TIMEOUT_MS)) {
                 unsigned parsed = 0;
                 (void)sscanf(channel, "%u", &parsed);
                 if (parsed >= 1u && parsed <= 13u) {
