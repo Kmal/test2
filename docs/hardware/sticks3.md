@@ -42,6 +42,17 @@ The repository previously described the StickS3 firmware as a Classic Bluetooth 
 
 The current default firmware is a Bluetooth LE sound-level meter and local automation device. It initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the web configuration server, status UI, and the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence. It starts an onboard ST7789P3 135x240 VU/status dashboard when `CONFIG_APP_STATUS_UI_LCD` is enabled, skips the optional M5PM1 audio probe, configures the ESP32-S3 I2S standard driver for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends `M5LM` sound-level telemetry on characteristic UUID `0xFFF2`, accepts control writes on `0xFFF3`, exposes status on `0xFFF4`, emits `M5RE` automation rule events on `0xFFF5`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1` when explicitly enabled. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
+## On-device UI hierarchy
+
+The onboard UI exposes:
+- Configuration Web UI
+- Connect to Wi-Fi
+- Connect to Bluetooth
+- All automations
+- Settings
+
+The menu status bar shows 24-hour time on the left and battery percentage on the right when available. Text entry uses a bottom 9-key input overlay.
+
 ## Shared I2C bus
 
 ES8311 (`0x18`), BMI270 (`0x68`), and M5PM1 (`0x6e`) share the GPIO47/GPIO48 I2C bus. `main/board_i2c.*` owns bus installation. Device drivers must not install the I2C driver independently.

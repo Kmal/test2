@@ -54,6 +54,7 @@ static rule_runtime_t s_rule_runtime;
 static rule_config_store_t s_rule_store;
 static rule_web_t s_rule_web;
 static automation_config_t s_rule_config;
+static bool s_rule_runtime_ready;
 static SemaphoreHandle_t s_rule_mutex;
 static TaskHandle_t s_rule_gpio_task;
 static TaskHandle_t s_rule_network_task;
@@ -257,6 +258,7 @@ static void app_rule_runtime_init(void)
         (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
     }
     (void)rule_runtime_init(&s_rule_runtime, &s_rule_config);
+    s_rule_runtime_ready = true;
     ESP_LOGI(TAG, "rule runtime init: core runtime ready");
     rule_runtime_set_http_sender(&s_rule_runtime, app_send_http_rule_action, NULL);
     rule_runtime_set_ir_sender(&s_rule_runtime, app_send_ir_rule_action, NULL);
@@ -510,6 +512,40 @@ static void key2_pressed_cb(void *ctx)
     app_cycle_app_mode();
 }
 
+static void automation_config_changed_cb(void *ctx)
+{
+    (void)ctx;
+    automation_config_t config;
+    automation_config_set_defaults(&config);
+    if (!s_rule_store.opened && !rule_config_store_open(&s_rule_store)) {
+        ESP_LOGW(TAG, "status UI automation update: failed to open config store");
+        return;
+    }
+    bool loaded = rule_config_store_load(&s_rule_store, &config);
+    if (!loaded) {
+        ESP_LOGW(TAG, "status UI automation update: failed to reload config");
+        return;
+    }
+    if (!s_rule_runtime_ready) {
+        s_rule_config = config;
+        ESP_LOGI(TAG, "status UI automation update: runtime refresh deferred until init");
+        return;
+    }
+    if (s_rule_mutex != NULL) {
+        (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
+    }
+    bool replaced = rule_runtime_replace_config(&s_rule_runtime, &config);
+    if (replaced) {
+        s_rule_config = config;
+        ESP_LOGI(TAG, "status UI automation update: runtime config refreshed");
+    } else {
+        ESP_LOGW(TAG, "status UI automation update: runtime config refresh failed");
+    }
+    if (s_rule_mutex != NULL) {
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
+
 static void app_idle_forever(void)
 {
     while (true) {
@@ -531,6 +567,7 @@ void app_main(void)
     const status_ui_button_handlers_t status_handlers = {
         .key1_pressed = key1_pressed_cb,
         .key2_pressed = key2_pressed_cb,
+        .automation_config_changed = automation_config_changed_cb,
     };
 
     ESP_LOGI(TAG, "app_main: NVS init start");
