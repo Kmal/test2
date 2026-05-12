@@ -111,7 +111,7 @@ def test_esptool_command_uses_json_settings_and_sorted_entries() -> None:
             Namespace(esptool="esptool.py", chip="esp32s3"), plan, build / "factory.bin"
         )
         assert cmd[:6] == ["esptool.py", "--chip", "esp32s3", "merge-bin", "-o", str(build / "factory.bin")]
-        assert "--flash_mode" in cmd and "dio" in cmd
+        assert "--flash-mode" in cmd and "dio" in cmd
         assert cmd[-6:] == ["0x0", "bootloader.bin", "0x8000", "partition.bin", "0x10000", "app.bin"]
 
 
