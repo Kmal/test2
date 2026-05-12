@@ -35,6 +35,31 @@
 #endif
 
 #define APP_WIFI_IP_LEN 16u
+#define APP_WIFI_SSID_MAX_LEN 32u
+#define APP_WIFI_PASSWORD_MAX_LEN 63u
+
+static size_t bounded_strlen(const char *value, size_t max_len)
+{
+    size_t len = 0u;
+    if (value == NULL) {
+        return 0u;
+    }
+    while (len < max_len && value[len] != '\0') {
+        ++len;
+    }
+    return len;
+}
+
+static void copy_string(char *dst, size_t dst_size, const char *src)
+{
+    if (dst == NULL || dst_size == 0u) {
+        return;
+    }
+    const char *value = src != NULL ? src : "";
+    size_t len = bounded_strlen(value, dst_size - 1u);
+    memcpy(dst, value, len);
+    dst[len] = '\0';
+}
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
@@ -70,13 +95,14 @@ static bool s_config_loaded;
 
 static bool validate_ssid(const char *ssid)
 {
-    return ssid != NULL && ssid[0] != '\0' && strlen(ssid) <= 32u;
+    return ssid != NULL && ssid[0] != '\0' &&
+           bounded_strlen(ssid, APP_WIFI_SSID_MAX_LEN + 1u) <= APP_WIFI_SSID_MAX_LEN;
 }
 
 static bool validate_password(const char *password)
 {
     size_t len = password != NULL ? strlen(password) : 0u;
-    return len == 0u || (len >= 8u && len <= 63u);
+    return len == 0u || (len >= 8u && len <= APP_WIFI_PASSWORD_MAX_LEN);
 }
 
 static bool validate_channel(uint8_t channel)
@@ -98,8 +124,8 @@ const char *app_wifi_mode_name(app_wifi_mode_t mode)
 static void config_defaults(app_wifi_config_t *config)
 {
     memset(config, 0, sizeof(*config));
-    (void)snprintf(config->ap_ssid, sizeof(config->ap_ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
-    (void)snprintf(config->ap_password, sizeof(config->ap_password), "%s", CONFIG_APP_WIFI_AP_PASSWORD);
+    copy_string(config->ap_ssid, sizeof(config->ap_ssid), CONFIG_APP_WIFI_AP_SSID);
+    copy_string(config->ap_password, sizeof(config->ap_password), CONFIG_APP_WIFI_AP_PASSWORD);
     config->ap_channel = CONFIG_APP_WIFI_AP_CHANNEL;
     config->ap_max_connections = CONFIG_APP_WIFI_AP_MAX_CONNECTIONS;
     config->preferred_mode = APP_WIFI_MODE_STA;
@@ -165,7 +191,7 @@ static void load_config_once(void)
     }
     nvs_close(handle);
     if (!validate_ssid(s_config.ap_ssid)) {
-        (void)snprintf(s_config.ap_ssid, sizeof(s_config.ap_ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
+        copy_string(s_config.ap_ssid, sizeof(s_config.ap_ssid), CONFIG_APP_WIFI_AP_SSID);
     }
     if (!validate_password(s_config.ap_password)) {
         s_config.ap_password[0] = '\0';
@@ -192,7 +218,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     if (base == WIFI_EVENT) {
         if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_sta_connected = false;
-            (void)snprintf(s_sta_ip, sizeof(s_sta_ip), "0.0.0.0");
+            copy_string(s_sta_ip, sizeof(s_sta_ip), "0.0.0.0");
             action_http_set_network_ready(false);
             ESP_LOGW(TAG, "station disconnected");
         } else if (id == WIFI_EVENT_AP_START) {
@@ -204,7 +230,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             ESP_LOGI(TAG, "setup AP started: ssid=%s ip=%s", s_config.ap_ssid, s_ap_ip);
         } else if (id == WIFI_EVENT_AP_STOP) {
             s_ap_started = false;
-            (void)snprintf(s_ap_ip, sizeof(s_ap_ip), "0.0.0.0");
+            copy_string(s_ap_ip, sizeof(s_ap_ip), "0.0.0.0");
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
@@ -304,11 +330,11 @@ bool app_wifi_get_status(app_wifi_status_t *out)
     out->enabled = CONFIG_APP_WIFI_ENABLE;
     out->active_mode = active_mode();
     out->sta_connected = s_sta_connected;
-    (void)snprintf(out->sta_ssid, sizeof(out->sta_ssid), "%s", s_config.sta_ssid);
-    (void)snprintf(out->sta_ip, sizeof(out->sta_ip), "%s", s_sta_ip);
+    copy_string(out->sta_ssid, sizeof(out->sta_ssid), s_config.sta_ssid);
+    copy_string(out->sta_ip, sizeof(out->sta_ip), s_sta_ip);
     out->ap_started = s_ap_started;
-    (void)snprintf(out->ap_ssid, sizeof(out->ap_ssid), "%s", s_config.ap_ssid);
-    (void)snprintf(out->ap_ip, sizeof(out->ap_ip), "%s", s_ap_ip);
+    copy_string(out->ap_ssid, sizeof(out->ap_ssid), s_config.ap_ssid);
+    copy_string(out->ap_ip, sizeof(out->ap_ip), s_ap_ip);
     out->ap_channel = s_config.ap_channel;
     out->ap_max_connections = s_config.ap_max_connections;
     (void)snprintf(out->web_url, sizeof(out->web_url), "http://%s/", s_sta_connected ? s_sta_ip : s_ap_ip);
@@ -372,6 +398,32 @@ bool app_wifi_set_mode(app_wifi_mode_t mode)
 #endif
 }
 
+static bool copy_wifi_ssid(uint8_t dst[32], const char *ssid, uint8_t *ssid_len)
+{
+    const size_t len = ssid != NULL ? bounded_strlen(ssid, APP_WIFI_SSID_MAX_LEN + 1u) : 0u;
+    if (len == 0u || len > APP_WIFI_SSID_MAX_LEN) {
+        return false;
+    }
+    memset(dst, 0, 32u);
+    memcpy(dst, ssid, len);
+    if (ssid_len != NULL) {
+        *ssid_len = (uint8_t)len;
+    }
+    return true;
+}
+
+static bool copy_wifi_password(uint8_t dst[64], const char *password)
+{
+    const char *value = password != NULL ? password : "";
+    const size_t len = bounded_strlen(value, APP_WIFI_PASSWORD_MAX_LEN + 1u);
+    if (len > APP_WIFI_PASSWORD_MAX_LEN) {
+        return false;
+    }
+    memset(dst, 0, 64u);
+    memcpy(dst, value, len);
+    return true;
+}
+
 bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, uint8_t channel, bool persist)
 {
 #if !CONFIG_APP_WIFI_ENABLE
@@ -385,8 +437,8 @@ bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, 
     if (!app_wifi_init_once()) {
         return false;
     }
-    (void)snprintf(s_config.ap_ssid, sizeof(s_config.ap_ssid), "%s", ap_ssid);
-    (void)snprintf(s_config.ap_password, sizeof(s_config.ap_password), "%s", ap_password != NULL ? ap_password : "");
+    copy_string(s_config.ap_ssid, sizeof(s_config.ap_ssid), ap_ssid);
+    copy_string(s_config.ap_password, sizeof(s_config.ap_password), ap_password);
     s_config.ap_channel = channel;
     s_config.preferred_mode = s_sta_connected ? APP_WIFI_MODE_APSTA : APP_WIFI_MODE_AP;
     if (persist && !persist_config(&s_config)) {
@@ -397,9 +449,11 @@ bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, 
     }
     wifi_config_t ap_config;
     memset(&ap_config, 0, sizeof(ap_config));
-    (void)snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid), "%s", s_config.ap_ssid);
-    ap_config.ap.ssid_len = strlen(s_config.ap_ssid);
-    (void)snprintf((char *)ap_config.ap.password, sizeof(ap_config.ap.password), "%s", s_config.ap_password);
+    if (!copy_wifi_ssid(ap_config.ap.ssid, s_config.ap_ssid, &ap_config.ap.ssid_len) ||
+        !copy_wifi_password(ap_config.ap.password, s_config.ap_password)) {
+        ESP_LOGE(TAG, "validated AP configuration did not fit ESP Wi-Fi fields");
+        return false;
+    }
     ap_config.ap.channel = s_config.ap_channel;
     ap_config.ap.max_connection = s_config.ap_max_connections;
     ap_config.ap.authmode = strlen(s_config.ap_password) >= 8u ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
@@ -435,7 +489,7 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
         ESP_LOGW(TAG, "invalid SSID");
         return false;
     }
-    if (password != NULL && strlen(password) > 63u) {
+    if (password != NULL && strlen(password) > APP_WIFI_PASSWORD_MAX_LEN) {
         ESP_LOGW(TAG, "invalid password length");
         return false;
     }
@@ -447,8 +501,11 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     }
     wifi_config_t sta_config;
     memset(&sta_config, 0, sizeof(sta_config));
-    (void)snprintf((char *)sta_config.sta.ssid, sizeof(sta_config.sta.ssid), "%s", ssid);
-    (void)snprintf((char *)sta_config.sta.password, sizeof(sta_config.sta.password), "%s", password != NULL ? password : "");
+    if (!copy_wifi_ssid(sta_config.sta.ssid, ssid, NULL) ||
+        !copy_wifi_password(sta_config.sta.password, password)) {
+        ESP_LOGE(TAG, "validated STA configuration did not fit ESP Wi-Fi fields");
+        return false;
+    }
     sta_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &sta_config);
     if (err != ESP_OK) {
@@ -458,8 +515,8 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     if (!ensure_wifi_started()) {
         return false;
     }
-    (void)snprintf(s_config.sta_ssid, sizeof(s_config.sta_ssid), "%s", ssid);
-    (void)snprintf(s_config.sta_password, sizeof(s_config.sta_password), "%s", password != NULL ? password : "");
+    copy_string(s_config.sta_ssid, sizeof(s_config.sta_ssid), ssid);
+    copy_string(s_config.sta_password, sizeof(s_config.sta_password), password);
     s_config.sta_persist = persist;
     s_config.preferred_mode = s_ap_started ? APP_WIFI_MODE_APSTA : APP_WIFI_MODE_STA;
     s_sta_connected = false;
@@ -702,8 +759,8 @@ static bool s_ap_started;
 static void config_defaults(app_wifi_config_t *config)
 {
     memset(config, 0, sizeof(*config));
-    (void)snprintf(config->ap_ssid, sizeof(config->ap_ssid), "%s", CONFIG_APP_WIFI_AP_SSID);
-    (void)snprintf(config->ap_password, sizeof(config->ap_password), "%s", CONFIG_APP_WIFI_AP_PASSWORD);
+    copy_string(config->ap_ssid, sizeof(config->ap_ssid), CONFIG_APP_WIFI_AP_SSID);
+    copy_string(config->ap_password, sizeof(config->ap_password), CONFIG_APP_WIFI_AP_PASSWORD);
     config->ap_channel = CONFIG_APP_WIFI_AP_CHANNEL;
     config->ap_max_connections = CONFIG_APP_WIFI_AP_MAX_CONNECTIONS;
     config->preferred_mode = APP_WIFI_MODE_STA;
@@ -719,13 +776,14 @@ static void load_config_once(void)
 
 static bool validate_ssid(const char *ssid)
 {
-    return ssid != NULL && ssid[0] != '\0' && strlen(ssid) <= 32u;
+    return ssid != NULL && ssid[0] != '\0' &&
+           bounded_strlen(ssid, APP_WIFI_SSID_MAX_LEN + 1u) <= APP_WIFI_SSID_MAX_LEN;
 }
 
 static bool validate_password(const char *password)
 {
     size_t len = password != NULL ? strlen(password) : 0u;
-    return len == 0u || (len >= 8u && len <= 63u);
+    return len == 0u || (len >= 8u && len <= APP_WIFI_PASSWORD_MAX_LEN);
 }
 
 static bool validate_channel(uint8_t channel)
@@ -776,11 +834,11 @@ bool app_wifi_get_status(app_wifi_status_t *out)
     out->enabled = false;
     out->active_mode = s_config.preferred_mode;
     out->sta_connected = s_sta_connected;
-    (void)snprintf(out->sta_ssid, sizeof(out->sta_ssid), "%s", s_config.sta_ssid);
-    (void)snprintf(out->sta_ip, sizeof(out->sta_ip), "0.0.0.0");
+    copy_string(out->sta_ssid, sizeof(out->sta_ssid), s_config.sta_ssid);
+    copy_string(out->sta_ip, sizeof(out->sta_ip), "0.0.0.0");
     out->ap_started = s_ap_started;
-    (void)snprintf(out->ap_ssid, sizeof(out->ap_ssid), "%s", s_config.ap_ssid);
-    (void)snprintf(out->ap_ip, sizeof(out->ap_ip), "0.0.0.0");
+    copy_string(out->ap_ssid, sizeof(out->ap_ssid), s_config.ap_ssid);
+    copy_string(out->ap_ip, sizeof(out->ap_ip), "0.0.0.0");
     out->ap_channel = s_config.ap_channel;
     out->ap_max_connections = s_config.ap_max_connections;
     (void)snprintf(out->web_url, sizeof(out->web_url), "http://0.0.0.0/");
@@ -800,10 +858,12 @@ bool app_wifi_set_mode(app_wifi_mode_t mode)
 bool app_wifi_connect(const char *ssid, const char *password, bool persist)
 {
     (void)persist;
-    if (!validate_ssid(ssid) || (password != NULL && strlen(password) > 63u)) return false;
+    if (!validate_ssid(ssid) || (password != NULL && strlen(password) > APP_WIFI_PASSWORD_MAX_LEN)) {
+        return false;
+    }
     load_config_once();
-    (void)snprintf(s_config.sta_ssid, sizeof(s_config.sta_ssid), "%s", ssid);
-    (void)snprintf(s_config.sta_password, sizeof(s_config.sta_password), "%s", password != NULL ? password : "");
+    copy_string(s_config.sta_ssid, sizeof(s_config.sta_ssid), ssid);
+    copy_string(s_config.sta_password, sizeof(s_config.sta_password), password);
     return false;
 }
 
@@ -818,10 +878,12 @@ bool app_wifi_scan(app_wifi_scan_results_t *out)
 bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, uint8_t channel, bool persist)
 {
     (void)persist;
-    if (!validate_ssid(ap_ssid) || !validate_password(ap_password) || !validate_channel(channel)) return false;
+    if (!validate_ssid(ap_ssid) || !validate_password(ap_password) || !validate_channel(channel)) {
+        return false;
+    }
     load_config_once();
-    (void)snprintf(s_config.ap_ssid, sizeof(s_config.ap_ssid), "%s", ap_ssid);
-    (void)snprintf(s_config.ap_password, sizeof(s_config.ap_password), "%s", ap_password != NULL ? ap_password : "");
+    copy_string(s_config.ap_ssid, sizeof(s_config.ap_ssid), ap_ssid);
+    copy_string(s_config.ap_password, sizeof(s_config.ap_password), ap_password);
     s_config.ap_channel = channel;
     return false;
 }

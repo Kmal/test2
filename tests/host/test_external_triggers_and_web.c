@@ -96,6 +96,16 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strcmp(wifi_config.ap_ssid, "OpenAP") == 0);
     ASSERT_TRUE(wifi_config.ap_password[0] == '\0');
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
+                                        "{\"ssid\":\"12345678901234567890123456789012\",\"password\":\"123456789012345678901234567890123456789012345678901234567890123\",\"channel\":6}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(app_wifi_get_config(&wifi_config));
+    ASSERT_TRUE(strcmp(wifi_config.ap_ssid, "12345678901234567890123456789012") == 0);
+    ASSERT_TRUE(strlen(wifi_config.ap_password) == 63u);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
+                                        "{\"ssid\":\"123456789012345678901234567890123\",\"channel\":6}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "invalid_ap_ssid") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/ap",
                                         "{\"ssid\":\"\",\"password\":\"password123\",\"channel\":6}",
                                         json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "invalid_ap_ssid") != NULL);

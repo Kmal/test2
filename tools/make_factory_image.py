@@ -252,9 +252,9 @@ def esptool_command(args: argparse.Namespace, plan: FlashPlan, output: Path) -> 
     command.extend(["--chip", args.chip, "merge-bin", "-o", str(output)])
 
     setting_to_arg = {
-        "flash_mode": "--flash_mode",
-        "flash_freq": "--flash_freq",
-        "flash_size": "--flash_size",
+        "flash_mode": "--flash-mode",
+        "flash_freq": "--flash-freq",
+        "flash_size": "--flash-size",
     }
     for setting, option in setting_to_arg.items():
         value = plan.settings.get(setting)
