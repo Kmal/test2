@@ -329,13 +329,53 @@ static bool status_ui_wifi_copy_selected_scan(ui_wifi_flow_state_t *wifi)
     return wifi->has_selected_ssid;
 }
 
+static ui_screen_id_t status_ui_wifi_password_screen(ui_flow_id_t flow, bool manual)
+{
+    if (flow == UI_FLOW_CONFIG_WIFI) {
+        return manual ? UI_SCREEN_CONFIG_WIFI_MANUAL_PASSWORD : UI_SCREEN_CONFIG_WIFI_ENTER_PASSWORD;
+    }
+    return manual ? UI_SCREEN_CONNECT_WIFI_MANUAL_PASSWORD : UI_SCREEN_CONNECT_WIFI_ENTER_PASSWORD;
+}
+
+static ui_screen_id_t status_ui_wifi_done_screen(ui_flow_id_t flow, bool manual)
+{
+    if (flow == UI_FLOW_CONFIG_WIFI) {
+        return manual ? UI_SCREEN_CONFIG_WIFI_MANUAL_CONNECT_SAVE : UI_SCREEN_CONFIG_WIFI_CONNECT_SAVE;
+    }
+    return manual ? UI_SCREEN_CONNECT_WIFI_MANUAL_CONNECT_SAVE : UI_SCREEN_CONNECT_WIFI_CONNECT_SAVE;
+}
+
+static bool status_ui_begin_wifi_password_edit(ui_runtime_t *ui, ui_flow_id_t flow, bool manual)
+{
+    if (ui == NULL) return false;
+    ui_wifi_flow_state_t *wifi = ui_runtime_wifi_flow(ui, flow);
+    if (wifi == NULL || wifi->ssid[0] == '\0') {
+        ui_runtime_set_toast(ui, UI_TOAST_WARNING, "SSID required", 2000u);
+        return false;
+    }
+
+    ui_menu_item_t password_item = {
+        .label = "Enter Password",
+        .target = status_ui_wifi_done_screen(flow, manual),
+        .action = UI_ACTION_WIFI_ENTER_PASSWORD,
+        .field = UI_FIELD_WIFI_PASSWORD,
+        .flow = flow,
+        .automation_index = 0u,
+        .flags = manual ? 1u : 0u,
+    };
+    (void)ui_nav_enter(&ui->nav, status_ui_wifi_password_screen(flow, manual));
+    return status_ui_keyboard_open_menu_edit(ui, &password_item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
+}
+
 static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi)
 {
     if (ui == NULL || wifi == NULL || wifi->ssid[0] == '\0') {
+        if (wifi != NULL) snprintf(wifi->last_error, sizeof(wifi->last_error), "SSID required");
         ui_runtime_set_toast(ui, UI_TOAST_WARNING, "SSID required", 2000u);
         return false;
     }
     bool ok = app_wifi_connect(wifi->ssid, wifi->password, true);
+    snprintf(wifi->last_error, sizeof(wifi->last_error), "%s", ok ? "Connected and saved" : "Wi-Fi connect failed");
     ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "Wi-Fi saved" : "Wi-Fi connect failed", 2500u);
     return ok;
 }
@@ -391,8 +431,24 @@ static bool status_ui_action_wifi_select_ssid(ui_runtime_t *ui, const ui_menu_it
         ui_runtime_set_toast(ui, UI_TOAST_WARNING, "No Wi-Fi found", 2000u);
         return false;
     }
-    (void)ui_nav_enter(&ui->nav, item->target);
-    return true;
+    return status_ui_begin_wifi_password_edit(ui, item->flow, false);
+}
+
+static bool status_ui_select_current_scan(ui_runtime_t *ui, ui_flow_id_t flow)
+{
+    ui_wifi_flow_state_t *wifi = ui_runtime_wifi_flow(ui, flow);
+    ui_menu_item_t item = {
+        .label = "Select SSID",
+        .target = status_ui_wifi_password_screen(flow, false),
+        .action = UI_ACTION_WIFI_SELECT_SSID,
+        .field = UI_FIELD_WIFI_SSID,
+        .flow = flow,
+    };
+    if (wifi == NULL || !status_ui_wifi_copy_selected_scan(wifi)) {
+        ui_runtime_set_toast(ui, UI_TOAST_WARNING, "No Wi-Fi found", 2000u);
+        return false;
+    }
+    return status_ui_action_wifi_select_ssid(ui, &item);
 }
 
 static bool status_ui_action_wifi_enter_ssid(ui_runtime_t *ui, const ui_menu_item_t *item)
@@ -580,6 +636,8 @@ void status_ui_handle_input(status_ui_input_t input)
 #endif
 
     bool activate = false;
+    bool select_scan = false;
+    ui_flow_id_t select_scan_flow = UI_FLOW_NONE;
     portENTER_CRITICAL(&s_state_mux);
     if (!s_ui.menu_active && input != STATUS_UI_INPUT_BACK) {
         s_ui.menu_active = true;
@@ -597,7 +655,12 @@ void status_ui_handle_input(status_ui_input_t input)
 
     switch (input) {
     case STATUS_UI_INPUT_SELECT:
-        activate = true;
+        if (scan_wifi != NULL) {
+            select_scan = true;
+            select_scan_flow = screen->flow;
+        } else {
+            activate = true;
+        }
         break;
     case STATUS_UI_INPUT_NEXT:
         if (scan_wifi != NULL && scan_wifi->scan_results.count > 0u) {
@@ -628,7 +691,9 @@ void status_ui_handle_input(status_ui_input_t input)
     }
     portEXIT_CRITICAL(&s_state_mux);
 
-    if (activate) {
+    if (select_scan) {
+        (void)status_ui_select_current_scan(&s_ui, select_scan_flow);
+    } else if (activate) {
         status_ui_activate_selected_item();
     }
 }
@@ -1188,7 +1253,11 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
         if (wifi == NULL) return;
         snprintf(wifi->ssid, sizeof(wifi->ssid), "%s", text != NULL ? text : "");
         wifi->has_selected_ssid = wifi->ssid[0] != '\0';
-        (void)ui_nav_enter(&s_ui.nav, item->target);
+        if (!wifi->has_selected_ssid) {
+            ui_runtime_set_toast(&s_ui, UI_TOAST_WARNING, "SSID required", 2000u);
+            return;
+        }
+        (void)status_ui_begin_wifi_password_edit(&s_ui, item->flow, true);
         break;
     }
     case UI_ACTION_WIFI_ENTER_PASSWORD: {
@@ -1196,7 +1265,9 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
         if (wifi == NULL) return;
         snprintf(wifi->password, sizeof(wifi->password), "%s", text != NULL ? text : "");
         wifi->has_password = true;
-        (void)ui_nav_enter(&s_ui.nav, item->target);
+        if (status_ui_wifi_connect_and_save(&s_ui, wifi)) {
+            (void)ui_nav_enter(&s_ui.nav, item->target);
+        }
         break;
     }
     case UI_ACTION_AP_ENTER_NAME:
@@ -1516,6 +1587,16 @@ static void ui_render_wifi_scan_results(const ui_runtime_t *ui, const ui_wifi_fl
     }
 }
 
+static void ui_render_wifi_result(const ui_wifi_flow_state_t *wifi)
+{
+    char line[72];
+    int y = UI_BODY_Y;
+    snprintf(line, sizeof(line), "SSID: %s", wifi != NULL && wifi->ssid[0] ? wifi->ssid : "-");
+    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "%s", wifi != NULL && wifi->last_error[0] ? wifi->last_error : "Connected and saved");
+    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_OK, 1, 20);
+}
+
 static void ui_render_ap_url(const ui_runtime_t *ui)
 {
     char line[72];
@@ -1585,6 +1666,14 @@ static void ui_render_screen(const ui_runtime_t *ui, const ui_screen_def_t *scre
         break;
     case UI_SCREEN_CONNECT_WIFI_SCAN:
         ui_render_wifi_scan_results(ui, &ui->connect_wifi);
+        break;
+    case UI_SCREEN_CONFIG_WIFI_CONNECT_SAVE:
+    case UI_SCREEN_CONFIG_WIFI_MANUAL_CONNECT_SAVE:
+        ui_render_wifi_result(&ui->config_wifi);
+        break;
+    case UI_SCREEN_CONNECT_WIFI_CONNECT_SAVE:
+    case UI_SCREEN_CONNECT_WIFI_MANUAL_CONNECT_SAVE:
+        ui_render_wifi_result(&ui->connect_wifi);
         break;
     case UI_SCREEN_CONFIG_AP_SHOW_URL:
         ui_render_ap_url(ui);

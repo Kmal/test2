@@ -63,13 +63,8 @@ Main
 ├── Configuration Web UI
 │   ├── Wi-Fi Mode
 │   │   ├── Scan Nearby Wi-Fi
-│   │   │   ├── Select SSID
-│   │   │   ├── Enter Password
-│   │   │   └── Connect and Save
-│   │   └── Hidden / Manual SSID
-│   │       ├── Enter SSID
-│   │       ├── Enter Password
-│   │       └── Connect and Save
+│   │   │   └── choose network → password input → auto connect/save
+│   │   └── Hidden / Manual SSID → SSID input → password input → auto connect/save
 │   └── AP Mode
 │       ├── Set AP Name
 │       ├── Set AP Password
@@ -78,13 +73,8 @@ Main
 │       └── Show AP URL
 ├── Connect to Wi-Fi
 │   ├── Scan Nearby Wi-Fi
-│   │   ├── Select SSID
-│   │   ├── Enter Password
-│   │   └── Connect and Save
-│   └── Hidden / Manual SSID
-│       ├── Enter SSID
-│       ├── Enter Password
-│       └── Connect and Save
+│   │   └── choose network → password input → auto connect/save
+│   └── Hidden / Manual SSID → SSID input → password input → auto connect/save
 ├── Connect to Bluetooth
 ├── All automations
 │   ├── Automation 1
@@ -98,7 +88,7 @@ Main
 └── Settings
 ```
 
-The `Configuration Web UI > Wi-Fi Mode` and `Connect to Wi-Fi` station flows both support scanning nearby networks, selecting an SSID, entering a password with the bottom 9-key input overlay, and connecting/saving credentials. Hidden networks use `Hidden / Manual SSID > Enter SSID`. AP setup is only under `Configuration Web UI > AP Mode`, where the device can set AP name/password/channel, start AP mode, and show the AP URL.
+The `Configuration Web UI > Wi-Fi Mode` and `Connect to Wi-Fi` station flows both support scanning nearby networks; selecting a highlighted SSID immediately opens the bottom 9-key password input overlay, and a successful connection automatically persists the credentials. Hidden networks use `Hidden / Manual SSID`, which opens SSID input first, then password input, then the same automatic connect/save logic. AP setup is only under `Configuration Web UI > AP Mode`, where the device can set AP name/password/channel, start AP mode, and show the AP URL.
 
 The existing browser web UI still exposes the HTTP Wi-Fi endpoints listed above for station/AP setup from a phone or desktop browser. On boot, saved station credentials are tried first; if station connection fails, the firmware starts AP mode for setup.
 
