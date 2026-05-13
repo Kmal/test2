@@ -2,6 +2,7 @@
 #include "capability_registry.h"
 #include "action_http.h"
 #include "app_wifi.h"
+#include "app_time.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -110,6 +111,8 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
         !register_uri(web->server, "/api/config", HTTP_POST, web) ||
         !register_uri(web->server, "/api/capabilities", HTTP_GET, web) ||
         !register_uri(web->server, "/api/status", HTTP_GET, web) ||
+        !register_uri(web->server, "/api/time", HTTP_GET, web) ||
+        !register_uri(web->server, "/api/time", HTTP_POST, web) ||
         !register_uri(web->server, "/api/wifi/status", HTTP_GET, web) ||
         !register_uri(web->server, "/api/wifi/scan", HTTP_POST, web) ||
         !register_uri(web->server, "/api/wifi/connect", HTTP_POST, web) ||
@@ -160,6 +163,7 @@ static const char s_rule_setup_page[] =
     "<div id=\"panel_ap\" class=\"panel\" hidden><h3>Setup hotspot</h3><label>AP Name <input id=\"ap_ssid\" maxlength=\"32\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"></label>"
     "<label>AP Password <input id=\"ap_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"></label><label>Channel <input id=\"ap_channel\" type=\"number\" min=\"1\" max=\"13\" value=\"6\"></label><button id=\"ap_start\" type=\"button\">Start AP Mode</button><button id=\"mode_ap\" type=\"button\" class=\"secondary\">Use AP Mode</button></div>"
     "<div id=\"panel_net_status\" class=\"panel\" hidden><h3>Raw network status</h3><pre id=\"wifi_status\" class=\"status\"></pre></div><h3>Last operation</h3><pre id=\"op_result\" class=\"status\">No operation yet.</pre></section>"
+    "<section class=\"card\" id=\"time_settings\"><h2>Time settings</h2><div id=\"time_summary\" class=\"kv\"></div><label>Timezone <input id=\"timezone\" maxlength=\"63\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\" placeholder=\"UTC\"></label><p>Clock uses 24-hour HH:MM format. Use UTC or a POSIX TZ string.</p><button id=\"save_time\" type=\"button\">Save Timezone</button><pre id=\"time_status\" class=\"status\"></pre></section>"
     "<div class=\"grid\"><section class=\"card\"><h2>Automation rule</h2><label>Rule name <input id=\"rule_name\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"></label><label><input id=\"rule_enabled\" type=\"checkbox\" checked> Enabled</label>"
     "<h3>WHEN trigger</h3><label>Trigger source <select id=\"source\"></select></label><label>Comparator <select id=\"comparator\"><option value=\"eq\">equals</option><option value=\"ne\">not equals</option><option value=\"gt\">greater than</option><option value=\"gte\">greater or equal</option><option value=\"lt\">less than</option><option value=\"lte\">less or equal</option></select></label><label>Threshold <input id=\"threshold\" value=\"true\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"><small>true/false or integer</small></label>"
     "<fieldset><legend>GPIO safety / conflict check</legend><label>GPIO pin <input id=\"gpio_pin\" type=\"number\" value=\"4\"></label><label>GPIO profile <select id=\"gpio_profile\"></select></label><label>Debounce ms <input id=\"gpio_debounce_ms\" type=\"number\" value=\"20\"></label><label><input id=\"gpio_active_low\" type=\"checkbox\"> Active low</label><button id=\"gpio_test\" type=\"button\" class=\"secondary\">Test GPIO safety</button></fieldset>"
@@ -175,13 +179,15 @@ static const char s_rule_setup_page[] =
     "function applyConfig(c){if(!c)return;$('config_json').value=JSON.stringify(c,null,2);if(c.source)$('source').value=c.source;if(c.action)$('action').value=c.action;if(c.name)$('rule_name').value=c.name;$('rule_enabled').checked=c.enabled!==false;if(c.comparator)$('comparator').value=c.comparator;$('threshold').value=c.threshold_kind==='i32'?String(c.threshold_i32||0):String(c.threshold_bool!==false);if(c.gpio_pin!==undefined)$('gpio_pin').value=c.gpio_pin;if(c.gpio_profile)$('gpio_profile').value=c.gpio_profile;$('gpio_active_low').checked=!!c.gpio_active_low;if(c.gpio_debounce_ms!==undefined)$('gpio_debounce_ms').value=c.gpio_debounce_ms;if(c.http_url)$('http_url').value=c.http_url}"
     "function renderNetworks(ns){const root=$('wifi_networks');root.innerHTML='';(ns||[]).forEach(n=>{const row=document.createElement('button');row.type='button';row.className='network-row';row.textContent=(n.ssid||'(hidden)')+' '+n.rssi+' dBm ch '+n.channel+(n.secure?' LOCK':' OPEN');row.onclick=()=>{$('wifi_ssid').value=n.ssid||''};root.appendChild(row)})}"
     "function netSummary(d){$('connection_pill').textContent=d.sta_connected?'Wi-Fi connected':(d.ap_started?'AP setup active':'Network off');$('net_summary').innerHTML='<b>Mode</b><span>'+d.mode+'</span><b>Station</b><span>'+(d.sta_connected?(d.sta_ssid+' @ '+d.sta_ip):(d.sta_ssid||'-'))+'</span><b>Setup AP</b><span>'+(d.ap_started?(d.ap_ssid+' @ '+d.ap_ip):'off')+'</span><b>Web URL</b><span>'+(d.web_url||'-')+'</span>'}"
+    "function timeSummary(d){$('time_summary').innerHTML='<b>Timezone</b><span>'+(d.timezone||'UTC')+'</span><b>Time</b><span>'+(d.time_24h||'--:--')+'</span><b>Format</b><span>24-hour</span>';$('timezone').value=d.timezone||'UTC'}"
+    "async function timeStatus(){const d=await api('/api/time');dump('time_status',d);timeSummary(d);return d}"
     "async function wifiStatus(){const d=await api('/api/wifi/status');dump('wifi_status',d);netSummary(d);if(d.ap_ssid&&!$('ap_ssid').value)$('ap_ssid').value=d.ap_ssid;if(d.ap_channel&&!$('ap_channel').value)$('ap_channel').value=d.ap_channel;$('wifi_saved').textContent='Saved: '+(d.sta_ssid||'-');return d}"
     "async function op(p,msg){try{banner('info',msg||'Working...');const d=await p;dump('op_result',d);banner(d.ok===false?'warn':'ok',d.ok===false?(d.error||'Operation failed'):'Operation complete');return d}catch(e){return null}}async function setWifiMode(m){await op(api('/api/wifi/mode',{method:'POST',body:JSON.stringify({mode:m})}),'Changing Wi-Fi mode...');await wifiStatus()}"
-    "async function refresh(){banner('info','Refreshing...');caps=await api('/api/capabilities');fill();dump('capabilities',caps);dump('status',await api('/api/status'));applyConfig(await api('/api/config'));await wifiStatus();banner('ok','Ready')}"
+    "async function refresh(){banner('info','Refreshing...');caps=await api('/api/capabilities');fill();dump('capabilities',caps);dump('status',await api('/api/status'));applyConfig(await api('/api/config'));await wifiStatus();await timeStatus();banner('ok','Ready')}"
     "$('tab_wifi').onclick=()=>showNetPanel('wifi');$('tab_ap').onclick=()=>showNetPanel('ap');$('tab_net_status').onclick=()=>showNetPanel('net_status');$('mode_wifi').onclick=()=>setWifiMode('wifi');$('mode_ap').onclick=()=>setWifiMode('ap');"
     "$('wifi_scan').onclick=async()=>{const d=await op(api('/api/wifi/scan',{method:'POST'}),'Scanning Wi-Fi...');if(d)renderNetworks(d.networks||[])};$('wifi_connect').onclick=async()=>{await op(api('/api/wifi/connect',{method:'POST',body:JSON.stringify({ssid:$('wifi_ssid').value,password:$('wifi_password').value})}),'Connecting Wi-Fi...');await wifiStatus()};"
     "$('wifi_reconnect').onclick=()=>setWifiMode('wifi');$('wifi_forget').onclick=async()=>{await op(api('/api/wifi/forget',{method:'POST'}),'Forgetting credentials...');await wifiStatus()};$('ap_start').onclick=async()=>{await op(api('/api/wifi/ap',{method:'POST',body:JSON.stringify({ssid:$('ap_ssid').value,password:$('ap_password').value,channel:+$('ap_channel').value})}),'Starting AP...');await wifiStatus()};"
-    "$('load_config').onclick=refresh;$('export_config').onclick=async()=>applyConfig(await api('/api/config'));$('save_config').onclick=async()=>{const d=await op(api('/api/config',{method:'POST',body:body()}),'Saving rule...');if(d)applyConfig(d)};$('import_config').onclick=async()=>{const d=await op(api('/api/config',{method:'POST',body:$('config_json').value}),'Importing JSON...');if(d)applyConfig(d)};"
+    "$('load_config').onclick=refresh;$('export_config').onclick=async()=>applyConfig(await api('/api/config'));$('save_time').onclick=async()=>{const d=await op(api('/api/time',{method:'POST',body:JSON.stringify({timezone:$('timezone').value})}),'Saving timezone...');if(d)timeSummary(d)};$('save_config').onclick=async()=>{const d=await op(api('/api/config',{method:'POST',body:body()}),'Saving rule...');if(d)applyConfig(d)};$('import_config').onclick=async()=>{const d=await op(api('/api/config',{method:'POST',body:$('config_json').value}),'Importing JSON...');if(d)applyConfig(d)};"
     "$('test_rule').onclick=async()=>dump('status',await op(api('/api/rules/test',{method:'POST'}),'Testing rule...'));$('gpio_test').onclick=async()=>dump('status',await op(api('/api/gpio/test',{method:'POST',body:body()}),'Checking GPIO...'));$('hat_probe').onclick=async()=>dump('hat_status',await op(api('/api/hat/probe',{method:'POST',body:JSON.stringify({source:$('hat_source').value})}),'Probing HAT...'));refresh().catch(()=>{});</script></main></body></html>";
 
 bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len)
@@ -772,6 +778,21 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
     }
     if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/status") == 0) {
         return rule_web_get_status_json(web, out, out_len);
+    }
+    if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/time") == 0) {
+        return app_time_config_json(out, out_len);
+    }
+    if (method == RULE_WEB_METHOD_POST && strcmp(path, "/api/time") == 0) {
+        char timezone[APP_TIME_TIMEZONE_MAX_LEN + 1u];
+        if (!json_get_string(body, "timezone", timezone, sizeof(timezone))) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"missing_timezone\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        if (!app_time_set_timezone(timezone, true)) {
+            const int written = snprintf(out, out_len, "{\"ok\":false,\"error\":\"invalid_timezone\"}");
+            return written > 0 && (size_t)written < out_len;
+        }
+        return app_time_config_json(out, out_len);
     }
     if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/wifi/status") == 0) {
         return app_wifi_status_json(out, out_len);

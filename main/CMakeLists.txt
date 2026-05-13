@@ -5,6 +5,7 @@ set(APP_SRCS
     "m5pm1.c"
     "status_ui.c"
     "app_mode.c"
+    "app_time.c"
     "ui_nav.c"
     "ui_model.c"
     "app_wifi.c"

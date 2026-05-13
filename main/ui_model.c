@@ -2,10 +2,10 @@
 #include "ui_model.h"
 
 #include "rule_config_store.h"
+#include "app_time.h"
 
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -145,20 +145,16 @@ void ui_runtime_clear_toast(ui_runtime_t *ui)
 void ui_runtime_refresh_status_bar(ui_runtime_t *ui)
 {
     if (ui == NULL) return;
-    time_t now = time(NULL);
-    struct tm local;
-    if (now > 0 && localtime_r(&now, &local) != NULL && local.tm_year >= 120) {
-        ui->status_bar.time_valid = true;
-        snprintf(ui->status_bar.time_hhmm, sizeof(ui->status_bar.time_hhmm), "%02d:%02d", local.tm_hour, local.tm_min);
-    } else {
+    if (!app_time_format_hhmm_24h(ui->status_bar.time_hhmm)) {
         uint32_t uptime_minutes = (uint32_t)((xTaskGetTickCount() * portTICK_PERIOD_MS) / 60000u);
         uint32_t hour = (uptime_minutes / 60u) % 24u;
         uint32_t minute = uptime_minutes % 60u;
-        ui->status_bar.time_valid = true;
         snprintf(ui->status_bar.time_hhmm, sizeof(ui->status_bar.time_hhmm), "%02u:%02u", (unsigned)hour, (unsigned)minute);
     }
+    ui->status_bar.time_valid = true;
     ui->status_bar.battery_valid = false;
     ui->status_bar.battery_percent = 0u;
+    ui->status_bar.wifi_connected = app_wifi_is_sta_connected();
 }
 
 void ui_runtime_refresh_bluetooth(ui_runtime_t *ui)

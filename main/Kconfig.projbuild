@@ -119,6 +119,19 @@ config APP_WIFI_KEYBOARD_TIMEOUT_MS
 
 endmenu
 
+menu "StickS3 time settings"
+
+config APP_TIMEZONE
+    string "Default POSIX timezone"
+    default "UTC"
+    help
+        Default timezone applied to the status bar clock before any web UI
+        override is saved. Use UTC for Coordinated Universal Time or a POSIX
+        TZ string such as EST5EDT,M3.2.0/2,M11.1.0/2. The clock always renders
+        in 24-hour HH:MM format.
+
+endmenu
+
 menu "StickS3 status UI"
 
 config APP_STATUS_UI_LCD

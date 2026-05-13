@@ -55,7 +55,7 @@ compile test_rule_config_store -I"${FAKE_INC}" -I"${ROOT}/main" \
 compile test_action_modules -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/action_http.c" "${ROOT}/main/action_ir.c" "${ROOT}/main/action_hat.c" "${ROOT}/tests/host/test_action_modules.c"
 compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
-  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/main/trigger_sources.c" "${ROOT}/main/action_dispatcher.c" "${ROOT}/main/rule_runtime.c" "${ROOT}/main/rule_config_store.c" "${ROOT}/main/action_http.c" "${ROOT}/main/app_wifi.c" "${ROOT}/main/rule_web.c" "${ROOT}/main/trigger_gpio.c" "${ROOT}/main/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/main/trigger_sources.c" "${ROOT}/main/action_dispatcher.c" "${ROOT}/main/rule_runtime.c" "${ROOT}/main/rule_config_store.c" "${ROOT}/main/action_http.c" "${ROOT}/main/app_wifi.c" "${ROOT}/main/app_time.c" "${ROOT}/main/rule_web.c" "${ROOT}/main/trigger_gpio.c" "${ROOT}/main/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
 "${BUILD_DIR}/test_button_state"
 "${BUILD_DIR}/test_audio_resample"
 "${BUILD_DIR}/test_audio_pipeline"

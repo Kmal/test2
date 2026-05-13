@@ -2,6 +2,7 @@
 
 #include "board_sticks3.h"
 #include "app_wifi.h"
+#include "app_time.h"
 #include "sdkconfig.h"
 #include "ui_nav.h"
 #include "ui_model.h"
@@ -1580,8 +1581,12 @@ bool status_ui_keyboard_read_line(const char *title, const char *initial, char *
 static void status_ui_format_time_24h(char out[6])
 {
     if (out == NULL) return;
-    ui_runtime_refresh_status_bar(&s_ui);
-    snprintf(out, 6, "%s", s_ui.status_bar.time_valid ? s_ui.status_bar.time_hhmm : "--:--");
+    if (!app_time_format_hhmm_24h(out)) {
+        uint32_t uptime_minutes = (uint32_t)((xTaskGetTickCount() * portTICK_PERIOD_MS) / 60000u);
+        uint32_t hour = (uptime_minutes / 60u) % 24u;
+        uint32_t minute = uptime_minutes % 60u;
+        snprintf(out, 6, "%02u:%02u", (unsigned)hour, (unsigned)minute);
+    }
 }
 
 static void status_ui_update_time(ui_status_bar_state_t *bar)
@@ -1623,6 +1628,9 @@ static void ui_render_status_bar(const ui_status_bar_state_t *status)
 {
     lcd_fill_rect(0, 0, UI_LCD_W, UI_STATUS_BAR_H, UI_COLOR_BAR);
     lcd_draw_text(UI_LEFT_PAD, 5, (status != NULL && status->time_valid) ? status->time_hhmm : "--:--", UI_COLOR_TEXT, 1);
+    if (status != NULL && status->wifi_connected) {
+        lcd_draw_text(48, 5, "Wi-Fi", UI_COLOR_TEXT, 1);
+    }
     char battery[8];
     if (status != NULL && status->battery_valid) snprintf(battery, sizeof(battery), "%u%%", (unsigned)status->battery_percent);
     else snprintf(battery, sizeof(battery), "--%%");
@@ -1786,6 +1794,7 @@ static void status_ui_render_menu_lcd(const ui_runtime_t *ui)
 {
     status_ui_update_time(&((ui_runtime_t *)ui)->status_bar);
     status_ui_update_battery(&((ui_runtime_t *)ui)->status_bar);
+    ((ui_runtime_t *)ui)->status_bar.wifi_connected = app_wifi_is_sta_connected();
     if (ui->nav.current == UI_SCREEN_CONNECT_BLUETOOTH) {
         status_ui_bluetooth_refresh((ui_runtime_t *)ui);
     }
