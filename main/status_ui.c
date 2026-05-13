@@ -9,7 +9,6 @@
 #include "transport_ble_gatt.h"
 #endif
 
-#include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -991,6 +990,32 @@ static const uint8_t *glyph_rows(char c)
     static const uint8_t glyph_x[7] = {17, 17, 10, 4, 10, 17, 17};
     static const uint8_t glyph_y[7] = {17, 17, 10, 4, 4, 4, 4};
     static const uint8_t glyph_z[7] = {31, 1, 2, 4, 8, 16, 31};
+    static const uint8_t glyph_lower_a[7] = {0, 0, 14, 1, 15, 17, 15};
+    static const uint8_t glyph_lower_b[7] = {16, 16, 22, 25, 17, 17, 30};
+    static const uint8_t glyph_lower_c[7] = {0, 0, 14, 16, 16, 17, 14};
+    static const uint8_t glyph_lower_d[7] = {1, 1, 13, 19, 17, 17, 15};
+    static const uint8_t glyph_lower_e[7] = {0, 0, 14, 17, 31, 16, 14};
+    static const uint8_t glyph_lower_f[7] = {6, 9, 8, 28, 8, 8, 8};
+    static const uint8_t glyph_lower_g[7] = {0, 0, 15, 17, 15, 1, 14};
+    static const uint8_t glyph_lower_h[7] = {16, 16, 22, 25, 17, 17, 17};
+    static const uint8_t glyph_lower_i[7] = {4, 0, 12, 4, 4, 4, 14};
+    static const uint8_t glyph_lower_j[7] = {2, 0, 6, 2, 2, 18, 12};
+    static const uint8_t glyph_lower_k[7] = {16, 16, 18, 20, 24, 20, 18};
+    static const uint8_t glyph_lower_l[7] = {12, 4, 4, 4, 4, 4, 14};
+    static const uint8_t glyph_lower_m[7] = {0, 0, 26, 21, 21, 21, 21};
+    static const uint8_t glyph_lower_n[7] = {0, 0, 22, 25, 17, 17, 17};
+    static const uint8_t glyph_lower_o[7] = {0, 0, 14, 17, 17, 17, 14};
+    static const uint8_t glyph_lower_p[7] = {0, 0, 30, 17, 30, 16, 16};
+    static const uint8_t glyph_lower_q[7] = {0, 0, 13, 19, 15, 1, 1};
+    static const uint8_t glyph_lower_r[7] = {0, 0, 22, 25, 16, 16, 16};
+    static const uint8_t glyph_lower_s[7] = {0, 0, 15, 16, 14, 1, 30};
+    static const uint8_t glyph_lower_t[7] = {8, 8, 28, 8, 8, 9, 6};
+    static const uint8_t glyph_lower_u[7] = {0, 0, 17, 17, 17, 19, 13};
+    static const uint8_t glyph_lower_v[7] = {0, 0, 17, 17, 17, 10, 4};
+    static const uint8_t glyph_lower_w[7] = {0, 0, 17, 17, 21, 21, 10};
+    static const uint8_t glyph_lower_x[7] = {0, 0, 17, 10, 4, 10, 17};
+    static const uint8_t glyph_lower_y[7] = {0, 0, 17, 17, 15, 1, 14};
+    static const uint8_t glyph_lower_z[7] = {0, 0, 31, 2, 4, 8, 31};
     static const uint8_t glyph_colon[7] = {0, 4, 4, 0, 4, 4, 0};
     static const uint8_t glyph_dash[7] = {0, 0, 0, 14, 0, 0, 0};
     static const uint8_t glyph_dot[7] = {0, 0, 0, 0, 0, 12, 12};
@@ -1011,7 +1036,7 @@ static const uint8_t *glyph_rows(char c)
     static const uint8_t glyph_star[7] = {0, 21, 14, 31, 14, 21, 0};
     static const uint8_t glyph_gt[7] = {16, 8, 4, 2, 4, 8, 16};
 
-    switch ((char)toupper((unsigned char)c)) {
+    switch (c) {
     case '0': return glyph_0;
     case '1': return glyph_1;
     case '2': return glyph_2;
@@ -1048,6 +1073,32 @@ static const uint8_t *glyph_rows(char c)
     case 'X': return glyph_x;
     case 'Y': return glyph_y;
     case 'Z': return glyph_z;
+    case 'a': return glyph_lower_a;
+    case 'b': return glyph_lower_b;
+    case 'c': return glyph_lower_c;
+    case 'd': return glyph_lower_d;
+    case 'e': return glyph_lower_e;
+    case 'f': return glyph_lower_f;
+    case 'g': return glyph_lower_g;
+    case 'h': return glyph_lower_h;
+    case 'i': return glyph_lower_i;
+    case 'j': return glyph_lower_j;
+    case 'k': return glyph_lower_k;
+    case 'l': return glyph_lower_l;
+    case 'm': return glyph_lower_m;
+    case 'n': return glyph_lower_n;
+    case 'o': return glyph_lower_o;
+    case 'p': return glyph_lower_p;
+    case 'q': return glyph_lower_q;
+    case 'r': return glyph_lower_r;
+    case 's': return glyph_lower_s;
+    case 't': return glyph_lower_t;
+    case 'u': return glyph_lower_u;
+    case 'v': return glyph_lower_v;
+    case 'w': return glyph_lower_w;
+    case 'x': return glyph_lower_x;
+    case 'y': return glyph_lower_y;
+    case 'z': return glyph_lower_z;
     case ':': return glyph_colon;
     case '-': return glyph_dash;
     case '.': return glyph_dot;
