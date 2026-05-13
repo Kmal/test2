@@ -35,7 +35,7 @@
 #include "transport_hfp_legacy.h"
 #endif
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 #include "transport_ble_gatt.h"
 #endif
 
@@ -51,7 +51,7 @@ static TaskHandle_t s_rule_gpio_task;
 static TaskHandle_t s_rule_network_task;
 static bool s_rule_network_state_known;
 static bool s_rule_network_ready;
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 static TaskHandle_t s_rule_ble_task;
 static bool s_rule_ble_state_known;
 static bool s_rule_ble_connected;
@@ -136,7 +136,7 @@ static action_result_t app_send_local_ui_rule_action(const rule_event_t *event, 
     return result;
 }
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 static action_result_t app_send_ble_rule_action(const rule_event_t *event, void *ctx)
 {
     (void)ctx;
@@ -189,7 +189,7 @@ static void app_rule_network_state_task(void *ctx)
     }
 }
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 static void app_emit_ble_connected_rule_fact(bool connected, uint32_t uptime_ms)
 {
     trigger_fact_t fact;
@@ -254,7 +254,7 @@ static void app_rule_runtime_init(void)
     rule_runtime_set_http_sender(&s_rule_runtime, app_send_http_rule_action, NULL);
     rule_runtime_set_ir_sender(&s_rule_runtime, app_send_ir_rule_action, NULL);
     rule_runtime_set_local_ui_sender(&s_rule_runtime, app_send_local_ui_rule_action, NULL);
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     rule_runtime_set_ble_sender(&s_rule_runtime, app_send_ble_rule_action, NULL);
 #endif
     if (rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store)) {
@@ -273,7 +273,7 @@ static void app_rule_runtime_init(void)
         BaseType_t created = xTaskCreate(app_rule_network_state_task, "rule_net_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_network_task);
         ESP_LOGI(TAG, "rule runtime init: network state task %s", created == pdPASS ? "created" : "create failed");
     }
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     if (s_rule_ble_task == NULL) {
         BaseType_t created = xTaskCreate(app_rule_ble_state_task, "rule_ble_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_ble_task);
         ESP_LOGI(TAG, "rule runtime init: BLE state task %s", created == pdPASS ? "created" : "create failed");
@@ -283,7 +283,7 @@ static void app_rule_runtime_init(void)
 
 static void app_publish_ble_status(void)
 {
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     transport_ble_status_snapshot_t status = {
         .app_mode = s_runtime_state.app_mode,
     };
@@ -383,7 +383,7 @@ void app_main(void)
     }
     app_rule_runtime_init();
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     ESP_LOGI(TAG, "app_main: BLE GATT rule-event init start");
     ret = transport_ble_gatt_start();
     if (ret != ESP_OK) {

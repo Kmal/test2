@@ -2,7 +2,7 @@ menu "StickS3 application transport"
 
 choice APP_TRANSPORT
     prompt "Application transport"
-    default APP_TRANSPORT_BLE_GATT
+    default APP_TRANSPORT_BLE_GATT_PCM
     help
         Select the application transport used by the configuration and
         automation firmware.
@@ -13,7 +13,7 @@ config APP_TRANSPORT_NONE
         Board bring-up only. The firmware initializes local UI, Wi-Fi, and
         automation support without a BLE rule-event service.
 
-config APP_TRANSPORT_BLE_GATT
+config APP_TRANSPORT_BLE_GATT_PCM
     bool "Bluetooth LE GATT rule-event transport"
     select BT_ENABLED
     help
@@ -34,7 +34,7 @@ config APP_TRANSPORT_HFP_LEGACY
 
 endchoice
 
-if APP_TRANSPORT_BLE_GATT
+if APP_TRANSPORT_BLE_GATT_PCM
 
 config APP_BLE_GATT_DEVICE_NAME
     string "BLE GATT device name"
