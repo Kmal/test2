@@ -308,6 +308,7 @@ static void status_ui_clear_wifi_state(ui_wifi_flow_state_t *wifi)
     wifi->has_password = false;
     wifi->scan_valid = false;
     wifi->last_error[0] = '\0';
+    wifi->web_url[0] = '\0';
 }
 
 static bool status_ui_wifi_scan(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi)
@@ -374,7 +375,14 @@ static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state
         ui_runtime_set_toast(ui, UI_TOAST_WARNING, "SSID required", 2000u);
         return false;
     }
+    wifi->web_url[0] = '\0';
     bool ok = app_wifi_connect(wifi->ssid, wifi->password, true);
+    if (ok) {
+        app_wifi_status_t status;
+        if (app_wifi_get_status(&status)) {
+            snprintf(wifi->web_url, sizeof(wifi->web_url), "%s", status.web_url);
+        }
+    }
     snprintf(wifi->last_error, sizeof(wifi->last_error), "%s", ok ? "Connected and saved" : "Wi-Fi connect failed");
     ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "Wi-Fi saved" : "Wi-Fi connect failed", 2500u);
     return ok;
@@ -1336,6 +1344,10 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
         wifi->has_password = true;
         if (status_ui_wifi_connect_and_save(&s_ui, wifi)) {
             (void)ui_nav_enter(&s_ui.nav, item->target);
+        } else {
+            wifi->password[0] = '\0';
+            wifi->has_password = false;
+            (void)status_ui_begin_wifi_password_edit(&s_ui, item->flow, (item->flags & 1u) != 0u);
         }
         break;
     }
@@ -1666,6 +1678,9 @@ static void ui_render_wifi_result(const ui_wifi_flow_state_t *wifi)
     snprintf(line, sizeof(line), "SSID: %s", wifi != NULL && wifi->ssid[0] ? wifi->ssid : "-");
     lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20); y += UI_LINE_H;
     snprintf(line, sizeof(line), "%s", wifi != NULL && wifi->last_error[0] ? wifi->last_error : "Connected and saved");
+    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, wifi != NULL && wifi->web_url[0] ? UI_COLOR_OK : UI_COLOR_WARN, 1, 20);
+    y += UI_LINE_H;
+    snprintf(line, sizeof(line), "URL: %s", wifi != NULL && wifi->web_url[0] ? wifi->web_url : "-");
     lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_OK, 1, 20);
 }
 

@@ -41,6 +41,7 @@ typedef struct {
     bool has_password;
     bool scan_valid;
     char last_error[48];
+    char web_url[32];
 } ui_wifi_flow_state_t;
 
 typedef struct {

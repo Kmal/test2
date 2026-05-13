@@ -82,7 +82,13 @@ config APP_WIFI_AP_MAX_CONNECTIONS
 
 config APP_WIFI_CONNECT_TIMEOUT_MS
     int "Station connection timeout in milliseconds"
-    default 8000
+    default 15000
+    range 1000 60000
+    depends on APP_WIFI_ENABLE
+
+config APP_WIFI_NTP_SYNC_TIMEOUT_MS
+    int "SNTP time synchronization timeout in milliseconds"
+    default 15000
     range 1000 60000
     depends on APP_WIFI_ENABLE
 

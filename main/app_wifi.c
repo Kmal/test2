@@ -22,7 +22,7 @@
 #define CONFIG_APP_WIFI_AP_MAX_CONNECTIONS 4
 #endif
 #ifndef CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS
-#define CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS 8000
+#define CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS 15000
 #endif
 #ifndef CONFIG_APP_WIFI_MAX_SCAN_RESULTS
 #define CONFIG_APP_WIFI_MAX_SCAN_RESULTS APP_WIFI_MAX_SCAN_RESULTS
@@ -33,10 +33,16 @@
 #ifndef CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS
 #define CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS 0
 #endif
+#ifndef CONFIG_APP_WIFI_NTP_SYNC_TIMEOUT_MS
+#define CONFIG_APP_WIFI_NTP_SYNC_TIMEOUT_MS 15000
+#endif
 
 #define APP_WIFI_IP_LEN 16u
 #define APP_WIFI_SSID_MAX_LEN 32u
 #define APP_WIFI_PASSWORD_MAX_LEN 63u
+#define APP_WIFI_NTP_SYNC_TASK_STACK 4096u
+#define APP_WIFI_NTP_SYNC_TASK_PRIORITY 4u
+#define APP_WIFI_NTP_SERVER_COUNT 4u
 
 static size_t bounded_strlen(const char *value, size_t max_len)
 {
@@ -66,10 +72,13 @@ static void copy_string(char *dst, size_t dst_size, const char *src)
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "time.h"
 
 #define APP_WIFI_NVS_NAMESPACE "app_wifi"
 #define APP_WIFI_NVS_SSID "ssid"
@@ -92,6 +101,76 @@ static char s_sta_ip[APP_WIFI_IP_LEN] = "0.0.0.0";
 static char s_ap_ip[APP_WIFI_IP_LEN] = "0.0.0.0";
 static app_wifi_config_t s_config;
 static bool s_config_loaded;
+static EventGroupHandle_t s_wifi_events;
+static bool s_ntp_initialized;
+static bool s_ntp_sync_task_running;
+
+#define APP_WIFI_EVENT_STA_CONNECTED BIT0
+#define APP_WIFI_EVENT_STA_DISCONNECTED BIT1
+
+
+static bool system_time_is_synced(void)
+{
+    time_t now = time(NULL);
+    struct tm local;
+    return now > 0 && localtime_r(&now, &local) != NULL && local.tm_year >= 120;
+}
+
+static void app_wifi_ntp_sync_task(void *ctx)
+{
+    (void)ctx;
+    ESP_LOGI(TAG, "starting SNTP time sync");
+    if (!s_ntp_initialized) {
+        esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
+            APP_WIFI_NTP_SERVER_COUNT,
+            ESP_SNTP_SERVER_LIST("pool.ntp.org", "time.google.com", "time.cloudflare.com", "time.nist.gov"));
+        config.start = false;
+        esp_err_t err = esp_netif_sntp_init(&config);
+        if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
+            s_ntp_initialized = true;
+        } else {
+            ESP_LOGW(TAG, "SNTP init failed: %s", esp_err_to_name(err));
+        }
+    }
+
+    if (s_ntp_initialized) {
+        esp_err_t err = esp_netif_sntp_start();
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "SNTP start failed: %s", esp_err_to_name(err));
+        } else {
+            err = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(CONFIG_APP_WIFI_NTP_SYNC_TIMEOUT_MS));
+            if (err == ESP_OK || system_time_is_synced()) {
+                char time_buf[32];
+                time_t now = time(NULL);
+                struct tm local;
+                if (localtime_r(&now, &local) != NULL && strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &local) > 0u) {
+                    ESP_LOGI(TAG, "SNTP time synchronized: %s", time_buf);
+                } else {
+                    ESP_LOGI(TAG, "SNTP time synchronized");
+                }
+            } else {
+                ESP_LOGW(TAG, "SNTP sync timed out: %s", esp_err_to_name(err));
+            }
+        }
+    }
+
+    s_ntp_sync_task_running = false;
+    vTaskDelete(NULL);
+}
+
+static void app_wifi_start_ntp_sync(void)
+{
+    if (s_ntp_sync_task_running || system_time_is_synced()) {
+        return;
+    }
+    s_ntp_sync_task_running = true;
+    BaseType_t task_ok = xTaskCreate(app_wifi_ntp_sync_task, "wifi_ntp_sync", APP_WIFI_NTP_SYNC_TASK_STACK, NULL,
+                                     APP_WIFI_NTP_SYNC_TASK_PRIORITY, NULL);
+    if (task_ok != pdPASS) {
+        s_ntp_sync_task_running = false;
+        ESP_LOGW(TAG, "failed to create SNTP sync task");
+    }
+}
 
 static bool validate_ssid(const char *ssid)
 {
@@ -220,7 +299,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             s_sta_connected = false;
             copy_string(s_sta_ip, sizeof(s_sta_ip), "0.0.0.0");
             action_http_set_network_ready(false);
-            ESP_LOGW(TAG, "station disconnected");
+            if (s_wifi_events != NULL) {
+                xEventGroupSetBits(s_wifi_events, APP_WIFI_EVENT_STA_DISCONNECTED);
+            }
+            ESP_LOGI(TAG, "station disconnected");
         } else if (id == WIFI_EVENT_AP_START) {
             s_ap_started = true;
             esp_netif_ip_info_t ip_info;
@@ -237,7 +319,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_sta_connected = true;
         copy_ip(s_sta_ip, event->ip_info.ip);
         action_http_set_network_ready(true);
+        if (s_wifi_events != NULL) {
+            xEventGroupSetBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED);
+        }
         ESP_LOGI(TAG, "station connected: ssid=%s ip=%s", s_config.sta_ssid, s_sta_ip);
+        app_wifi_start_ntp_sync();
     }
 }
 
@@ -257,6 +343,11 @@ static bool app_wifi_init_once(void)
     esp_err_t err = esp_wifi_init(&init);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    s_wifi_events = xEventGroupCreate();
+    if (s_wifi_events == NULL) {
+        ESP_LOGE(TAG, "failed to create Wi-Fi event group");
         return false;
     }
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL, NULL));
@@ -506,7 +597,7 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
         ESP_LOGE(TAG, "validated STA configuration did not fit ESP Wi-Fi fields");
         return false;
     }
-    sta_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    sta_config.sta.threshold.authmode = (password != NULL && strlen(password) >= 8u) ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &sta_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "set STA config failed: %s", esp_err_to_name(err));
@@ -521,20 +612,35 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     s_config.preferred_mode = s_ap_started ? APP_WIFI_MODE_APSTA : APP_WIFI_MODE_STA;
     s_sta_connected = false;
     action_http_set_network_ready(false);
+    if (s_wifi_events != NULL) {
+        xEventGroupClearBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED | APP_WIFI_EVENT_STA_DISCONNECTED);
+    }
     (void)esp_wifi_disconnect();
+    if (s_wifi_events != NULL) {
+        xEventGroupClearBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED | APP_WIFI_EVENT_STA_DISCONNECTED);
+    }
     err = esp_wifi_connect();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "connect start failed: %s", esp_err_to_name(err));
         return false;
     }
     ESP_LOGI(TAG, "connecting to Wi-Fi SSID %s", ssid);
-    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS);
-    while (!s_sta_connected && xTaskGetTickCount() < deadline) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    if (!s_sta_connected) {
-        ESP_LOGW(TAG, "connection timed out for SSID %s", ssid);
-        return false;
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS);
+    if (s_wifi_events != NULL) {
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED, pdFALSE, pdFALSE, timeout_ticks);
+        if ((bits & APP_WIFI_EVENT_STA_CONNECTED) == 0u && !s_sta_connected) {
+            ESP_LOGW(TAG, "connection timed out waiting for IP for SSID %s", ssid);
+            return false;
+        }
+    } else {
+        const TickType_t deadline = xTaskGetTickCount() + timeout_ticks;
+        while (!s_sta_connected && xTaskGetTickCount() < deadline) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        if (!s_sta_connected) {
+            ESP_LOGW(TAG, "connection timed out waiting for IP for SSID %s", ssid);
+            return false;
+        }
     }
     if (persist && !persist_config(&s_config)) {
         ESP_LOGW(TAG, "connected but failed to persist Wi-Fi credentials");
