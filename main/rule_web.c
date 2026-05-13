@@ -94,6 +94,7 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
 #ifdef ESP_PLATFORM
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
+    config.stack_size = 8192;
     ESP_LOGI(TAG, "starting HTTP server: port=%u max_uri_handlers=%u stack=%u",
              (unsigned)config.server_port,
              (unsigned)config.max_uri_handlers,

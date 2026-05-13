@@ -36,8 +36,16 @@
 
 #define STATUS_UI_DEBOUNCE_MS 50
 #define STATUS_UI_POLL_MS 25
-#define STATUS_UI_TASK_STACK 2048
+#define STATUS_UI_TASK_STACK 3072
 #define STATUS_UI_TASK_PRIORITY 5
+#if CONFIG_APP_STATUS_UI_LCD
+#define STATUS_UI_INPUT_TASK_STACK 6144
+#define STATUS_UI_INPUT_TASK_PRIORITY 4
+#define STATUS_UI_BUTTON_DOUBLE_MS 250
+#define STATUS_UI_BUTTON_LONG_MS 600
+/* Match Bruce StickS3 two-button navigation: KEY1 selects, KEY2 single-clicks next,
+ * double-clicks previous, and long-presses back/escape. */
+#endif
 
 #if CONFIG_APP_STATUS_UI_LCD
 #define STATUS_UI_LCD_TASK_STACK 4096
@@ -111,6 +119,7 @@ static void keyboard_queue_event(status_ui_keyboard_event_t event);
 static bool status_ui_keyboard_active_locked(void);
 static void status_ui_route_button_to_keyboard(status_ui_input_t input);
 static void status_ui_route_button_to_menu(status_ui_input_t input);
+static void status_ui_input_task(void *arg);
 #endif
 
 #if CONFIG_APP_STATUS_UI_LCD
@@ -165,6 +174,7 @@ typedef struct {
 } ui_keyboard_menu_edit_t;
 
 static QueueHandle_t s_keyboard_queue;
+static QueueHandle_t s_input_queue;
 static ui_keyboard_state_t s_keyboard;
 static ui_keyboard_menu_edit_t s_keyboard_edit;
 static bool ui_keyboard_open(ui_keyboard_state_t *kb, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
@@ -193,7 +203,9 @@ typedef struct {
     TickType_t last_change_tick;
 #if CONFIG_APP_STATUS_UI_LCD
     TickType_t pressed_since_tick;
+    TickType_t released_tick;
     bool long_sent;
+    bool waiting_single;
 #endif
 } status_button_t;
 
@@ -688,13 +700,100 @@ static void status_ui_route_button_to_keyboard(status_ui_input_t input)
 
 static void status_ui_route_button_to_menu(status_ui_input_t input)
 {
-    status_ui_handle_input(input);
+    if (s_input_queue != NULL) {
+        (void)xQueueSend(s_input_queue, &input, 0);
+    } else {
+        status_ui_handle_input(input);
+    }
+}
+
+static void status_ui_input_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        status_ui_input_t input;
+        if (xQueueReceive(s_input_queue, &input, portMAX_DELAY) == pdTRUE) {
+            status_ui_handle_input(input);
+        }
+    }
+}
+#endif
+
+static void status_ui_dispatch_key1_short(status_button_t *button)
+{
+#if CONFIG_APP_STATUS_UI_LCD
+    if (keyboard_is_active()) {
+        if (s_keyboard_edit.active) {
+            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_SELECT);
+        } else {
+            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_SELECT);
+        }
+    } else if (s_ui.menu_active) {
+        status_ui_route_button_to_menu(STATUS_UI_INPUT_SELECT);
+    } else if (button->handler != NULL) {
+        button->handler(s_handlers.ctx);
+    }
+#else
+    if (button->handler != NULL) {
+        button->handler(s_handlers.ctx);
+    }
+#endif
+}
+
+#if CONFIG_APP_STATUS_UI_LCD
+static void status_ui_dispatch_key2_single(void)
+{
+    if (keyboard_is_active()) {
+        if (s_keyboard_edit.active) {
+            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_NEXT);
+        } else {
+            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_NEXT);
+        }
+    } else if (s_ui.menu_active) {
+        status_ui_route_button_to_menu(STATUS_UI_INPUT_NEXT);
+    } else if (s_handlers.key2_pressed != NULL) {
+        s_handlers.key2_pressed(s_handlers.ctx);
+    }
+}
+
+static void status_ui_dispatch_key2_double(void)
+{
+    if (keyboard_is_active()) {
+        if (s_keyboard_edit.active) {
+            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+        } else {
+            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+        }
+    } else if (s_ui.menu_active) {
+        status_ui_route_button_to_menu(STATUS_UI_INPUT_PREV);
+    }
+}
+
+static void status_ui_dispatch_key2_long(void)
+{
+    if (keyboard_is_active()) {
+        if (s_keyboard_edit.active) {
+            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+        } else {
+            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
+        }
+    } else if (s_ui.menu_active) {
+        status_ui_route_button_to_menu(STATUS_UI_INPUT_BACK);
+    }
 }
 #endif
 
 static void maybe_dispatch_button(status_button_t *button, TickType_t now)
 {
     bool pressed = button_is_pressed(button->gpio);
+
+#if CONFIG_APP_STATUS_UI_LCD
+    if (button->gpio == BOARD_BUTTON_KEY2_GPIO && button->waiting_single && !button->stable_pressed &&
+        (now - button->released_tick) > pdMS_TO_TICKS(STATUS_UI_BUTTON_DOUBLE_MS)) {
+        button->waiting_single = false;
+        status_ui_dispatch_key2_single();
+    }
+#endif
 
     if (pressed != button->last_sample_pressed) {
         button->last_sample_pressed = pressed;
@@ -708,26 +807,12 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
 
 #if CONFIG_APP_STATUS_UI_LCD
     if (pressed && button->stable_pressed && !button->long_sent &&
-        (now - button->pressed_since_tick) >= pdMS_TO_TICKS(STATUS_UI_KEYBOARD_LONG_MS)) {
-        if (keyboard_is_active() && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
-            button->long_sent = true;
-            if (s_keyboard_edit.active) {
-                status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_OK);
-            } else {
-                keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_OK);
-            }
-        } else if (keyboard_is_active() && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
-            button->long_sent = true;
-            if (s_keyboard_edit.active) {
-                status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-            } else {
-                keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-            }
-        } else if (s_ui.menu_active && button->gpio == BOARD_BUTTON_KEY2_GPIO) {
-            button->long_sent = true;
-            status_ui_route_button_to_menu(STATUS_UI_INPUT_BACK);
+        (now - button->pressed_since_tick) >= pdMS_TO_TICKS(STATUS_UI_BUTTON_LONG_MS)) {
+        button->long_sent = true;
+        if (button->gpio == BOARD_BUTTON_KEY2_GPIO) {
+            button->waiting_single = false;
+            status_ui_dispatch_key2_long();
         } else if (!s_ui.menu_active && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
-            button->long_sent = true;
             status_ui_open_screen(UI_SCREEN_MAIN);
         }
     }
@@ -738,39 +823,6 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
     }
 
     button->stable_pressed = pressed;
-#if CONFIG_APP_STATUS_UI_LCD
-    if (keyboard_is_active()) {
-        if (pressed) {
-            record_button_press(button->gpio);
-            button->pressed_since_tick = now;
-            button->long_sent = false;
-            ESP_LOGI(TAG, "keyboard button pressed: %s", button->name);
-        } else if (!button->long_sent) {
-            status_ui_keyboard_event_t event = button->gpio == BOARD_BUTTON_KEY1_GPIO ?
-                                             STATUS_UI_KEYBOARD_EVENT_SELECT : STATUS_UI_KEYBOARD_EVENT_NEXT;
-            if (s_keyboard_edit.active) {
-                status_ui_keyboard_handle_menu_event(event);
-            } else {
-                keyboard_queue_event(event);
-            }
-        }
-        return;
-    }
-#endif
-#if CONFIG_APP_STATUS_UI_LCD
-    if (s_ui.menu_active) {
-        if (pressed) {
-            record_button_press(button->gpio);
-            button->pressed_since_tick = now;
-            button->long_sent = false;
-            ESP_LOGI(TAG, "menu button pressed: %s", button->name);
-        } else if (!button->long_sent) {
-            status_ui_route_button_to_menu(button->gpio == BOARD_BUTTON_KEY1_GPIO ?
-                                           STATUS_UI_INPUT_NEXT : STATUS_UI_INPUT_SELECT);
-        }
-        return;
-    }
-#endif
     if (pressed) {
         record_button_press(button->gpio);
 #if CONFIG_APP_STATUS_UI_LCD
@@ -778,10 +830,29 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
         button->long_sent = false;
 #endif
         ESP_LOGI(TAG, "button pressed: %s", button->name);
-        if (button->handler != NULL) {
-            button->handler(s_handlers.ctx);
+        return;
+    }
+
+#if CONFIG_APP_STATUS_UI_LCD
+    if (button->long_sent) {
+        return;
+    }
+    if (button->gpio == BOARD_BUTTON_KEY1_GPIO) {
+        status_ui_dispatch_key1_short(button);
+    } else if (button->gpio == BOARD_BUTTON_KEY2_GPIO) {
+        if (button->waiting_single && (now - button->released_tick) <= pdMS_TO_TICKS(STATUS_UI_BUTTON_DOUBLE_MS)) {
+            button->waiting_single = false;
+            status_ui_dispatch_key2_double();
+        } else {
+            button->waiting_single = true;
+            button->released_tick = now;
         }
     }
+#else
+    if (button->handler != NULL) {
+        button->handler(s_handlers.ctx);
+    }
+#endif
 }
 
 static void status_ui_button_task(void *arg)
@@ -1535,7 +1606,7 @@ static void ui_render_screen(const ui_runtime_t *ui, const ui_screen_def_t *scre
         ui_render_menu(ui, screen);
         break;
     }
-    ui_render_bottom_hints("K1 NEXT K2 SEL HOLD BACK");
+    ui_render_bottom_hints("K1 SEL K2 NEXT 2x PREV HOLD BACK");
 }
 
 static void status_ui_render_menu_lcd(const ui_runtime_t *ui)
@@ -1756,6 +1827,22 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
         s_keyboard_queue = xQueueCreate(8, sizeof(status_ui_keyboard_event_t));
         if (s_keyboard_queue == NULL) {
             ESP_LOGE(TAG, "failed to create virtual keyboard queue");
+            status_ui_set_state(STATUS_UI_STATE_ERROR);
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    if (s_input_queue == NULL) {
+        s_input_queue = xQueueCreate(8, sizeof(status_ui_input_t));
+        if (s_input_queue == NULL) {
+            ESP_LOGE(TAG, "failed to create status UI input queue");
+            status_ui_set_state(STATUS_UI_STATE_ERROR);
+            return ESP_ERR_NO_MEM;
+        }
+        BaseType_t input_created = xTaskCreate(status_ui_input_task, "status_ui_input",
+                                               STATUS_UI_INPUT_TASK_STACK, NULL,
+                                               STATUS_UI_INPUT_TASK_PRIORITY, NULL);
+        if (input_created != pdPASS) {
+            ESP_LOGE(TAG, "failed to start status UI input task");
             status_ui_set_state(STATUS_UI_STATE_ERROR);
             return ESP_ERR_NO_MEM;
         }
