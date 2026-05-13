@@ -151,8 +151,11 @@ void ui_runtime_refresh_status_bar(ui_runtime_t *ui)
         ui->status_bar.time_valid = true;
         snprintf(ui->status_bar.time_hhmm, sizeof(ui->status_bar.time_hhmm), "%02d:%02d", local.tm_hour, local.tm_min);
     } else {
-        ui->status_bar.time_valid = false;
-        snprintf(ui->status_bar.time_hhmm, sizeof(ui->status_bar.time_hhmm), "--:--");
+        uint32_t uptime_minutes = (uint32_t)((xTaskGetTickCount() * portTICK_PERIOD_MS) / 60000u);
+        uint32_t hour = (uptime_minutes / 60u) % 24u;
+        uint32_t minute = uptime_minutes % 60u;
+        ui->status_bar.time_valid = true;
+        snprintf(ui->status_bar.time_hhmm, sizeof(ui->status_bar.time_hhmm), "%02u:%02u", (unsigned)hour, (unsigned)minute);
     }
     ui->status_bar.battery_valid = false;
     ui->status_bar.battery_percent = 0u;

@@ -60,7 +60,7 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(rule_runtime_init(&runtime, &config));
     ASSERT_TRUE(rule_config_store_open(&store));
     ASSERT_TRUE(rule_web_start(&web, &runtime, &store));
-    char json[12288];
+    char json[16384];
     ASSERT_TRUE(rule_web_get_status_json(&web, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "http_network_ready") != NULL);
     ASSERT_TRUE(strstr(json, "\"wifi\"") != NULL);
@@ -125,7 +125,7 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "pulse_count") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/config", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "threshold_kind") != NULL);
-    char exported[12288];
+    char exported[16384];
     snprintf(exported, sizeof(exported), "%s", json);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", exported, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "config rejected") == NULL);
