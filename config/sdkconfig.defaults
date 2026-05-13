@@ -23,6 +23,10 @@ CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 
+## Avoid first-boot RF calibration load warnings on freshly erased NVS by using
+## full RF calibration instead of trying to load missing partial-calibration data.
+CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n
+
 CONFIG_APP_STATUS_UI_LCD_REFRESH_MS=100
 ## The rule automation config is intentionally kept off app_main()'s stack,
 ## but ESP-IDF startup plus board/BLE bring-up still benefits from explicit
