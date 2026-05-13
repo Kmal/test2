@@ -90,9 +90,7 @@
 #define UI_COLOR_OK STATUS_UI_LCD_OK
 #define UI_COLOR_WARN STATUS_UI_LCD_WARN
 #define UI_COLOR_ERR STATUS_UI_LCD_ERR
-#define UI_KEYBOARD_KEY_COUNT 14
-#define UI_KEYBOARD_CHAR_KEY_COUNT 9
-#define UI_KEYBOARD_CONTROL_KEY_COUNT 5
+#define UI_KEYBOARD_KEY_COUNT 16
 #define UI_KEYBOARD_OVERLAY_H 108
 #define UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS 800
 #endif
@@ -1055,24 +1053,23 @@ static void lcd_draw_text(int x, int y, const char *text, uint16_t color, uint8_
 }
 
 
-static const ui_key_def_t s_9key_defs[UI_KEYBOARD_CHAR_KEY_COUNT] = {
-    { UI_KEY_KIND_CHAR, "1", "1.,!?", "1.,!?", '1' },
-    { UI_KEY_KIND_CHAR, "2", "2abc", "2@#$", '2' },
-    { UI_KEY_KIND_CHAR, "3", "3def", "3%&*", '3' },
-    { UI_KEY_KIND_CHAR, "4", "4ghi", "4-_+", '4' },
-    { UI_KEY_KIND_CHAR, "5", "5jkl", "5=:/", '5' },
-    { UI_KEY_KIND_CHAR, "6", "6mno", "6;()'", '6' },
-    { UI_KEY_KIND_CHAR, "7", "7pqrs", "7[]{}", '7' },
-    { UI_KEY_KIND_CHAR, "8", "8tuv", "8<>\\", '8' },
-    { UI_KEY_KIND_CHAR, "9", "9wxyz", "9`~|", '9' },
-};
-
-static const ui_key_def_t s_9key_controls[UI_KEYBOARD_CONTROL_KEY_COUNT] = {
-    { UI_KEY_KIND_OK, "OK", NULL, NULL, 0 },
+static const ui_key_def_t s_9key_defs[UI_KEYBOARD_KEY_COUNT] = {
+    { UI_KEY_KIND_CHAR, "1", "1", "1", '1' },
+    { UI_KEY_KIND_CHAR, "2ABC", "2abc", "2abc", '2' },
+    { UI_KEY_KIND_CHAR, "3DEF", "3def", "3def", '3' },
+    { UI_KEY_KIND_CHAR, "-", "-", "-", '-' },
+    { UI_KEY_KIND_CHAR, "4GHI", "4ghi", "4ghi", '4' },
+    { UI_KEY_KIND_CHAR, "5JKL", "5jkl", "5jkl", '5' },
+    { UI_KEY_KIND_CHAR, "6MNO", "6mno", "6mno", '6' },
+    { UI_KEY_KIND_CHAR, ".", ".", ".", '.' },
+    { UI_KEY_KIND_CHAR, "7PRQS", "7pqrs", "7pqrs", '7' },
+    { UI_KEY_KIND_CHAR, "8TUV", "8tuv", "8tuv", '8' },
+    { UI_KEY_KIND_CHAR, "9WXYZ", "9wxyz", "9wxyz", '9' },
     { UI_KEY_KIND_DELETE, "DEL", NULL, NULL, 0 },
-    { UI_KEY_KIND_SPACE, "SPC", NULL, NULL, 0 },
-    { UI_KEY_KIND_MODE, "MODE", NULL, NULL, 0 },
-    { UI_KEY_KIND_CANCEL, "ESC", NULL, NULL, 0 },
+    { UI_KEY_KIND_CHAR, "*#(", "*#(", "*#(", '*' },
+    { UI_KEY_KIND_CHAR, "0+", "0+", "0+", '0' },
+    { UI_KEY_KIND_SPACE, "_", NULL, NULL, 0 },
+    { UI_KEY_KIND_OK, "Next", NULL, NULL, 0 },
 };
 
 static void lcd_draw_text_clipped(int x, int y, const char *text, uint16_t color, uint8_t scale, size_t max_chars)
@@ -1289,8 +1286,9 @@ static void ui_keyboard_handle_prev(ui_keyboard_state_t *kb)
 static void ui_keyboard_handle_select(ui_keyboard_state_t *kb)
 {
     if (kb == NULL) return;
-    if (kb->selected_key < UI_KEYBOARD_CHAR_KEY_COUNT) {
-        const ui_key_def_t *key = &s_9key_defs[kb->selected_key];
+    const ui_key_def_t *key = &s_9key_defs[kb->selected_key];
+    switch (key->kind) {
+    case UI_KEY_KIND_CHAR: {
         if (kb->mode == UI_KEYBOARD_MODE_NUMERIC) {
             ui_keyboard_append_char(kb, key->numeric_char);
             return;
@@ -1312,10 +1310,8 @@ static void ui_keyboard_handle_select(ui_keyboard_state_t *kb)
             ui_keyboard_append_char(kb, chars[0]);
         }
         kb->last_key_tick_ms = now_ms;
-        return;
+        break;
     }
-    const ui_key_def_t *control = &s_9key_controls[kb->selected_key - UI_KEYBOARD_CHAR_KEY_COUNT];
-    switch (control->kind) {
     case UI_KEY_KIND_OK: ui_keyboard_commit_pending(kb); kb->result = UI_KEYBOARD_RESULT_OK; break;
     case UI_KEY_KIND_DELETE: ui_keyboard_backspace(kb); break;
     case UI_KEY_KIND_SPACE: ui_keyboard_commit_pending(kb); ui_keyboard_append_char(kb, ' '); break;
@@ -1341,16 +1337,17 @@ static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
     for (size_t i = 0; i < len && i < sizeof(display) - 1u; ++i) display[i] = kb->secret ? '*' : kb->text[i];
     display[len < sizeof(display) ? len : sizeof(display) - 1u] = '\0';
     lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 18, display, STATUS_UI_LCD_OK, 1, 19);
-    const int key_w = BOARD_LCD_H_RES / 5;
+    const int cols = 4;
+    const int key_w = BOARD_LCD_H_RES / cols;
     for (uint8_t i = 0; i < UI_KEYBOARD_KEY_COUNT; ++i) {
         const bool selected = kb->selected_key == i;
-        const int col = i % 5;
-        const int row = i / 5;
+        const int col = i % cols;
+        const int row = i / cols;
         const int x = col * key_w;
-        const int y = y0 + 34 + row * 22;
-        const char *label = i < UI_KEYBOARD_CHAR_KEY_COUNT ? s_9key_defs[i].label : s_9key_controls[i - UI_KEYBOARD_CHAR_KEY_COUNT].label;
-        lcd_fill_rect(x + 1, y, key_w - 2, 20, selected ? STATUS_UI_LCD_OK : 0x2104);
-        lcd_draw_text(x + 4, y + 6, label, selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT, 1);
+        const int y = y0 + 34 + row * 18;
+        const char *label = s_9key_defs[i].label;
+        lcd_fill_rect(x + 1, y, key_w - 2, 17, selected ? STATUS_UI_LCD_OK : 0x2104);
+        lcd_draw_text(x + 3, y + 5, label, selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT, 1);
     }
 }
 
