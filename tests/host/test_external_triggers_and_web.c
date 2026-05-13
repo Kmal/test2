@@ -77,6 +77,9 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "Use AP Mode") != NULL);
     ASSERT_TRUE(strstr(json, "Saved Wi-Fi") != NULL);
     ASSERT_TRUE(strstr(json, "Forget Saved Credentials") != NULL);
+    ASSERT_TRUE(strstr(json, "id=\"wifi_ssid\" maxlength=\"32\" autocomplete=\"off\" autocapitalize=\"none\"") != NULL);
+    ASSERT_TRUE(strstr(json, "id=\"wifi_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\" autocapitalize=\"none\"") != NULL);
+    ASSERT_TRUE(strstr(json, "id=\"ap_ssid\" maxlength=\"32\" autocomplete=\"off\" autocapitalize=\"none\"") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/wifi/status", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "\"enabled\":false") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/scan", NULL, json, sizeof(json)));

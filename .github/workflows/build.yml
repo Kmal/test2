@@ -34,6 +34,9 @@ jobs:
       - name: Validate factory image tool
         run: python3 tests/tools/test_make_factory_image.py
 
+      - name: Validate LCD keyboard casing
+        run: python3 tests/tools/test_status_ui_keyboard.py
+
       - name: Validate docs consistency
         run: python3 tools/check_docs_consistency.py
 

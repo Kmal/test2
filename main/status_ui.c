@@ -1036,6 +1036,10 @@ static const uint8_t *glyph_rows(char c)
     static const uint8_t glyph_star[7] = {0, 21, 14, 31, 14, 21, 0};
     static const uint8_t glyph_gt[7] = {16, 8, 4, 2, 4, 8, 16};
 
+    /* Keep the rendered glyph case-sensitive. The 9-key input cycle stores
+     * lowercase and uppercase letters distinctly (for example 2/a/b/c/A/B/C),
+     * so case folding would make the input field display a/b/c as A/B/C
+     * even though the backing text is lowercase. */
     switch (c) {
     case '0': return glyph_0;
     case '1': return glyph_1;
