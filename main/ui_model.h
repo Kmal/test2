@@ -55,8 +55,6 @@ typedef struct {
 
 typedef struct {
     bool ble_connected;
-    bool metrics_notify_enabled;
-    bool pcm_notify_enabled;
     char device_name[32];
     char status_text[48];
 } ui_bluetooth_state_t;

@@ -26,16 +26,12 @@ compile test_audio_resample -I"${ROOT}/main" \
   "${ROOT}/main/audio_resample.c" "${ROOT}/tests/host/test_audio_resample.c"
 compile test_audio_pipeline -I"${ROOT}/main" \
   "${ROOT}/main/audio_pipeline.c" "${ROOT}/tests/host/test_audio_pipeline.c"
-compile test_audio_metrics -I"${ROOT}/main" \
-  "${ROOT}/main/audio_metrics.c" "${ROOT}/tests/host/test_audio_metrics.c" -lm
 compile test_app_mode -I"${ROOT}/main" \
   "${ROOT}/main/app_mode.c" "${ROOT}/tests/host/test_app_mode.c"
 compile test_ui_nav -I"${ROOT}/main" \
   "${ROOT}/main/ui_nav.c" "${ROOT}/tests/host/test_ui_nav.c"
-compile test_pcm_debug_ring -I"${ROOT}/main" \
-  "${ROOT}/main/pcm_debug_ring.c" "${ROOT}/tests/host/test_pcm_debug_ring.c"
-compile test_ble_sound_protocol -I"${ROOT}/main" \
-  "${ROOT}/tests/host/test_ble_sound_protocol.c"
+compile test_ble_rule_protocol -I"${ROOT}/main" \
+  "${ROOT}/tests/host/test_ble_rule_protocol.c"
 compile test_es8311_sequence -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}/main" \
   "${ROOT}/main/es8311.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/tests/host/test_es8311_sequence.c"
 compile test_m5pm1_gpio -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}/main" \
@@ -63,11 +59,9 @@ compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
 "${BUILD_DIR}/test_button_state"
 "${BUILD_DIR}/test_audio_resample"
 "${BUILD_DIR}/test_audio_pipeline"
-"${BUILD_DIR}/test_audio_metrics"
 "${BUILD_DIR}/test_app_mode"
 "${BUILD_DIR}/test_ui_nav"
-"${BUILD_DIR}/test_pcm_debug_ring"
-"${BUILD_DIR}/test_ble_sound_protocol"
+"${BUILD_DIR}/test_ble_rule_protocol"
 "${BUILD_DIR}/test_es8311_sequence"
 "${BUILD_DIR}/test_m5pm1_gpio"
 "${BUILD_DIR}/test_board_audio"

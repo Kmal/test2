@@ -6,7 +6,7 @@
  * support Bluetooth Classic / BR/EDR; Classic Bluetooth HFP code must not be
  * enabled for this board.
  *
- * Audio codec pins (the default Bluetooth LE GATT PCM runtime uses the ADC/RX
+ * Audio codec pins (reserved for optional audio builds; the default control runtime does not use them
  * path only; GPIO14 is physically available for DAC data but is not driven
  * until a full-duplex profile is selected):
  *

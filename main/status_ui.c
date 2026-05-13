@@ -1,10 +1,13 @@
 #include "status_ui.h"
 
 #include "board_sticks3.h"
-#include "audio_metrics.h"
 #include "app_wifi.h"
+#include "sdkconfig.h"
 #include "ui_nav.h"
 #include "ui_model.h"
+#if CONFIG_APP_TRANSPORT_BLE_GATT
+#include "transport_ble_gatt.h"
+#endif
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -90,12 +93,9 @@ static const char *TAG = "STATUS_UI";
 
 static status_ui_button_handlers_t s_handlers;
 static status_ui_state_t s_state = STATUS_UI_STATE_BOOTING;
-static bool s_monitoring_enabled = false;
 static bool s_service_enabled = false;
 static uint32_t s_key1_press_count = 0;
 static uint32_t s_key2_press_count = 0;
-static status_ui_sound_meter_snapshot_t s_sound_snapshot;
-static app_display_mode_t s_display_mode = APP_DISPLAY_VU;
 static ui_runtime_t s_ui;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -242,23 +242,6 @@ status_ui_state_t status_ui_get_state(void)
     return state;
 }
 
-void status_ui_set_monitoring_enabled(bool enabled)
-{
-    portENTER_CRITICAL(&s_state_mux);
-    s_monitoring_enabled = enabled;
-    portEXIT_CRITICAL(&s_state_mux);
-    ESP_LOGI(TAG, "monitoring output: %s", bool_label(enabled));
-}
-
-bool status_ui_get_monitoring_enabled(void)
-{
-    bool enabled;
-    portENTER_CRITICAL(&s_state_mux);
-    enabled = s_monitoring_enabled;
-    portEXIT_CRITICAL(&s_state_mux);
-    return enabled;
-}
-
 void status_ui_set_service_enabled(bool enabled)
 {
     portENTER_CRITICAL(&s_state_mux);
@@ -275,46 +258,6 @@ bool status_ui_get_service_enabled(void)
     portEXIT_CRITICAL(&s_state_mux);
     return enabled;
 }
-
-void status_ui_set_sound_meter_snapshot(const status_ui_sound_meter_snapshot_t *snapshot)
-{
-    if (snapshot == NULL) {
-        return;
-    }
-    portENTER_CRITICAL(&s_state_mux);
-    s_sound_snapshot = *snapshot;
-    portEXIT_CRITICAL(&s_state_mux);
-}
-
-bool status_ui_get_sound_meter_snapshot(status_ui_sound_meter_snapshot_t *out)
-{
-    if (out == NULL) {
-        return false;
-    }
-    portENTER_CRITICAL(&s_state_mux);
-    *out = s_sound_snapshot;
-    portEXIT_CRITICAL(&s_state_mux);
-    return out->valid;
-}
-
-void status_ui_set_display_mode(app_display_mode_t mode)
-{
-    portENTER_CRITICAL(&s_state_mux);
-    s_display_mode = mode;
-    s_sound_snapshot.display_mode = (uint8_t)mode;
-    portEXIT_CRITICAL(&s_state_mux);
-    ESP_LOGI(TAG, "display mode: %s", app_display_mode_name(mode));
-}
-
-app_display_mode_t status_ui_get_display_mode(void)
-{
-    app_display_mode_t mode;
-    portENTER_CRITICAL(&s_state_mux);
-    mode = s_display_mode;
-    portEXIT_CRITICAL(&s_state_mux);
-    return mode;
-}
-
 
 void status_ui_open_screen(ui_screen_id_t screen)
 {
@@ -499,12 +442,11 @@ static bool status_ui_action_ap_show_url(ui_runtime_t *ui, const ui_menu_item_t 
 static void status_ui_bluetooth_refresh(ui_runtime_t *ui)
 {
     if (ui == NULL) return;
-    status_ui_sound_meter_snapshot_t snapshot;
-    if (status_ui_get_sound_meter_snapshot(&snapshot)) {
-        ui->bluetooth.ble_connected = snapshot.ble_connected;
-        ui->bluetooth.metrics_notify_enabled = snapshot.ble_metrics_notify_enabled;
-        ui->bluetooth.pcm_notify_enabled = snapshot.ble_pcm_notify_enabled;
-    }
+#if CONFIG_APP_TRANSPORT_BLE_GATT
+    ui->bluetooth.ble_connected = transport_ble_gatt_is_connected();
+#else
+    ui->bluetooth.ble_connected = false;
+#endif
     ui_runtime_refresh_bluetooth(ui);
 }
 
@@ -536,7 +478,7 @@ static bool status_ui_action_automation_toggle_enable(ui_runtime_t *ui, const ui
     return ok;
 }
 
-static const rule_source_t s_trigger_preset_sources[] = { RULE_SOURCE_SOUND_RMS_DBFS, RULE_SOURCE_SOUND_PEAK_DBFS, RULE_SOURCE_KEY1_SHORT, RULE_SOURCE_KEY2_SHORT, RULE_SOURCE_BLE_CONNECTED, RULE_SOURCE_WIFI_CONNECTED };
+static const rule_source_t s_trigger_preset_sources[] = { RULE_SOURCE_KEY1_SHORT, RULE_SOURCE_KEY2_SHORT, RULE_SOURCE_BLE_CONNECTED, RULE_SOURCE_WIFI_CONNECTED };
 static const rule_action_kind_t s_action_preset_kinds[] = { RULE_ACTION_BLE_MESSAGE, RULE_ACTION_HTTP_POST, RULE_ACTION_LOCAL_UI, RULE_ACTION_IR_SEND };
 
 static bool status_ui_action_automation_edit_trigger(ui_runtime_t *ui, const ui_menu_item_t *item)
@@ -665,7 +607,7 @@ void status_ui_handle_input(status_ui_input_t input)
         break;
     case STATUS_UI_INPUT_BACK:
         if (s_ui.menu_active && s_ui.nav.current == UI_SCREEN_MAIN) {
-            s_ui.menu_active = false;
+            s_ui.menu_active = true;
         } else if (s_ui.menu_active) {
             (void)ui_nav_back(&s_ui.nav);
         }
@@ -1412,206 +1354,6 @@ bool status_ui_keyboard_read_line(const char *title, const char *initial, char *
     return status_ui_keyboard_read_line_mode(title, initial, out, out_len, max_len, secret ? UI_KEYBOARD_MODE_PASSWORD : UI_KEYBOARD_MODE_TEXT, secret, timeout_ms);
 }
 
-static uint16_t state_color(status_ui_state_t state)
-{
-    switch (state) {
-    case STATUS_UI_STATE_READY:
-        return STATUS_UI_LCD_OK;
-    case STATUS_UI_STATE_BOOTING:
-    case STATUS_UI_STATE_NO_TRANSPORT:
-        return STATUS_UI_LCD_WARN;
-    case STATUS_UI_STATE_ERROR:
-        return STATUS_UI_LCD_ERR;
-    default:
-        return STATUS_UI_LCD_DIM;
-    }
-}
-
-
-typedef struct {
-    status_ui_state_t state;
-    bool monitoring_enabled;
-    bool service_enabled;
-    uint32_t key1_count;
-    uint32_t key2_count;
-    status_ui_sound_meter_snapshot_t snapshot;
-    app_display_mode_t display_mode;
-} status_ui_lcd_context_t;
-
-static const char *display_title(app_display_mode_t mode)
-{
-    switch (mode) {
-    case APP_DISPLAY_VU:
-        return "METER";
-    case APP_DISPLAY_NUMERIC:
-        return "NUMERIC";
-    case APP_DISPLAY_BLE_STATUS:
-        return "BLE";
-    case APP_DISPLAY_DIAGNOSTICS:
-        return "DIAG";
-    default:
-        return "APP";
-    }
-}
-
-static void status_ui_render_app_shell(const char *title, const status_ui_lcd_context_t *ctx, uint16_t accent)
-{
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, STATUS_UI_LCD_BG);
-    lcd_fill_rect(0, 0, BOARD_LCD_H_RES, 24, accent);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, STATUS_UI_LCD_TOP_PAD, title, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-
-    char line[32];
-    snprintf(line, sizeof(line), "K1 VIEW K2 APP");
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, BOARD_LCD_V_RES - 18, line, STATUS_UI_LCD_DIM, 1);
-    snprintf(line, sizeof(line), "%.10s", status_ui_state_name(ctx->state));
-    lcd_draw_text(BOARD_LCD_H_RES - 64, BOARD_LCD_V_RES - 18, line, state_color(ctx->state), 1);
-}
-
-static void format_dbfs_q8(char *buf, size_t len, int32_t dbfs_q8)
-{
-    int32_t whole = dbfs_q8 / 256;
-    int32_t frac = dbfs_q8 % 256;
-    if (frac < 0) {
-        frac = -frac;
-    }
-    frac = (frac * 10) / 256;
-    snprintf(buf, len, "%ld.%ld", (long)whole, (long)frac);
-}
-
-static void lcd_draw_horizontal_bar(int x, int y, int w, int h, uint16_t percent, uint16_t fill, uint16_t bg)
-{
-    if (percent > 100) {
-        percent = 100;
-    }
-    lcd_fill_rect(x, y, w, h, bg);
-    lcd_fill_rect(x, y, (w * percent) / 100, h, fill);
-}
-
-static uint16_t vu_color(const status_ui_sound_meter_snapshot_t *snap)
-{
-    if ((snap->flags & AUDIO_METRICS_FLAG_CLIPPING) != 0 || snap->vu_percent >= 90) {
-        return STATUS_UI_LCD_ERR;
-    }
-    if (snap->vu_percent >= 65) {
-        return STATUS_UI_LCD_WARN;
-    }
-    return STATUS_UI_LCD_OK;
-}
-
-static void status_ui_render_vu_lcd(const status_ui_sound_meter_snapshot_t *snap)
-{
-    if (snap->calibration_active) {
-        char line[32];
-        lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 40, "KEEP QUIET", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
-        snprintf(line, sizeof(line), "%lu/%lu", (unsigned long)snap->calibration_collected_windows,
-                 (unsigned long)snap->calibration_required_windows);
-        lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 68, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-        uint16_t percent = snap->calibration_required_windows == 0
-                               ? 0
-                               : (uint16_t)((snap->calibration_collected_windows * 100U) /
-                                            snap->calibration_required_windows);
-        lcd_draw_horizontal_bar(4, 100, BOARD_LCD_H_RES - 8, 24, percent, STATUS_UI_LCD_WARN, STATUS_UI_LCD_DIM);
-        return;
-    }
-    char rms[16];
-    char peak[16];
-    char line[32];
-    format_dbfs_q8(rms, sizeof(rms), snap->rms_dbfs_q8);
-    format_dbfs_q8(peak, sizeof(peak), snap->peak_dbfs_q8);
-    snprintf(line, sizeof(line), "RMS %sDB", rms);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 36, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "PK %sDB", peak);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 56, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    lcd_draw_horizontal_bar(4, 90, BOARD_LCD_H_RES - 8, 28, snap->vu_percent, vu_color(snap), STATUS_UI_LCD_DIM);
-    snprintf(line, sizeof(line), "VU %u%%", (unsigned)snap->vu_percent);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 124, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "BLE %s", snap->ble_connected ? "ON" : "OFF");
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 148, line, snap->ble_connected ? STATUS_UI_LCD_OK : STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "MODE %.8s", app_mode_name((app_mode_t)snap->app_mode));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 168, line, STATUS_UI_LCD_DIM, 1);
-    snprintf(line, sizeof(line), "CLIP %u", (unsigned)snap->clipped_samples);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 184, line, snap->clipped_samples ? STATUS_UI_LCD_ERR : STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-}
-
-static void status_ui_render_numeric_lcd(const status_ui_sound_meter_snapshot_t *snap)
-{
-    char rms[16];
-    char peak[16];
-    char line[32];
-    format_dbfs_q8(rms, sizeof(rms), snap->rms_dbfs_q8);
-    format_dbfs_q8(peak, sizeof(peak), snap->peak_dbfs_q8);
-    snprintf(line, sizeof(line), "RMS:%s", rms);
-    lcd_draw_text(4, 34, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "PK:%s", peak);
-    lcd_draw_text(4, 54, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "VU:%u%%", (unsigned)snap->vu_percent);
-    lcd_draw_text(4, 74, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "ZC:%lu", (unsigned long)snap->zero_crossings);
-    lcd_draw_text(4, 94, line, STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "FLG:%lx", (unsigned long)snap->flags);
-    lcd_draw_text(4, 114, line, STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "SEQ:%lu", (unsigned long)snap->sequence);
-    lcd_draw_text(4, 134, line, STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-}
-
-static void status_ui_render_ble_lcd(const status_ui_sound_meter_snapshot_t *snap)
-{
-    char line[32];
-    snprintf(line, sizeof(line), "CONN %s", snap->ble_connected ? "YES" : "NO");
-    lcd_draw_text(4, 36, line, snap->ble_connected ? STATUS_UI_LCD_OK : STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "METR %s", snap->ble_metrics_notify_enabled ? "YES" : "NO");
-    lcd_draw_text(4, 56, line, snap->ble_metrics_notify_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "PCM %s", snap->ble_pcm_notify_enabled ? "YES" : "NO");
-    lcd_draw_text(4, 76, line, snap->ble_pcm_notify_enabled ? STATUS_UI_LCD_WARN : STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    snprintf(line, sizeof(line), "SEQ %lu", (unsigned long)snap->sequence);
-    lcd_draw_text(4, 96, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-}
-
-static void status_ui_render_diagnostics_lcd(const status_ui_lcd_context_t *ctx)
-{
-    int y = 32;
-    char line[32];
-    snprintf(line, sizeof(line), "STATE");
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "%.12s", status_ui_state_name(ctx->state));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, state_color(ctx->state), STATUS_UI_LCD_TEXT_SCALE);
-
-    y += STATUS_UI_LCD_LINE_HEIGHT + 2;
-    snprintf(line, sizeof(line), "BLE SVC: %s", bool_label(ctx->service_enabled));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, ctx->service_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
-    y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "MON: %s", bool_label(ctx->monitoring_enabled));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, ctx->monitoring_enabled ? STATUS_UI_LCD_OK : STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "PCM: %d HZ", BOARD_I2S_SAMPLE_RATE);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "KEY1:%lu", (unsigned long)ctx->key1_count);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "KEY2:%lu", (unsigned long)ctx->key2_count);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-    y += STATUS_UI_LCD_LINE_HEIGHT;
-    snprintf(line, sizeof(line), "UP:%lus", (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS / 1000U));
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, line, STATUS_UI_LCD_TEXT, STATUS_UI_LCD_TEXT_SCALE);
-
-#ifdef CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME
-    y += STATUS_UI_LCD_LINE_HEIGHT + 2;
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, y, CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME, STATUS_UI_LCD_DIM, 1);
-#endif
-}
-
-static void status_ui_render_waiting_lcd(void)
-{
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 46, "WAITING", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 70, "FOR PCM", STATUS_UI_LCD_WARN, STATUS_UI_LCD_TEXT_SCALE);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 104, "CHECK I2S", STATUS_UI_LCD_DIM, STATUS_UI_LCD_TEXT_SCALE);
-    lcd_draw_text(STATUS_UI_LCD_LEFT_PAD, 124, "CLOCK/CODEC", STATUS_UI_LCD_DIM, 1);
-}
-
-
-
 static void status_ui_format_time_24h(char out[6])
 {
     if (out == NULL) return;
@@ -1725,8 +1467,6 @@ static void ui_render_bluetooth_status(const ui_runtime_t *ui)
     char line[56];
     int y = UI_BODY_Y;
     snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Metrics: %s", ui->bluetooth.metrics_notify_enabled ? "on" : "off"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "PCM: %s", ui->bluetooth.pcm_notify_enabled ? "on" : "off"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Name: %s", ui->bluetooth.device_name); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20);
 }
 
@@ -1812,57 +1552,7 @@ static void status_ui_render_menu_lcd(const ui_runtime_t *ui)
 
 static void status_ui_render_lcd(void)
 {
-    status_ui_lcd_context_t ctx;
-
-    portENTER_CRITICAL(&s_state_mux);
-    ctx.state = s_state;
-    ctx.monitoring_enabled = s_monitoring_enabled;
-    ctx.service_enabled = s_service_enabled;
-    ctx.key1_count = s_key1_press_count;
-    ctx.key2_count = s_key2_press_count;
-    ctx.snapshot = s_sound_snapshot;
-    ctx.display_mode = s_display_mode;
-    portEXIT_CRITICAL(&s_state_mux);
-
-    uint16_t accent = STATUS_UI_LCD_HEADER_BG;
-    if (ctx.snapshot.valid && (ctx.snapshot.flags & AUDIO_METRICS_FLAG_CLIPPING) != 0) {
-        accent = STATUS_UI_LCD_ERR;
-    }
-    if (s_ui.menu_active) {
-        status_ui_render_menu_lcd(&s_ui);
-        if (keyboard_is_active()) {
-            status_ui_render_keyboard_lcd();
-        }
-        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
-        }
-        return;
-    }
-
-    status_ui_render_app_shell(display_title(ctx.display_mode), &ctx, accent);
-
-    if (!ctx.snapshot.valid && ctx.display_mode != APP_DISPLAY_DIAGNOSTICS) {
-        status_ui_render_waiting_lcd();
-    } else {
-        ctx.snapshot.display_mode = (uint8_t)ctx.display_mode;
-        switch (ctx.display_mode) {
-        case APP_DISPLAY_VU:
-            status_ui_render_vu_lcd(&ctx.snapshot);
-            break;
-        case APP_DISPLAY_NUMERIC:
-            status_ui_render_numeric_lcd(&ctx.snapshot);
-            break;
-        case APP_DISPLAY_BLE_STATUS:
-            status_ui_render_ble_lcd(&ctx.snapshot);
-            break;
-        case APP_DISPLAY_DIAGNOSTICS:
-        default:
-            status_ui_render_diagnostics_lcd(&ctx);
-            break;
-        }
-    }
-
+    status_ui_render_menu_lcd(&s_ui);
     if (keyboard_is_active()) {
         status_ui_render_keyboard_lcd();
     }
@@ -2116,7 +1806,6 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
     ESP_LOGI(TAG, "status UI ready; StickS3 keys KEY1=%d KEY2=%d",
              BOARD_BUTTON_KEY1_GPIO, BOARD_BUTTON_KEY2_GPIO);
     ESP_LOGI(TAG, "status: %s", status_ui_state_name(status_ui_get_state()));
-    ESP_LOGI(TAG, "monitoring output: %s", bool_label(status_ui_get_monitoring_enabled()));
     ESP_LOGI(TAG, "transport service: %s", bool_label(status_ui_get_service_enabled()));
     return ESP_OK;
 }

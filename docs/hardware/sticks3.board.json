@@ -14,7 +14,7 @@
     },
     "bclk_hz": 512000,
     "lrck_hz": 16000,
-    "profile": "capture-only BLE GATT PCM default; full-duplex is opt-in",
+    "profile": "control firmware default; audio capture is opt-in",
     "mclk_multiple": 768
   },
   "i2c": {

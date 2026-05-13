@@ -24,7 +24,7 @@ esp_err_t board_speaker_amp_pulse(i2c_port_t port, uint8_t pulse_count)
     (void)pulse_count;
     /*
      * Speaker amplifier control must remain explicit and source-backed. The
-     * default BLE GATT PCM firmware never calls this path.
+     * default control firmware never calls this path.
      */
     ESP_LOGW(TAG, "speaker amplifier pulse is blocked pending source-backed M5PM1/AW8737 sequence evidence");
     return ESP_ERR_NOT_SUPPORTED;

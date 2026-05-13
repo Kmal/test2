@@ -40,7 +40,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a Bluetooth LE sound-level meter and local automation device. It initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the web configuration server, status UI, and the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence. It starts an onboard ST7789P3 135x240 VU/status dashboard when `CONFIG_APP_STATUS_UI_LCD` is enabled, skips the optional M5PM1 audio probe, configures the ESP32-S3 I2S standard driver for capture-only RX, initializes the ES8311 ADC-only profile, advertises as `M5StickS3-Meter`, exposes custom BLE service UUID `0xFFF0`, sends `M5LM` sound-level telemetry on characteristic UUID `0xFFF2`, accepts control writes on `0xFFF3`, exposes status on `0xFFF4`, emits `M5RE` automation rule events on `0xFFF5`, and keeps optional framed 16 kHz, 16-bit mono PCM debug notifications on characteristic UUID `0xFFF1` when explicitly enabled. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+The current default firmware is a local configuration and automation device. It initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the web configuration server, status UI, and the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default firmware does not initialize I2S audio, does not start sound-level telemetry, does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ## On-device UI hierarchy
 
@@ -83,7 +83,7 @@ The current firmware polls the two documented keys, logs their presses, displays
 
 ## LCD debug dashboard
 
-The onboard LCD is documented as an ST7789P3 panel with 135x240 resolution. The firmware maps MOSI=GPIO39, SCLK=GPIO40, RS/DC=GPIO45, CS=GPIO41, RST=GPIO21, and BL=GPIO38, uses SPI3_HOST at 40 MHz, and applies the source-backed ST7789 controller RAM gap X=52/Y=40. `CONFIG_APP_STATUS_UI_LCD` defaults to enabled and makes `status_ui_init()` initialize the panel, enable the backlight, and render VU, numeric, BLE/status, and diagnostics pages with state, BLE service state, monitoring state, 16 kHz PCM rate, key press counters, uptime, and BLE device name. LCD bring-up is intentionally non-fatal so audio and BLE validation can continue if display hardware is unavailable or panel initialization fails.
+The onboard LCD is documented as an ST7789P3 panel with 135x240 resolution. The firmware maps MOSI=GPIO39, SCLK=GPIO40, RS/DC=GPIO45, CS=GPIO41, RST=GPIO21, and BL=GPIO38, uses SPI3_HOST at 40 MHz, and applies the source-backed ST7789 controller RAM gap X=52/Y=40. `CONFIG_APP_STATUS_UI_LCD` defaults to enabled and makes `status_ui_init()` initialize the panel, enable the backlight, and render the launcher/menu UI with Wi-Fi, BLE status, automation, and settings screens. LCD bring-up is intentionally non-fatal so Wi-Fi, BLE, and automation validation can continue if display hardware is unavailable or panel initialization fails.
 
 When validating the L3B/LCD fix on UART, the expected M5PM1 lines include `active_level=high`, `out_reg=0x11`, `out_value=0x04`, and a later GPIO output update with `value=0x04`. If the UART still reports `active_level=low` or `GPIO2 driven low`, the board is running an older application image and must be rebuilt/reflashed before judging the LCD or ES8311 result.
 
@@ -107,7 +107,7 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 
 ## Unknowns / deferred decisions
 
-- Whether a future product requires a standard USB Audio or BLE Audio class instead of the selected custom BLE sound meter.
+- Whether a future product requires optional audio capture; the default control firmware does not expose audio or sound-level telemetry.
 - Exact M5PM1 speaker amplifier command sequence.
 - Whether BMI270, ADC, battery, or HAT features are needed by a future product feature.
 

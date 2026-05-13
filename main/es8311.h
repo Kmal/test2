@@ -37,7 +37,7 @@ typedef enum {
 /**
  * @brief ES8311 initialization profiles.
  *
- * ADC-only is used by the StickS3 BLE GATT PCM firmware so the microphone
+ * ADC-only is available for optional audio builds so the microphone
  * path can be brought up without enabling the DAC/speaker-monitoring path.
  * Full-duplex preserves the historical behavior for non-StickS3 legacy code.
  */
