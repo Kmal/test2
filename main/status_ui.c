@@ -5,7 +5,7 @@
 #include "sdkconfig.h"
 #include "ui_nav.h"
 #include "ui_model.h"
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 #include "transport_ble_gatt.h"
 #endif
 
@@ -442,7 +442,7 @@ static bool status_ui_action_ap_show_url(ui_runtime_t *ui, const ui_menu_item_t 
 static void status_ui_bluetooth_refresh(ui_runtime_t *ui)
 {
     if (ui == NULL) return;
-#if CONFIG_APP_TRANSPORT_BLE_GATT
+#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     ui->bluetooth.ble_connected = transport_ble_gatt_is_connected();
 #else
     ui->bluetooth.ble_connected = false;
