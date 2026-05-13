@@ -64,6 +64,15 @@ jobs:
             idf.py build
             python3 tools/make_factory_image.py
             sha256sum build/m5sticks3_bluetooth_mic.bin > build/m5sticks3_bluetooth_mic.bin.sha256
+            cat > build/FLASH_THIS_FACTORY_IMAGE.txt <<'EOF'
+            Flash build/m5sticks3_bluetooth_mic.bin at offset 0x0.
+
+            Example:
+              esptool.py --chip esp32s3 --port <PORT> erase_flash
+              esptool.py --chip esp32s3 --port <PORT> write_flash 0x0 m5sticks3_bluetooth_mic.bin
+
+            Do not flash any *_app.bin file at 0x0; that is an application-partition image only.
+            EOF
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
@@ -73,7 +82,7 @@ jobs:
           path: |
             build/m5sticks3_bluetooth_mic.bin
             build/m5sticks3_bluetooth_mic.bin.sha256
-            build/*.bin
+            build/FLASH_THIS_FACTORY_IMAGE.txt
             build/*.elf
             build/*.map
             build/flasher_args.json

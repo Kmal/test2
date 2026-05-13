@@ -286,6 +286,10 @@ def main() -> int:
         return exc.returncode
 
     print(f"Factory flash image written to {output}")
+    print("Flash this merged image at offset 0x0, for example:")
+    print(f"  esptool.py --chip {args.chip} --port <PORT> erase_flash")
+    print(f"  esptool.py --chip {args.chip} --port <PORT> write_flash 0x0 {output}")
+    print("Do not flash the ESP-IDF application-only *_app.bin artifact at 0x0.")
     return 0
 
 

@@ -157,9 +157,14 @@ The remaining automation roadmap is hardware/product work: validate the runtime 
 
 The factory-image tool validates the `0x0` boot image before merging and rejects a plan that would put the application artifact at offset `0x0`. If the ROM banner reaches `Invalid image block, can't boot`, erase and reflash the generated factory image rather than any app-only `.bin` file.
 
-GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256`, so workflow artifacts include a ready-to-flash `0x0` image for each successful build.
+GitHub Actions also creates this same `build/m5sticks3_bluetooth_mic.bin` factory image during the ESP-IDF build job and uploads it with `build/m5sticks3_bluetooth_mic.bin.sha256` plus `build/FLASH_THIS_FACTORY_IMAGE.txt`. The release artifact intentionally does **not** upload the top-level ESP-IDF `*_app.bin` application partition image, because flashing that app-only binary at offset `0x0` produces the ROM `Invalid image block, can't boot` reset loop shown by the bootloader.
 
-Flash the merged image with the same ESP-IDF/esptool environment used for the build.
+Flash the merged image with the same ESP-IDF/esptool environment used for the build:
+
+```sh
+esptool.py --chip esp32s3 --port <PORT> erase_flash
+esptool.py --chip esp32s3 --port <PORT> write_flash 0x0 build/m5sticks3_bluetooth_mic.bin
+```
 
 ## Hardware smoke checklist
 
