@@ -266,7 +266,7 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
         ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, false));
     } else {
         /*
-         * StickS3 Bluetooth LE GATT PCM mode is capture-only. Keep the DAC path muted
+         * Optional StickS3 audio capture mode is ADC-only. Keep the DAC path muted
          * and avoid powering it up until a source-backed monitoring/playback
          * feature explicitly requests the speaker path.
          */

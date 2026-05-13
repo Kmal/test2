@@ -10,8 +10,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#ifndef CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME
-#define CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME "StickS3 BLE"
+#ifndef CONFIG_APP_BLE_GATT_DEVICE_NAME
+#define CONFIG_APP_BLE_GATT_DEVICE_NAME "M5StickS3-Control"
 #endif
 
 static void ui_copy_text(char *dest, size_t dest_size, const char *text)
@@ -26,8 +26,6 @@ static void ui_copy_text(char *dest, size_t dest_size, const char *text)
 static const char *ui_rule_source_label(rule_source_t source)
 {
     switch (source) {
-    case RULE_SOURCE_SOUND_RMS_DBFS: return "Sound RMS";
-    case RULE_SOURCE_SOUND_PEAK_DBFS: return "Sound Peak";
     case RULE_SOURCE_KEY1_SHORT: return "Key1 Short";
     case RULE_SOURCE_KEY2_SHORT: return "Key2 Short";
     case RULE_SOURCE_BLE_CONNECTED: return "BLE Connected";
@@ -60,12 +58,6 @@ static void apply_trigger_preset(rule_condition_t *when, rule_source_t source)
     when->source = source;
     when->sustain_ms = 0u;
     switch (source) {
-    case RULE_SOURCE_SOUND_RMS_DBFS:
-    case RULE_SOURCE_SOUND_PEAK_DBFS:
-        when->comparator = RULE_COMPARATOR_GTE;
-        when->threshold = rule_value_i32(-20480); /* -80 dBFS in Q8-style units. */
-        when->sustain_ms = 250u;
-        break;
     case RULE_SOURCE_KEY1_SHORT:
     case RULE_SOURCE_KEY2_SHORT:
     case RULE_SOURCE_BLE_CONNECTED:
@@ -106,11 +98,11 @@ void ui_runtime_init(ui_runtime_t *ui)
     if (ui == NULL) return;
     memset(ui, 0, sizeof(*ui));
     ui_nav_init(&ui->nav);
-    ui->menu_active = false;
+    ui->menu_active = true;
     ui->ap.channel = 6u;
     for (uint8_t i = 0; i < UI_AUTOMATION_VISIBLE_COUNT; ++i) {
         ui->automations[i].rule_index = i;
-        ui->automations[i].trigger_source = (i == 0u) ? RULE_SOURCE_SOUND_RMS_DBFS : RULE_SOURCE_KEY1_SHORT;
+        ui->automations[i].trigger_source = (i == 0u) ? RULE_SOURCE_KEY1_SHORT : RULE_SOURCE_KEY2_SHORT;
         ui->automations[i].action_kind = RULE_ACTION_LOCAL_UI;
         automation_label(&ui->automations[i]);
     }
@@ -169,7 +161,7 @@ void ui_runtime_refresh_status_bar(ui_runtime_t *ui)
 void ui_runtime_refresh_bluetooth(ui_runtime_t *ui)
 {
     if (ui == NULL) return;
-    ui_copy_text(ui->bluetooth.device_name, sizeof(ui->bluetooth.device_name), CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME);
+    ui_copy_text(ui->bluetooth.device_name, sizeof(ui->bluetooth.device_name), CONFIG_APP_BLE_GATT_DEVICE_NAME);
     ui_copy_text(ui->bluetooth.status_text, sizeof(ui->bluetooth.status_text), ui->bluetooth.ble_connected ? "connected" : "disconnected");
 }
 

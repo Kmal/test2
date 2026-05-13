@@ -2,12 +2,11 @@
 ##
 ## The StickS3 uses ESP32-S3-PICO-1-N8R8. ESP32-S3 does not support
 ## Bluetooth Classic / BR/EDR, so Classic Bluetooth HFP and SCO-over-HCI are
-## not enabled in the StickS3 defaults. The default functional transport is a
-## custom Bluetooth Low Energy GATT PCM stream so the board can deliver
-## captured microphone samples without unsupported Classic Bluetooth HFP.
+## not enabled in the StickS3 defaults. The default transport is a custom
+## Bluetooth Low Energy GATT status and rule-event service.
 
-CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y
-CONFIG_APP_BLE_GATT_PCM_DEVICE_NAME="M5StickS3-Meter"
+CONFIG_APP_TRANSPORT_BLE_GATT=y
+CONFIG_APP_BLE_GATT_DEVICE_NAME="M5StickS3-Control"
 CONFIG_APP_WIFI_ENABLE=y
 CONFIG_APP_WIFI_AP_SSID="M5StickS3-Setup"
 CONFIG_APP_WIFI_AP_PASSWORD=""
@@ -16,8 +15,7 @@ CONFIG_APP_WIFI_KEYBOARD_PROVISIONING=n
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 
-## Prefer a larger ATT MTU so framed PCM notifications can carry useful audio
-## payloads when the central also negotiates a larger MTU.
+## Prefer a larger ATT MTU for structured status and rule-event notifications.
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
 
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
@@ -25,14 +23,6 @@ CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 
-## Sound-meter product defaults.
-CONFIG_APP_SOUND_METER_ENABLE=y
-CONFIG_APP_SOUND_METER_WINDOW_MS=100
-CONFIG_APP_SOUND_METER_TELEMETRY_HZ=10
-CONFIG_APP_SOUND_METER_DBFS_FLOOR=-60
-CONFIG_APP_SOUND_METER_LOUD_DBFS=-12
-CONFIG_APP_SOUND_METER_CALIBRATION_WINDOWS=30
-CONFIG_APP_SOUND_METER_ENABLE_PCM_DEBUG=n
 CONFIG_APP_STATUS_UI_LCD_REFRESH_MS=100
 ## The rule automation config is intentionally kept off app_main()'s stack,
 ## but ESP-IDF startup plus board/BLE bring-up still benefits from explicit
