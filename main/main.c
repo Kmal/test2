@@ -219,6 +219,15 @@ static void app_rule_ble_state_task(void *ctx)
 }
 #endif
 
+static void app_emit_button_rule_fact(button_state_event_t event)
+{
+    const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        (void)rule_runtime_process_button_event(&s_rule_runtime, event, uptime_ms);
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
+
 static void app_rule_gpio_poll_task(void *ctx)
 {
     (void)ctx;
