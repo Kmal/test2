@@ -19,6 +19,7 @@
 #include "action_http.h"
 #include "action_ir.h"
 #include "app_mode.h"
+#include "app_time.h"
 #include "app_wifi.h"
 #include "board_sticks3.h"
 #include "rule_config_store.h"
@@ -379,6 +380,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "app_main: NVS ready");
+    (void)app_time_init();
     ESP_ERROR_CHECK(app_network_stack_init());
 
     ESP_LOGI(TAG, "app_main: status UI init start");

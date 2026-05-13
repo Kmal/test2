@@ -76,6 +76,7 @@ typedef struct {
     char time_hhmm[6];
     bool battery_valid;
     uint8_t battery_percent;
+    bool wifi_connected;
 } ui_status_bar_state_t;
 
 typedef struct {
