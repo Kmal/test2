@@ -92,7 +92,7 @@
 #define UI_COLOR_ERR STATUS_UI_LCD_ERR
 #define UI_KEYBOARD_KEY_COUNT 16
 #define UI_KEYBOARD_OVERLAY_H 108
-#define UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS 800
+#define UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS 2000
 #endif
 
 static const char *TAG = "STATUS_UI";
@@ -181,6 +181,7 @@ static void ui_keyboard_handle_next(ui_keyboard_state_t *kb);
 static void ui_keyboard_handle_prev(ui_keyboard_state_t *kb);
 static void ui_keyboard_handle_select(ui_keyboard_state_t *kb);
 static void ui_keyboard_commit_pending(ui_keyboard_state_t *kb);
+static void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t now_ms);
 static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
 static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event);
 static bool status_ui_keyboard_read_line_mode(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, ui_keyboard_mode_t mode, bool secret, uint32_t timeout_ms);
@@ -1120,16 +1121,16 @@ static void lcd_draw_text(int x, int y, const char *text, uint16_t color, uint8_
 
 static const ui_key_def_t s_9key_defs[UI_KEYBOARD_KEY_COUNT] = {
     { UI_KEY_KIND_CHAR, "1", "1", "1", '1' },
-    { UI_KEY_KIND_CHAR, "2ABC", "2abc", "2abc", '2' },
-    { UI_KEY_KIND_CHAR, "3DEF", "3def", "3def", '3' },
+    { UI_KEY_KIND_CHAR, "2ABC", "2abcABC", "2abc", '2' },
+    { UI_KEY_KIND_CHAR, "3DEF", "3defDEF", "3def", '3' },
     { UI_KEY_KIND_CHAR, "-", "-", "-", '-' },
-    { UI_KEY_KIND_CHAR, "4GHI", "4ghi", "4ghi", '4' },
-    { UI_KEY_KIND_CHAR, "5JKL", "5jkl", "5jkl", '5' },
-    { UI_KEY_KIND_CHAR, "6MNO", "6mno", "6mno", '6' },
+    { UI_KEY_KIND_CHAR, "4GHI", "4ghiGHI", "4ghi", '4' },
+    { UI_KEY_KIND_CHAR, "5JKL", "5jklJKL", "5jkl", '5' },
+    { UI_KEY_KIND_CHAR, "6MNO", "6mnoMNO", "6mno", '6' },
     { UI_KEY_KIND_CHAR, ".", ".", ".", '.' },
-    { UI_KEY_KIND_CHAR, "7PRQS", "7pqrs", "7pqrs", '7' },
-    { UI_KEY_KIND_CHAR, "8TUV", "8tuv", "8tuv", '8' },
-    { UI_KEY_KIND_CHAR, "9WXYZ", "9wxyz", "9wxyz", '9' },
+    { UI_KEY_KIND_CHAR, "7PQRS", "7pqrsPQRS", "7pqrs", '7' },
+    { UI_KEY_KIND_CHAR, "8TUV", "8tuvTUV", "8tuv", '8' },
+    { UI_KEY_KIND_CHAR, "9WXYZ", "9wxyzWXYZ", "9wxyz", '9' },
     { UI_KEY_KIND_DELETE, "DEL", NULL, NULL, 0 },
     { UI_KEY_KIND_CHAR, "*#(", "*#(", "*#(", '*' },
     { UI_KEY_KIND_CHAR, "0+", "0+", "0+", '0' },
@@ -1150,6 +1151,7 @@ static void lcd_draw_text_clipped(int x, int y, const char *text, uint16_t color
 static void keyboard_snapshot(ui_keyboard_state_t *out)
 {
     portENTER_CRITICAL(&s_state_mux);
+    ui_keyboard_commit_expired_pending(&s_keyboard, (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
     *out = s_keyboard;
     portEXIT_CRITICAL(&s_state_mux);
 }
@@ -1160,18 +1162,30 @@ static const char *ui_keyboard_chars_for_key(const ui_keyboard_state_t *kb, cons
     return kb->mode == UI_KEYBOARD_MODE_SYMBOL ? key->chars_symbol : key->chars_text;
 }
 
-static void ui_keyboard_append_char(ui_keyboard_state_t *kb, char ch)
+static bool ui_keyboard_append_char(ui_keyboard_state_t *kb, char ch)
 {
+    if (kb == NULL) return false;
     size_t len = strlen(kb->text);
-    if (len < kb->max_len && len + 1u < sizeof(kb->text)) {
-        kb->text[len] = ch;
-        kb->text[len + 1u] = '\0';
+    if (len >= kb->max_len || len + 1u >= sizeof(kb->text)) {
+        return false;
     }
+    kb->text[len] = ch;
+    kb->text[len + 1u] = '\0';
+    return true;
 }
 
 static void ui_keyboard_commit_pending(ui_keyboard_state_t *kb)
 {
+    if (kb == NULL) return;
     kb->has_pending_cycle = false;
+}
+
+static void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t now_ms)
+{
+    if (kb == NULL || !kb->has_pending_cycle) return;
+    if ((now_ms - kb->last_key_tick_ms) >= UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS) {
+        ui_keyboard_commit_pending(kb);
+    }
 }
 
 static void ui_keyboard_backspace(ui_keyboard_state_t *kb)
@@ -1361,31 +1375,30 @@ static void ui_keyboard_handle_select(ui_keyboard_state_t *kb)
     switch (key->kind) {
     case UI_KEY_KIND_CHAR: {
         if (kb->mode == UI_KEYBOARD_MODE_NUMERIC) {
-            ui_keyboard_append_char(kb, key->numeric_char);
+            (void)ui_keyboard_append_char(kb, key->numeric_char);
             return;
         }
         const char *chars = ui_keyboard_chars_for_key(kb, key);
         if (chars == NULL || chars[0] == '\0') return;
         uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        if (kb->has_pending_cycle && (now_ms - kb->last_key_tick_ms) > UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS) {
-            ui_keyboard_commit_pending(kb);
-        }
+        ui_keyboard_commit_expired_pending(kb, now_ms);
         if (kb->has_pending_cycle && kb->last_key == kb->selected_key && strlen(kb->text) > 0u) {
             kb->cycle_index = (uint8_t)((kb->cycle_index + 1u) % strlen(chars));
             kb->text[strlen(kb->text) - 1u] = chars[kb->cycle_index];
         } else {
             ui_keyboard_commit_pending(kb);
-            kb->last_key = kb->selected_key;
-            kb->cycle_index = 0u;
-            kb->has_pending_cycle = true;
-            ui_keyboard_append_char(kb, chars[0]);
+            if (ui_keyboard_append_char(kb, chars[0])) {
+                kb->last_key = kb->selected_key;
+                kb->cycle_index = 0u;
+                kb->has_pending_cycle = true;
+            }
         }
         kb->last_key_tick_ms = now_ms;
         break;
     }
     case UI_KEY_KIND_OK: ui_keyboard_commit_pending(kb); kb->result = UI_KEYBOARD_RESULT_OK; break;
     case UI_KEY_KIND_DELETE: ui_keyboard_backspace(kb); break;
-    case UI_KEY_KIND_SPACE: ui_keyboard_commit_pending(kb); ui_keyboard_append_char(kb, ' '); break;
+    case UI_KEY_KIND_SPACE: ui_keyboard_commit_pending(kb); (void)ui_keyboard_append_char(kb, ' '); break;
     case UI_KEY_KIND_MODE:
         ui_keyboard_commit_pending(kb);
         if (kb->mode == UI_KEYBOARD_MODE_TEXT || kb->mode == UI_KEYBOARD_MODE_PASSWORD) kb->mode = UI_KEYBOARD_MODE_SYMBOL;
@@ -1405,8 +1418,12 @@ static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
     lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 4, kb->title, STATUS_UI_LCD_TEXT, 1, 18);
     char display[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
     size_t len = strlen(kb->text);
-    for (size_t i = 0; i < len && i < sizeof(display) - 1u; ++i) display[i] = kb->secret ? '*' : kb->text[i];
-    display[len < sizeof(display) ? len : sizeof(display) - 1u] = '\0';
+    const size_t display_len = len < sizeof(display) ? len : sizeof(display) - 1u;
+    const size_t pending_index = kb->has_pending_cycle && len > 0u ? len - 1u : SIZE_MAX;
+    for (size_t i = 0; i < display_len; ++i) {
+        display[i] = (kb->secret && i != pending_index) ? '*' : kb->text[i];
+    }
+    display[display_len] = '\0';
     lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 18, display, STATUS_UI_LCD_OK, 1, 19);
     const int cols = 4;
     const int key_w = BOARD_LCD_H_RES / cols;
