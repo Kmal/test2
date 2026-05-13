@@ -81,6 +81,26 @@ static void test_lcd_power_sequence_retries_first_invalid_response(void)
     ASSERT_TRUE(fake_register_bus_has_write(0x6e, M5PM1_REG_I2C_CFG, 0x00));
 }
 
+static void test_read_vbat_combines_low_and_high_nibble(void)
+{
+    fake_register_bus_reset();
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_VBAT_L, 0x34);
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_VBAT_H, 0x2e);
+    uint16_t mv = 0;
+    ASSERT_EQ(ESP_OK, m5pm1_read_vbat_mv(I2C_NUM_0, 0x6e, &mv));
+    ASSERT_EQ(0x0e34, mv);
+}
+
+static void test_board_battery_percent_uses_vbat_curve(void)
+{
+    fake_register_bus_reset();
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_VBAT_L, (uint8_t)(3870 & 0xff));
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_VBAT_H, (uint8_t)(3870 >> 8));
+    uint8_t percent = 0;
+    ASSERT_TRUE(board_power_get_battery_percent(&percent));
+    ASSERT_EQ(50, percent);
+}
+
 int main(void)
 {
     test_function_preserves_unrelated_fields();
@@ -91,6 +111,8 @@ int main(void)
     test_read_failure_aborts_write();
     test_lcd_power_sequence_matches_source_backed_order();
     test_lcd_power_sequence_retries_first_invalid_response();
+    test_read_vbat_combines_low_and_high_nibble();
+    test_board_battery_percent_uses_vbat_curve();
     puts("m5pm1_gpio tests passed");
     return 0;
 }

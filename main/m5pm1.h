@@ -17,6 +17,8 @@ extern "C" {
 #define M5PM1_REG_GPIO_DRV      0x13
 #define M5PM1_REG_GPIO_FUNC0    0x16
 #define M5PM1_REG_GPIO_FUNC1    0x17
+#define M5PM1_REG_VBAT_L        0x22
+#define M5PM1_REG_VBAT_H        0x23
 #define M5PM1_REG_PULSE_CTRL    0x53
 
 typedef struct {
@@ -29,6 +31,8 @@ esp_err_t m5pm1_gpio_set_function(i2c_port_t port, uint8_t addr, uint8_t gpio, u
 esp_err_t m5pm1_gpio_set_mode(i2c_port_t port, uint8_t addr, uint8_t gpio, bool output);
 esp_err_t m5pm1_gpio_set_output(i2c_port_t port, uint8_t addr, uint8_t gpio, bool high);
 esp_err_t m5pm1_gpio_set_drive(i2c_port_t port, uint8_t addr, uint8_t gpio, bool push_pull);
+esp_err_t m5pm1_read_vbat_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv);
+bool board_power_get_battery_percent(uint8_t *out_percent);
 esp_err_t m5pm1_enable_l3b_power(i2c_port_t port, uint8_t addr);
 esp_err_t m5pm1_enable_lcd_power(i2c_port_t port, uint8_t addr);
 
