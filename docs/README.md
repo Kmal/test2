@@ -111,7 +111,7 @@ LCD flow uses the onboard buttons when the menu is open:
 | KEY2 long | Back. |
 | KEY1 long from the idle status view | Open `Main`. |
 
-When the 9-key input overlay is active, KEY1 short selects the current key, KEY2 short moves to the next key, KEY2 long moves to the previous key, and KEY1 long commits OK.
+When the 9-key input overlay is active, the LCD shows a 4x4 phone-style pad (`1`, `2ABC`, `3DEF`, `-` / `4GHI`, `5JKL`, `6MNO`, `.` / `7PRQS`, `8TUV`, `9WXYZ`, `DEL` / `*#(`, `0+`, space, `Next`). KEY1 short selects the current key, KEY2 short moves to the next key, and KEY2 long moves to the previous key.
 
 ### Local automation runtime
 
