@@ -78,6 +78,9 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "Saved Wi-Fi") != NULL);
     ASSERT_TRUE(strstr(json, "Time settings") != NULL);
     ASSERT_TRUE(strstr(json, "Save Timezone") != NULL);
+    ASSERT_TRUE(strstr(json, "<select id=\"timezone\">") != NULL);
+    ASSERT_TRUE(strstr(json, "Pacific Time (UTC-8)") != NULL);
+    ASSERT_TRUE(strstr(json, "India (UTC+5:30)") != NULL);
     ASSERT_TRUE(strstr(json, "Forget Saved Credentials") != NULL);
     ASSERT_TRUE(strstr(json, "id=\"wifi_ssid\" maxlength=\"32\" autocomplete=\"off\" autocapitalize=\"none\"") != NULL);
     ASSERT_TRUE(strstr(json, "id=\"wifi_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\" autocapitalize=\"none\"") != NULL);
@@ -87,8 +90,18 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "\"time_24h\"") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/time", "{\"timezone\":\"UTC0\"}", json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "\"timezone\":\"UTC0\"") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/time", "{\"timezone\":\"UTC-08\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"timezone\":\"UTC-8\"") != NULL);
+    ASSERT_TRUE(getenv("TZ") != NULL && strcmp(getenv("TZ"), "UTC+8") == 0);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/time", "{\"timezone\":\"UTC+05:30\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"timezone\":\"UTC+5:30\"") != NULL);
+    ASSERT_TRUE(getenv("TZ") != NULL && strcmp(getenv("TZ"), "UTC-5:30") == 0);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/time", "{\"timezone\":\"UTC+15\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "invalid_timezone") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/time", "{\"timezone\":\"bad tz\"}", json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "invalid_timezone") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/favicon.ico", NULL, json, sizeof(json)));
+    ASSERT_TRUE(strcmp(json, "") == 0);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/wifi/status", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "\"enabled\":false") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/wifi/scan", NULL, json, sizeof(json)));

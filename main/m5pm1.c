@@ -18,7 +18,7 @@ static esp_err_t m5pm1_update_u8_once(i2c_port_t port, uint8_t addr, uint8_t reg
                                       uint8_t *current_out, uint8_t *next_out)
 {
     uint8_t current = 0;
-    esp_err_t err = register_bus_read_u8(port, addr, reg, &current);
+    esp_err_t err = register_bus_read_u8_quiet(port, addr, reg, &current);
     if (err != ESP_OK) {
         return err;
     }
@@ -50,7 +50,7 @@ static esp_err_t m5pm1_update_u8_retry(i2c_port_t port, uint8_t addr, uint8_t re
          * Keep the retry local to the PMIC path so other devices still surface
          * hard I2C faults immediately.
          */
-        ESP_LOGW(TAG, "M5PM1 reg 0x%02x update got invalid response; retrying after %u ms",
+        ESP_LOGI(TAG, "M5PM1 reg 0x%02x update got invalid response; retrying after %u ms",
                  reg, M5PM1_RETRY_DELAY_MS);
         vTaskDelay(pdMS_TO_TICKS(M5PM1_RETRY_DELAY_MS));
         retried = true;

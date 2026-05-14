@@ -58,7 +58,7 @@ static esp_err_t rule_web_http_handler(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "rule web request failed");
         return ESP_FAIL;
     }
-    httpd_resp_set_type(req, strcmp(req->uri, "/") == 0 ? "text/html" : "application/json");
+    httpd_resp_set_type(req, strcmp(req->uri, "/") == 0 ? "text/html" : (strcmp(req->uri, "/favicon.ico") == 0 ? "image/x-icon" : "application/json"));
     esp_err_t err = httpd_resp_sendstr(req, response) == ESP_OK ? ESP_OK : ESP_FAIL;
     free(body);
     free(response);
@@ -94,7 +94,7 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
     web->store = store;
 #ifdef ESP_PLATFORM
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 17;
     config.stack_size = 8192;
     ESP_LOGI(TAG, "starting HTTP server: port=%u max_uri_handlers=%u stack=%u",
              (unsigned)config.server_port,
@@ -107,6 +107,7 @@ bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_
     }
     ESP_LOGI(TAG, "HTTP server started");
     if (!register_uri(web->server, "/", HTTP_GET, web) ||
+        !register_uri(web->server, "/favicon.ico", HTTP_GET, web) ||
         !register_uri(web->server, "/api/config", HTTP_GET, web) ||
         !register_uri(web->server, "/api/config", HTTP_POST, web) ||
         !register_uri(web->server, "/api/capabilities", HTTP_GET, web) ||
@@ -163,7 +164,7 @@ static const char s_rule_setup_page[] =
     "<div id=\"panel_ap\" class=\"panel\" hidden><h3>Setup hotspot</h3><label>AP Name <input id=\"ap_ssid\" maxlength=\"32\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"></label>"
     "<label>AP Password <input id=\"ap_password\" type=\"password\" maxlength=\"63\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"></label><label>Channel <input id=\"ap_channel\" type=\"number\" min=\"1\" max=\"13\" value=\"6\"></label><button id=\"ap_start\" type=\"button\">Start AP Mode</button><button id=\"mode_ap\" type=\"button\" class=\"secondary\">Use AP Mode</button></div>"
     "<div id=\"panel_net_status\" class=\"panel\" hidden><h3>Raw network status</h3><pre id=\"wifi_status\" class=\"status\"></pre></div><h3>Last operation</h3><pre id=\"op_result\" class=\"status\">No operation yet.</pre></section>"
-    "<section class=\"card\" id=\"time_settings\"><h2>Time settings</h2><div id=\"time_summary\" class=\"kv\"></div><label>Timezone <input id=\"timezone\" maxlength=\"63\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\" placeholder=\"UTC\"></label><p>Clock uses 24-hour HH:MM format. Use UTC or a POSIX TZ string.</p><button id=\"save_time\" type=\"button\">Save Timezone</button><pre id=\"time_status\" class=\"status\"></pre></section>"
+    "<section class=\"card\" id=\"time_settings\"><h2>Time settings</h2><div id=\"time_summary\" class=\"kv\"></div><label>Timezone <select id=\"timezone\"><option value=\"UTC\">UTC</option><option value=\"UTC-8\">Pacific Time (UTC-8)</option><option value=\"UTC-7\">Mountain Time (UTC-7)</option><option value=\"UTC-6\">Central Time (UTC-6)</option><option value=\"UTC-5\">Eastern Time (UTC-5)</option><option value=\"UTC+0\">London/Reykjavik (UTC+0)</option><option value=\"UTC+1\">Central Europe (UTC+1)</option><option value=\"UTC+2\">Eastern Europe/Africa (UTC+2)</option><option value=\"UTC+3\">Moscow/Arabia (UTC+3)</option><option value=\"UTC+5:30\">India (UTC+5:30)</option><option value=\"UTC+8\">China/Singapore (UTC+8)</option><option value=\"UTC+9\">Japan/Korea (UTC+9)</option><option value=\"UTC+10\">Eastern Australia (UTC+10)</option><option value=\"UTC+12\">New Zealand (UTC+12)</option></select></label><p>Clock uses 24-hour HH:MM format. Choose a common UTC offset; UTC-8 means eight hours behind UTC.</p><button id=\"save_time\" type=\"button\">Save Timezone</button><pre id=\"time_status\" class=\"status\"></pre></section>"
     "<div class=\"grid\"><section class=\"card\"><h2>Automation rule</h2><label>Rule name <input id=\"rule_name\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"></label><label><input id=\"rule_enabled\" type=\"checkbox\" checked> Enabled</label>"
     "<h3>WHEN trigger</h3><label>Trigger source <select id=\"source\"></select></label><label>Comparator <select id=\"comparator\"><option value=\"eq\">equals</option><option value=\"ne\">not equals</option><option value=\"gt\">greater than</option><option value=\"gte\">greater or equal</option><option value=\"lt\">less than</option><option value=\"lte\">less or equal</option></select></label><label>Threshold <input id=\"threshold\" value=\"true\" autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\"><small>true/false or integer</small></label>"
     "<fieldset><legend>GPIO safety / conflict check</legend><label>GPIO pin <input id=\"gpio_pin\" type=\"number\" value=\"4\"></label><label>GPIO profile <select id=\"gpio_profile\"></select></label><label>Debounce ms <input id=\"gpio_debounce_ms\" type=\"number\" value=\"20\"></label><label><input id=\"gpio_active_low\" type=\"checkbox\"> Active low</label><button id=\"gpio_test\" type=\"button\" class=\"secondary\">Test GPIO safety</button></fieldset>"
@@ -179,7 +180,7 @@ static const char s_rule_setup_page[] =
     "function applyConfig(c){if(!c)return;$('config_json').value=JSON.stringify(c,null,2);if(c.source)$('source').value=c.source;if(c.action)$('action').value=c.action;if(c.name)$('rule_name').value=c.name;$('rule_enabled').checked=c.enabled!==false;if(c.comparator)$('comparator').value=c.comparator;$('threshold').value=c.threshold_kind==='i32'?String(c.threshold_i32||0):String(c.threshold_bool!==false);if(c.gpio_pin!==undefined)$('gpio_pin').value=c.gpio_pin;if(c.gpio_profile)$('gpio_profile').value=c.gpio_profile;$('gpio_active_low').checked=!!c.gpio_active_low;if(c.gpio_debounce_ms!==undefined)$('gpio_debounce_ms').value=c.gpio_debounce_ms;if(c.http_url)$('http_url').value=c.http_url}"
     "function renderNetworks(ns){const root=$('wifi_networks');root.innerHTML='';(ns||[]).forEach(n=>{const row=document.createElement('button');row.type='button';row.className='network-row';row.textContent=(n.ssid||'(hidden)')+' '+n.rssi+' dBm ch '+n.channel+(n.secure?' LOCK':' OPEN');row.onclick=()=>{$('wifi_ssid').value=n.ssid||''};root.appendChild(row)})}"
     "function netSummary(d){$('connection_pill').textContent=d.sta_connected?'Wi-Fi connected':(d.ap_started?'AP setup active':'Network off');$('net_summary').innerHTML='<b>Mode</b><span>'+d.mode+'</span><b>Station</b><span>'+(d.sta_connected?(d.sta_ssid+' @ '+d.sta_ip):(d.sta_ssid||'-'))+'</span><b>Setup AP</b><span>'+(d.ap_started?(d.ap_ssid+' @ '+d.ap_ip):'off')+'</span><b>Web URL</b><span>'+(d.web_url||'-')+'</span>'}"
-    "function timeSummary(d){$('time_summary').innerHTML='<b>Timezone</b><span>'+(d.timezone||'UTC')+'</span><b>Time</b><span>'+(d.time_24h||'--:--')+'</span><b>Format</b><span>24-hour</span>';$('timezone').value=d.timezone||'UTC'}"
+    "function timeSummary(d){$('time_summary').innerHTML='<b>Timezone</b><span>'+(d.timezone||'UTC')+'</span><b>Time</b><span>'+(d.time_24h||'--:--')+'</span><b>Format</b><span>24-hour</span>';const z=d.timezone||'UTC';const sel=$('timezone');if([...sel.options].some(o=>o.value===z))sel.value=z;else sel.value='UTC'}"
     "async function timeStatus(){const d=await api('/api/time');dump('time_status',d);timeSummary(d);return d}"
     "async function wifiStatus(){const d=await api('/api/wifi/status');dump('wifi_status',d);netSummary(d);if(d.ap_ssid&&!$('ap_ssid').value)$('ap_ssid').value=d.ap_ssid;if(d.ap_channel&&!$('ap_channel').value)$('ap_channel').value=d.ap_channel;$('wifi_saved').textContent='Saved: '+(d.sta_ssid||'-');return d}"
     "async function op(p,msg){try{banner('info',msg||'Working...');const d=await p;dump('op_result',d);banner(d.ok===false?'warn':'ok',d.ok===false?(d.error||'Operation failed'):'Operation complete');return d}catch(e){return null}}async function setWifiMode(m){await op(api('/api/wifi/mode',{method:'POST',body:JSON.stringify({mode:m})}),'Changing Wi-Fi mode...');await wifiStatus()}"
@@ -772,6 +773,10 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
     if (method == RULE_WEB_METHOD_GET && strcmp(path, "/") == 0) {
         const int written = snprintf(out, out_len, "%s", s_rule_setup_page);
         return written > 0 && (size_t)written < out_len;
+    }
+    if (method == RULE_WEB_METHOD_GET && strcmp(path, "/favicon.ico") == 0) {
+        out[0] = '\0';
+        return true;
     }
     if (method == RULE_WEB_METHOD_GET && strcmp(path, "/api/capabilities") == 0) {
         return capability_build_json(out, out_len) > 0;

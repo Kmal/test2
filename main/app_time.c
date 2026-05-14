@@ -2,6 +2,7 @@
 #include "app_time.h"
 #include "sdkconfig.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,52 @@ static void copy_string(char *dst, size_t dst_size, const char *src)
     dst[len] = '\0';
 }
 
+static bool parse_utc_offset_timezone(const char *timezone, char *sign, unsigned *hours, unsigned *minutes)
+{
+    if (timezone == NULL || strncmp(timezone, "UTC", 3) != 0) {
+        return false;
+    }
+    const char *pos = timezone + 3;
+    if (*pos != '+' && *pos != '-') {
+        return false;
+    }
+    *sign = *pos++;
+    if (!isdigit((unsigned char)*pos)) {
+        return false;
+    }
+    unsigned hour = 0;
+    unsigned digits = 0;
+    while (isdigit((unsigned char)*pos) && digits < 2u) {
+        hour = (hour * 10u) + (unsigned)(*pos - '0');
+        pos++;
+        digits++;
+    }
+    if (digits == 0u || hour > 14u) {
+        return false;
+    }
+    unsigned minute = 0;
+    if (*pos == ':') {
+        pos++;
+        if (!isdigit((unsigned char)pos[0]) || !isdigit((unsigned char)pos[1])) {
+            return false;
+        }
+        minute = (unsigned)((pos[0] - '0') * 10 + (pos[1] - '0'));
+        pos += 2;
+        if (minute > 59u) {
+            return false;
+        }
+    }
+    if (*pos != '\0') {
+        return false;
+    }
+    if (hour == 14u && minute != 0u) {
+        return false;
+    }
+    *hours = hour;
+    *minutes = minute;
+    return true;
+}
+
 static bool timezone_is_valid(const char *timezone)
 {
     const size_t len = bounded_strlen(timezone, APP_TIME_TIMEZONE_MAX_LEN + 1u);
@@ -59,19 +106,58 @@ static bool timezone_is_valid(const char *timezone)
             return false;
         }
     }
+    if (strncmp(timezone, "UTC+", 4) == 0 || strncmp(timezone, "UTC-", 4) == 0) {
+        char sign = '+';
+        unsigned hours = 0;
+        unsigned minutes = 0;
+        return parse_utc_offset_timezone(timezone, &sign, &hours, &minutes);
+    }
     return true;
+}
+
+static void normalize_timezone(char *dst, size_t dst_size, const char *timezone)
+{
+    char sign = '+';
+    unsigned hours = 0;
+    unsigned minutes = 0;
+    if (parse_utc_offset_timezone(timezone, &sign, &hours, &minutes)) {
+        if (minutes == 0u) {
+            (void)snprintf(dst, dst_size, "UTC%c%u", sign, hours);
+        } else {
+            (void)snprintf(dst, dst_size, "UTC%c%u:%02u", sign, hours, minutes);
+        }
+        return;
+    }
+    copy_string(dst, dst_size, timezone);
 }
 
 static const char *timezone_to_env(const char *timezone)
 {
-    return (timezone != NULL && strcmp(timezone, "UTC") == 0) ? "UTC0" : timezone;
+    static char env_timezone[APP_TIME_TIMEZONE_MAX_LEN + 1u];
+    if (timezone != NULL && strcmp(timezone, "UTC") == 0) {
+        return "UTC0";
+    }
+    char sign = '+';
+    unsigned hours = 0;
+    unsigned minutes = 0;
+    if (parse_utc_offset_timezone(timezone, &sign, &hours, &minutes)) {
+        const char posix_sign = sign == '-' ? '+' : '-';
+        if (minutes == 0u) {
+            (void)snprintf(env_timezone, sizeof(env_timezone), "UTC%c%u", posix_sign, hours);
+        } else {
+            (void)snprintf(env_timezone, sizeof(env_timezone), "UTC%c%u:%02u", posix_sign, hours, minutes);
+        }
+        return env_timezone;
+    }
+    return timezone;
 }
 
 static void config_defaults(app_time_config_t *config)
 {
     memset(config, 0, sizeof(*config));
-    copy_string(config->timezone, sizeof(config->timezone), CONFIG_APP_TIMEZONE);
-    if (!timezone_is_valid(config->timezone)) {
+    if (timezone_is_valid(CONFIG_APP_TIMEZONE)) {
+        normalize_timezone(config->timezone, sizeof(config->timezone), CONFIG_APP_TIMEZONE);
+    } else {
         copy_string(config->timezone, sizeof(config->timezone), "UTC");
     }
 }
@@ -96,7 +182,7 @@ static void load_config_once(void)
         char timezone[APP_TIME_TIMEZONE_MAX_LEN + 1u];
         size_t required = sizeof(timezone);
         if (nvs_get_str(handle, APP_TIME_NVS_TIMEZONE, timezone, &required) == ESP_OK && timezone_is_valid(timezone)) {
-            copy_string(s_config.timezone, sizeof(s_config.timezone), timezone);
+            normalize_timezone(s_config.timezone, sizeof(s_config.timezone), timezone);
         }
         nvs_close(handle);
     } else {
@@ -151,7 +237,7 @@ bool app_time_set_timezone(const char *timezone, bool persist)
         return false;
     }
     load_config_once();
-    copy_string(s_config.timezone, sizeof(s_config.timezone), timezone);
+    normalize_timezone(s_config.timezone, sizeof(s_config.timezone), timezone);
     apply_timezone();
     return !persist || persist_config();
 }
