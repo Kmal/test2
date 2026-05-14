@@ -73,6 +73,8 @@ bool rule_runtime_init(rule_runtime_t *runtime, const automation_config_t *confi
         return false;
     }
     trigger_adapter_init(&runtime->trigger_adapter, runtime_fact_sink, runtime);
+    hardware_fact_service_config_t hw_cfg = hardware_fact_service_default_config();
+    (void)hardware_fact_service_init(&runtime->hardware_facts, &runtime->trigger_adapter, &hw_cfg);
     if (!runtime_apply_gpio_triggers(runtime, config)) {
         action_dispatcher_stop(&runtime->dispatcher);
         free(defaults);
@@ -181,6 +183,19 @@ size_t rule_runtime_poll_gpio(rule_runtime_t *runtime, uint32_t uptime_ms)
     for (size_t i = 0; i < runtime->gpio_trigger_count; ++i) {
         emitted += trigger_gpio_poll(&runtime->gpio_triggers[i], &runtime->trigger_adapter, uptime_ms);
     }
+#ifndef ESP_PLATFORM
+    (void)action_dispatcher_process_all(&runtime->dispatcher);
+#endif
+    return emitted;
+}
+
+
+size_t rule_runtime_poll_hardware(rule_runtime_t *runtime, uint32_t uptime_ms)
+{
+    if (runtime == NULL) {
+        return 0;
+    }
+    size_t emitted = hardware_fact_service_poll(&runtime->hardware_facts, uptime_ms);
 #ifndef ESP_PLATFORM
     (void)action_dispatcher_process_all(&runtime->dispatcher);
 #endif

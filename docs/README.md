@@ -39,7 +39,7 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while at least one enabled automation rule uses a `sound.*` trigger, then computes metrics and feeds existing sound facts into the rule runtime. |
 | HAT sources | ⛔ Not implemented / fail-closed | Capabilities report HAT sources disabled and the HAT probe returns unsupported. |
 | GPIO pulse/frequency sources | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
-| Battery, USB-power, BMI270, ADC facts | ⛔ Not implemented | Sources are defined but not supported by the capability registry. |
+| Battery, USB-power, BMI270, ADC facts | ✅ Implemented/Kconfig-gated | `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` are implemented when their `CONFIG_APP_*_FACTS` gates are enabled; ADC exposure is limited to the source-backed safe ADC1 allowlist. |
 | PCM streaming / sound telemetry | 🟡 Sound telemetry only | BLE transport exposes status and rule events, not PCM streaming; sound-level telemetry is produced locally for automation when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. |
 
 #### Actions and outputs
@@ -172,7 +172,7 @@ The implemented and wired automation foundation includes:
 - Action dispatch for BLE rule-event notifications, HTTP POST, NEC IR send, and local UI signaling.
 - Host tests for the rule engine, config store, runtime, web handlers, trigger adapters, and action modules.
 
-Currently wired default-boot trigger sources are `button.key1.short`, `button.key2.short`, `ble.connected`, `wifi.connected`, `gpio.digital`, `gpio.edge`, `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped`. Sound facts are produced by the capture-only sound-level service when audio initialization succeeds and at least one enabled automation rule uses a `sound.*` source. `gpio.pulse_count`, `gpio.frequency_hz`, battery/power, BMI270, ADC, and all HAT sensor sources are defined but disabled until drivers and hardware behavior are verified.
+Currently wired default-boot trigger sources are `button.key1.short`, `button.key2.short`, `ble.connected`, `wifi.connected`, `gpio.digital`, `gpio.edge`, `sound.rms_dbfs`, `sound.peak_dbfs`, `sound.clipped`, `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` when their Kconfig gates are enabled. Sound facts are produced by the capture-only sound-level service when audio initialization succeeds and at least one enabled automation rule uses a `sound.*` source. Hardware facts are produced by the polling-only hardware fact service. `gpio.pulse_count`, `gpio.frequency_hz`, and all HAT sensor sources remain defined but disabled until drivers and hardware behavior are verified.
 
 Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `local_ui`. HAT operations are defined but disabled until source-backed drivers are implemented.
 
@@ -182,7 +182,7 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 - Implemented source-backed StickS3 board constants, shared I2C ownership, M5PM1 L3B audio-rail enable helpers, capture-only I2S/ES8311 initialization helpers, LCD status UI, documented key polling, and audio safety checks. The sound-level service invokes the audio helpers when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`, which is enabled by default.
 - Removed the legacy meter UI path and kept BLE status/rule-event packets for automation.
 - Added Wi-Fi station/setup-AP provisioning, LCD keyboard provisioning, a local web UI, JSON APIs, NVS-backed automation config storage, and capability reporting.
-- Added the local rule automation core: schema, validation, engine, runtime, button/BLE/Wi-Fi/GPIO/sound facts wired by default, HTTP/IR/BLE/UI actions, safe GPIO validation, and host/static test coverage.
+- Added the local rule automation core: schema, validation, engine, runtime, button/BLE/Wi-Fi/GPIO/sound facts, Kconfig-gated battery/USB/BMI270/ADC hardware facts, HTTP/IR/BLE/UI actions, safe GPIO/ADC validation, and host/static test coverage.
 - Added factory-image generation and documentation/static checks so the release image can be flashed at offset `0x0` instead of flashing the app partition by mistake.
 
 ## What is planned next
@@ -190,7 +190,7 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 1. Run full ESP-IDF hardware validation on a physical StickS3: boot, BLE telemetry, Wi-Fi setup, web UI, NVS save/reload, GPIO fixture tests, IR frame tests, and oscilloscope/logic-analyzer audio clock checks.
 2. Improve the web rule editor beyond the current compact setup page and JSON import/export flow.
 3. Add authenticated or local-only deployment guidance for the web UI before treating it as a user-facing network service.
-4. Implement and validate more external sources only after hardware routes are verified: GPIO pulse/frequency, battery/USB power, BMI270 motion, ADC paths, and selected M5Stack HAT sensors.
+4. Implement and validate more external sources only after hardware routes are verified: GPIO pulse/frequency and selected M5Stack HAT sensors. Battery/USB power, BMI270 motion, and safe ADC1 paths are implemented behind Kconfig gates but still require physical StickS3 validation before release claims.
 5. Implement HAT actions only with source-backed protocols and tests.
 6. Keep speaker output disabled until the AW8737/M5PM1 speaker-amplifier sequence is documented, implemented, and tested; current speaker-amplifier control stays blocked and returns `ESP_ERR_NOT_SUPPORTED`.
 7. Revisit whether the product needs a standard USB Audio or BLE Audio class; until then, this firmware should be described as a custom BLE rule-event and local automation device, not an OS-native microphone.
@@ -202,11 +202,11 @@ The automation plan is now summarized here instead of in a separate planning REA
 - **Rule model and validation:** schema version 1, up to 8 rules, up to 3 actions per rule, bounded names/source keys/HTTP fields, cooldown and sustain limits, source/action validation, and safe defaults.
 - **Rule engine:** deterministic source matching, comparators, false-to-true transition detection, sustain-duration tracking, cooldown enforcement, event sequencing, and fire counts.
 - **Trigger runtime:** KEY1/KEY2 facts, BLE connection facts, Wi-Fi readiness facts, safe GPIO digital/edge facts, and sound-level facts are wired by default; sound sensor monitoring starts only when enabled `sound.*` rules exist and audio initialization succeeds.
-- **Capability gating:** `/api/capabilities` reports supported and disabled sources/actions, and validation rejects unsupported HAT, power, BMI270, ADC, GPIO pulse/frequency, and HAT-action features.
+- **Capability gating:** `/api/capabilities` reports supported and disabled sources/actions. Battery/USB, BMI270, and ADC source runtime availability follows Kconfig gates; validation still rejects unsupported HAT, GPIO pulse/frequency, unsafe ADC/GPIO routes, and HAT-action features.
 - **Action dispatch:** BLE rule-event notifications, HTTP POST events, NEC IR send, and local UI feedback are implemented; HAT actions return unsupported.
 - **Web/storage path:** `/` serves the compact setup UI, `/api/config` imports/exports/saves bounded NVS configs, `/api/time` reads/updates timezone state, and invalid stored configs fall back to safe defaults.
 
-The remaining automation roadmap is hardware/product work: validate the runtime on physical StickS3 hardware, improve the web editor UX, document network-security assumptions, add a host BLE client example, and only then implement additional source-backed HAT, GPIO pulse/frequency, battery, BMI270, ADC, or speaker features.
+The remaining automation roadmap is hardware/product work: validate the runtime on physical StickS3 hardware, improve the web editor UX, document network-security assumptions, add a host BLE client example, and only then implement additional source-backed HAT, GPIO pulse/frequency, or speaker features beyond the Kconfig-gated battery/USB, BMI270, and safe ADC fact service.
 
 ## Factory image and flashing
 
@@ -280,7 +280,7 @@ Documentation must describe the current product as a custom BLE rule-event and l
 | I2C SDA | GPIO47 | Bidirectional | `BOARD_I2C_SDA_IO` | Shared ES8311/BMI270/M5PM1 control bus. |
 | I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock; M5PM1 handle remains at 100 kHz for power-up behavior. |
 | ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
-| BMI270 I2C address | `0x68` | N/A | `BOARD_BMI270_ADDR` | Documented but intentionally unused by current firmware. |
+| BMI270 I2C address | `0x68` | N/A | `BOARD_BMI270_ADDR` | Used by the polling-only `bmi270.motion` hardware fact service when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing remains unused. |
 | M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Used for source-backed L3B audio rail and LCD power sequence. |
 | User key 1 | GPIO11 | Input | `BOARD_BUTTON_KEY1_GPIO` | Official StickS3 `KEY1`, active-low with pull-up; cycles display pages and emits automation facts. |
 | User key 2 | GPIO12 | Input | `BOARD_BUTTON_KEY2_GPIO` | Official StickS3 `KEY2`, active-low with pull-up; cycles app modes and emits automation facts. |

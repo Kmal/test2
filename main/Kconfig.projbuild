@@ -191,3 +191,34 @@ config APP_SOUND_LEVEL_FAIL_BOOT_ON_AUDIO_ERROR
     depends on APP_SOUND_LEVEL_TRIGGERS
 
 endmenu
+
+menu "StickS3 hardware automation facts"
+
+config APP_POWER_FACTS
+    bool "Enable battery and USB power automation facts"
+    default y
+
+config APP_BMI270_FACTS
+    bool "Enable BMI270 motion automation facts"
+    default y
+
+config APP_ADC_FACTS
+    bool "Enable ADC voltage automation facts"
+    default y
+
+config APP_HARDWARE_FACT_POLL_INTERVAL_MS
+    int "Hardware fact polling interval in milliseconds"
+    default 1000
+    range 100 60000
+
+config APP_BMI270_MOTION_DELTA_MG
+    int "BMI270 motion delta threshold in mg"
+    default 120
+    range 10 2000
+
+config APP_POWER_USB_PRESENT_MV
+    int "USB/VIN present threshold in millivolts"
+    default 4400
+    range 3000 5500
+
+endmenu

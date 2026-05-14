@@ -14,6 +14,9 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `audio_metrics.c` | default via sound config | yes | Audio level metric/calibration helper source linked by the default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build; consumed by `sound_level_service.c` for live sound rules. |
 | `audio_pipeline.c` | helper-only | yes | PCM capture/playback buffer helper source; not linked by the default app component. |
 | `audio_resample.c` | helper-only | yes | Audio resampling helper source; not linked by the default app component. |
+| `bmi270.c` | default | yes | BMI270 polling-only accelerometer driver and deterministic software motion thresholding used by hardware automation facts. |
+| `board_adc.c` | default | yes | ESP-IDF ADC1 oneshot allowlist for safe Grove/Hat voltage rule facts with divider scaling. |
+| `board_power.c` | default | yes | Board-level M5PM1 power policy, battery percent interpolation, USB-present thresholding, and status UI battery helper. |
 | `board_audio.c` | default via sound config | yes | Capture-only audio initializer linked by the default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build and called from `app_main()` for sound-level triggers. |
 | `board_audio_clock.c` | default via sound config | yes | 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by default sound-level trigger builds. |
 | `board_audio_power.c` | default via sound config | no | M5PM1 L3B audio rail enable wrapper linked by default sound-level trigger builds while preserving LCD M5PM1 behavior. |
@@ -23,6 +26,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `capability_registry.c` | default | yes | Central capability gate for supported/disabled sources/actions and safe GPIO profile validation. |
 | `display_text.c` | default | yes | LCD text measuring, sanitizing, wrapping/marquee, collision, and glyph rendering support. |
 | `es8311.c` | default via sound config | yes | ES8311 codec profile driver source linked by default sound-level trigger builds; capture-only setup keeps the DAC muted/down. |
+| `hardware_fact_service.c` | default | yes | Unified hardware fact polling service that emits battery, USB-present, BMI270 motion, and safe ADC voltage facts through the trigger adapter. |
 | `m5pm1.c` | default | yes | M5PM1 register helper and LCD/L3B GPIO sequence used by LCD power, with bit-preserving host tests. |
 | `main.c` | default | no | Firmware entry point wiring NVS, time, network, status UI, Wi-Fi, rule runtime, BLE transport, and default error/idle policy. |
 | `register_bus.c` | default | no | ESP-IDF I2C register-bus cache/read/write helper used by M5PM1/codec-style drivers. |
@@ -43,3 +47,13 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `ui_model.c` | default | no | Menu/application model for Wi-Fi, AP, Bluetooth, automation editing, Web UI service state, and time settings. |
 | `ui_nav.c` | default | yes | Menu graph/navigation state machine for the status UI. |
 | `ui_render.c` | default | no | LCD rendering of status bar, menus, Wi-Fi/AP/BLE/automation/settings screens, toasts, and keyboard overlay. |
+
+
+## Hardware automation facts inventory
+
+Implemented when the matching Kconfig option is enabled:
+
+* `power.battery_percent` — implemented when `CONFIG_APP_POWER_FACTS=y`.
+* `power.usb_present` — implemented when `CONFIG_APP_POWER_FACTS=y`.
+* `bmi270.motion` — implemented when `CONFIG_APP_BMI270_FACTS=y`.
+* `adc.voltage_mv` — implemented when `CONFIG_APP_ADC_FACTS=y`.

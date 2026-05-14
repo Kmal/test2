@@ -5,6 +5,7 @@
 #include "button_state.h"
 #include "rule_engine.h"
 #include "trigger_gpio.h"
+#include "hardware_fact_service.h"
 #include "trigger_sources.h"
 
 #include <stdbool.h>
@@ -19,6 +20,7 @@ typedef struct {
     size_t gpio_trigger_count;
     size_t last_event_count;
     size_t enqueue_errors;
+    hardware_fact_service_t hardware_facts;
 } rule_runtime_t;
 
 bool rule_runtime_init(rule_runtime_t *runtime, const automation_config_t *config);
@@ -31,5 +33,6 @@ size_t rule_runtime_process_fact(rule_runtime_t *runtime, const trigger_fact_t *
 size_t rule_runtime_process_metrics(rule_runtime_t *runtime, const audio_level_metrics_t *metrics, uint32_t uptime_ms);
 size_t rule_runtime_process_button_event(rule_runtime_t *runtime, button_state_event_t event, uint32_t uptime_ms);
 size_t rule_runtime_poll_gpio(rule_runtime_t *runtime, uint32_t uptime_ms);
+size_t rule_runtime_poll_hardware(rule_runtime_t *runtime, uint32_t uptime_ms);
 size_t rule_runtime_process_actions(rule_runtime_t *runtime);
 action_result_t rule_runtime_get_last_action_result(const rule_runtime_t *runtime);

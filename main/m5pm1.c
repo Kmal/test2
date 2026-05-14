@@ -105,62 +105,59 @@ static esp_err_t m5pm1_update_bit(i2c_port_t port, uint8_t addr, uint8_t reg, ui
 }
 
 
-esp_err_t m5pm1_read_vbat_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv)
+static esp_err_t m5pm1_read_u16_mv(i2c_port_t port, uint8_t addr, uint8_t reg_l, uint16_t *out_mv)
 {
     if (out_mv == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     uint8_t lo = 0;
     uint8_t hi = 0;
-    esp_err_t err = m5pm1_read_u8_retry(port, addr, M5PM1_REG_VBAT_L, &lo);
+    esp_err_t err = m5pm1_read_u8_retry(port, addr, reg_l, &lo);
     if (err != ESP_OK) {
         return err;
     }
-    err = m5pm1_read_u8_retry(port, addr, M5PM1_REG_VBAT_H, &hi);
+    err = m5pm1_read_u8_retry(port, addr, (uint8_t)(reg_l + 1), &hi);
     if (err != ESP_OK) {
         return err;
     }
-    *out_mv = (uint16_t)(((uint16_t)(hi & 0x0fU) << 8) | lo);
+    /* M5PM1 upstream readReg16() returns two little-endian bytes for these
+     * voltage APIs. Do not mask the high byte; VIN/5V readings need values
+     * above 4095 mV for USB-present thresholds. */
+    *out_mv = (uint16_t)(((uint16_t)hi << 8) | lo);
     return ESP_OK;
 }
 
-static uint8_t m5pm1_lipo_percent_from_mv(uint16_t mv)
+esp_err_t m5pm1_read_vref_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv)
 {
-    static const struct {
-        uint16_t mv;
-        uint8_t percent;
-    } curve[] = {
-        {4200, 100}, {4110, 90}, {4030, 80}, {3980, 70}, {3920, 60},
-        {3870, 50}, {3820, 40}, {3790, 30}, {3740, 20}, {3680, 10}, {3300, 0},
-    };
-
-    if (mv >= curve[0].mv) {
-        return curve[0].percent;
-    }
-    for (size_t i = 1; i < sizeof(curve) / sizeof(curve[0]); ++i) {
-        if (mv >= curve[i].mv) {
-            const uint16_t mv_hi = curve[i - 1].mv;
-            const uint16_t mv_lo = curve[i].mv;
-            const uint8_t pct_hi = curve[i - 1].percent;
-            const uint8_t pct_lo = curve[i].percent;
-            return (uint8_t)(pct_lo + ((uint32_t)(mv - mv_lo) * (pct_hi - pct_lo)) / (mv_hi - mv_lo));
-        }
-    }
-    return 0;
+    return m5pm1_read_u16_mv(port, addr, M5PM1_REG_VREF_L, out_mv);
 }
 
-bool board_power_get_battery_percent(uint8_t *out_percent)
+esp_err_t m5pm1_read_vbat_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv)
 {
-    if (out_percent == NULL) {
-        return false;
+    return m5pm1_read_u16_mv(port, addr, M5PM1_REG_VBAT_L, out_mv);
+}
+
+esp_err_t m5pm1_read_vin_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv)
+{
+    return m5pm1_read_u16_mv(port, addr, M5PM1_REG_VIN_L, out_mv);
+}
+
+esp_err_t m5pm1_read_5v_inout_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv)
+{
+    return m5pm1_read_u16_mv(port, addr, M5PM1_REG_5VINOUT_L, out_mv);
+}
+
+esp_err_t m5pm1_read_charge_state(i2c_port_t port, uint8_t addr, bool *out_charging)
+{
+    (void)port;
+    (void)addr;
+    if (out_charging == NULL) {
+        return ESP_ERR_INVALID_ARG;
     }
-    uint16_t mv = 0;
-    esp_err_t err = m5pm1_read_vbat_mv(BOARD_I2C_PORT, BOARD_M5PM1_ADDR, &mv);
-    if (err != ESP_OK || mv < 2500u || mv > 4500u) {
-        return false;
-    }
-    *out_percent = m5pm1_lipo_percent_from_mv(mv);
-    return true;
+    /* The provided M5PM1 source and StickS3 documentation verify voltage
+     * registers and GPIO mapping, but they do not expose a source-verified
+     * charging-status register/bit for StickS3. Do not guess a bit layout. */
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t m5pm1_probe(i2c_port_t port, uint8_t addr, m5pm1_identity_t *identity)
