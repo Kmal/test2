@@ -33,9 +33,13 @@ static void test_sound_metrics_emit_three_facts(void)
     metrics.clipped_samples = 2;
     ASSERT_EQ(3, trigger_emit_sound_facts(&adapter, &metrics, 123));
     ASSERT_EQ(RULE_SOURCE_SOUND_RMS_DBFS, capture.facts[0].source);
+    ASSERT_EQ(RULE_VALUE_I32, capture.facts[0].value.kind);
     ASSERT_EQ(-100, capture.facts[0].value.as.i32_value);
     ASSERT_EQ(RULE_SOURCE_SOUND_PEAK_DBFS, capture.facts[1].source);
+    ASSERT_EQ(RULE_VALUE_I32, capture.facts[1].value.kind);
+    ASSERT_EQ(-50, capture.facts[1].value.as.i32_value);
     ASSERT_EQ(RULE_SOURCE_SOUND_CLIPPED, capture.facts[2].source);
+    ASSERT_EQ(RULE_VALUE_BOOL, capture.facts[2].value.kind);
     ASSERT_TRUE(capture.facts[2].value.as.bool_value);
     ASSERT_EQ(123, capture.facts[2].uptime_ms);
 }

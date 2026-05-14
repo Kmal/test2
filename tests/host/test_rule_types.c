@@ -197,6 +197,26 @@ static void test_capability_json_excludes_disabled_actions(void)
     ASSERT_TRUE(strstr(json, "frequency") != NULL);
 }
 
+static void test_enabled_sound_source_detection(void)
+{
+    automation_config_t config;
+    automation_config_set_defaults(&config);
+    ASSERT_FALSE(automation_config_has_enabled_sound_source(&config));
+    ASSERT_FALSE(automation_config_has_enabled_source(&config, RULE_SOURCE_SOUND_RMS_DBFS));
+
+    config.rules[0].enabled = true;
+    ASSERT_TRUE(rule_source_is_sound(RULE_SOURCE_SOUND_RMS_DBFS));
+    ASSERT_TRUE(rule_source_is_sound(RULE_SOURCE_SOUND_PEAK_DBFS));
+    ASSERT_TRUE(rule_source_is_sound(RULE_SOURCE_SOUND_CLIPPED));
+    ASSERT_FALSE(rule_source_is_sound(RULE_SOURCE_KEY1_SHORT));
+    ASSERT_TRUE(automation_config_has_enabled_sound_source(&config));
+    ASSERT_TRUE(automation_config_has_enabled_source(&config, RULE_SOURCE_SOUND_RMS_DBFS));
+
+    config.rules[0].enabled = false;
+    config.rules[1].enabled = true;
+    ASSERT_FALSE(automation_config_has_enabled_sound_source(&config));
+}
+
 static void test_names_and_value_equality(void)
 {
     ASSERT_TRUE(strcmp(rule_source_name(RULE_SOURCE_HAT_ENV3_HUMIDITY_RH), "hat.env3.humidity_rh") == 0);
@@ -218,6 +238,7 @@ int main(void)
     test_comparator_value_compatibility();
     test_gpio_profile_compatibility_direct();
     test_capability_json_excludes_disabled_actions();
+    test_enabled_sound_source_detection();
     test_names_and_value_equality();
     puts("rule_types tests passed");
     return 0;

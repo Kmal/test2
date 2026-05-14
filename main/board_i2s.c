@@ -19,6 +19,16 @@ static board_audio_profile_t s_active_profile;
 static bool s_i2s_ready;
 
 
+static size_t board_i2s_decode_mono16_from_32slot(const int32_t *src, size_t words, int16_t *dst, size_t max_samples)
+{
+    size_t out = 0;
+    for (size_t i = 0; i < words && out < max_samples; ++i) {
+        dst[out++] = (int16_t)(src[i] >> 16);
+    }
+    return out;
+}
+
+
 static void board_i2s_cleanup_partial(bool rx_enabled, bool tx_enabled)
 {
     if (s_tx_handle != NULL) {
@@ -40,6 +50,7 @@ static void board_i2s_cleanup_partial(bool rx_enabled, bool tx_enabled)
 
 static esp_err_t board_i2s_enable_channel(i2s_chan_handle_t handle, const char *name)
 {
+    (void)name;
     esp_err_t err = i2s_channel_enable(handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S %s channel enable failed: %s", name, esp_err_to_name(err));
@@ -144,6 +155,28 @@ esp_err_t board_i2s_read(void *dest, size_t size, size_t *bytes_read, uint32_t t
         return ESP_ERR_INVALID_STATE;
     }
     return i2s_channel_read(s_rx_handle, dest, size, bytes_read, timeout_ms);
+}
+
+
+esp_err_t board_i2s_read_mono_i16(int16_t *dest, size_t max_samples, size_t *samples_read, uint32_t timeout_ms)
+{
+    int32_t raw_words[256];
+    size_t bytes_read = 0;
+
+    if (dest == NULL || max_samples == 0 || samples_read == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *samples_read = 0;
+
+    esp_err_t err = board_i2s_read(raw_words, sizeof(raw_words), &bytes_read, timeout_ms);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const size_t words = bytes_read / sizeof(raw_words[0]);
+    *samples_read = board_i2s_decode_mono16_from_32slot(raw_words, words, dest, max_samples);
+    return *samples_read > 0 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 esp_err_t board_i2s_write(const void *src, size_t size, size_t *bytes_written, uint32_t timeout_ms)
