@@ -21,12 +21,16 @@
 #include "app_mode.h"
 #include "app_time.h"
 #include "app_wifi.h"
+#include "sdkconfig.h"
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+#include "board_audio.h"
+#include "sound_level_service.h"
+#endif
 #include "board_sticks3.h"
 #include "rule_config_store.h"
 #include "rule_runtime.h"
 #include "rule_web.h"
 #include "status_ui.h"
-#include "sdkconfig.h"
 
 #if CONFIG_APP_TRANSPORT_HFP_LEGACY && defined(CONFIG_IDF_TARGET_ESP32S3)
 #error "ESP32-S3 does not support Bluetooth Classic / BR/EDR; legacy HFP is not available on StickS3"
@@ -52,6 +56,10 @@ static TaskHandle_t s_rule_gpio_task;
 static TaskHandle_t s_rule_network_task;
 static bool s_rule_network_state_known;
 static bool s_rule_network_ready;
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+static sound_level_service_t s_sound_level_service;
+static bool s_sound_level_ready;
+#endif
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 static TaskHandle_t s_rule_ble_task;
 static bool s_rule_ble_state_known;
@@ -286,6 +294,54 @@ static void app_rule_runtime_init(void)
 #endif
 }
 
+
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx)
+{
+    (void)ctx;
+    return sound_level_service_build_status_json(s_sound_level_ready ? &s_sound_level_service : NULL, out, out_len);
+}
+
+static void app_sound_level_start(void)
+{
+    board_audio_config_t audio_config = {
+        .profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY,
+        .probe_m5pm1 = true,
+        .require_audio_power_enable = true,
+    };
+
+    esp_err_t err = board_audio_init(&audio_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "sound triggers: audio init failed: %s", esp_err_to_name(err));
+#if CONFIG_APP_SOUND_LEVEL_FAIL_BOOT_ON_AUDIO_ERROR
+        ESP_ERROR_CHECK(err);
+#else
+        return;
+#endif
+    }
+
+    sound_level_service_config_t service_config;
+    sound_level_service_config_defaults(&service_config);
+
+    if (!sound_level_service_init(&s_sound_level_service,
+                                  &s_rule_runtime,
+                                  s_rule_mutex,
+                                  &service_config)) {
+        ESP_LOGE(TAG, "sound triggers: service init failed");
+        return;
+    }
+
+    if (!sound_level_service_start(&s_sound_level_service)) {
+        ESP_LOGE(TAG, "sound triggers: service task create failed");
+        return;
+    }
+
+    s_sound_level_ready = true;
+    rule_web_set_sound_status_builder(app_sound_level_status_json, NULL);
+    ESP_LOGI(TAG, "sound triggers: capture task started");
+}
+#endif
+
 static void app_publish_ble_status(void)
 {
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
@@ -420,6 +476,10 @@ void app_main(void)
         ESP_LOGW(TAG, "app_main: Wi-Fi/web UI network startup unavailable");
     }
     app_rule_runtime_init();
+
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+    app_sound_level_start();
+#endif
 
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     ESP_LOGI(TAG, "app_main: BLE GATT rule-event init start");

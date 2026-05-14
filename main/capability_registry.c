@@ -1,7 +1,12 @@
 #include "capability_registry.h"
 #include "board_sticks3.h"
+#include "sdkconfig.h"
 
 #include <stdio.h>
+
+#ifndef CONFIG_APP_SOUND_LEVEL_TRIGGERS
+#define CONFIG_APP_SOUND_LEVEL_TRIGGERS 0
+#endif
 
 static void set_error(char *error, size_t error_len, const char *message)
 {
@@ -28,7 +33,8 @@ static bool profile_valid(rule_gpio_profile_t profile)
 typedef struct {
     rule_source_t source;
     const char *name;
-    bool supported;
+    bool schema_supported;
+    bool runtime_available;
     const char *reason;
 } source_capability_t;
 
@@ -40,32 +46,32 @@ typedef struct {
 } action_capability_t;
 
 static const source_capability_t s_source_caps[] = {
-    {RULE_SOURCE_SOUND_RMS_DBFS, "sound.rms_dbfs", true, "implemented"},
-    {RULE_SOURCE_SOUND_PEAK_DBFS, "sound.peak_dbfs", true, "implemented"},
-    {RULE_SOURCE_SOUND_CLIPPED, "sound.clipped", true, "implemented"},
-    {RULE_SOURCE_KEY1_SHORT, "button.key1.short", true, "implemented"},
-    {RULE_SOURCE_KEY2_SHORT, "button.key2.short", true, "implemented"},
-    {RULE_SOURCE_BLE_CONNECTED, "ble.connected", true, "implemented"},
-    {RULE_SOURCE_WIFI_CONNECTED, "wifi.connected", true, "implemented"},
-    {RULE_SOURCE_BATTERY_PERCENT, "power.battery_percent", false, "planned"},
-    {RULE_SOURCE_POWER_USB_PRESENT, "power.usb_present", false, "planned"},
-    {RULE_SOURCE_BMI270_MOTION, "bmi270.motion", false, "planned"},
-    {RULE_SOURCE_HAT_PIR_MOTION, "hat.pir.motion", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_ENV3_TEMPERATURE_C, "hat.env3.temperature_c", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_ENV3_HUMIDITY_RH, "hat.env3.humidity_rh", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_ENV3_PRESSURE_HPA, "hat.env3.pressure_hpa", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_LIGHT_LUX, "hat.light.lux", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_TOF_DISTANCE_MM, "hat.tof.distance_mm", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_NCIR_TEMPERATURE_C, "hat.ncir.temperature_c", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_THERMAL_AVG_C, "hat.thermal.avg_c", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_THERMAL_MAX_C, "hat.thermal.max_c", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_HEART_RATE_BPM, "hat.heart_rate.bpm", false, "missing_hat_driver"},
-    {RULE_SOURCE_HAT_ADC_VOLTAGE_MV, "hat.adc.voltage_mv", false, "missing_hat_driver"},
-    {RULE_SOURCE_GPIO_DIGITAL, "gpio.digital", true, "implemented"},
-    {RULE_SOURCE_GPIO_EDGE, "gpio.edge", true, "implemented"},
-    {RULE_SOURCE_GPIO_PULSE_COUNT, "gpio.pulse_count", false, "missing_gpio_driver"},
-    {RULE_SOURCE_GPIO_FREQUENCY_HZ, "gpio.frequency_hz", false, "missing_gpio_driver"},
-    {RULE_SOURCE_ADC_VOLTAGE_MV, "adc.voltage_mv", false, "planned"},
+    {RULE_SOURCE_SOUND_RMS_DBFS, "sound.rms_dbfs", true, CONFIG_APP_SOUND_LEVEL_TRIGGERS, CONFIG_APP_SOUND_LEVEL_TRIGGERS ? "implemented" : "audio_capture_disabled"},
+    {RULE_SOURCE_SOUND_PEAK_DBFS, "sound.peak_dbfs", true, CONFIG_APP_SOUND_LEVEL_TRIGGERS, CONFIG_APP_SOUND_LEVEL_TRIGGERS ? "implemented" : "audio_capture_disabled"},
+    {RULE_SOURCE_SOUND_CLIPPED, "sound.clipped", true, CONFIG_APP_SOUND_LEVEL_TRIGGERS, CONFIG_APP_SOUND_LEVEL_TRIGGERS ? "implemented" : "audio_capture_disabled"},
+    {RULE_SOURCE_KEY1_SHORT, "button.key1.short", true, true, "implemented"},
+    {RULE_SOURCE_KEY2_SHORT, "button.key2.short", true, true, "implemented"},
+    {RULE_SOURCE_BLE_CONNECTED, "ble.connected", true, true, "implemented"},
+    {RULE_SOURCE_WIFI_CONNECTED, "wifi.connected", true, true, "implemented"},
+    {RULE_SOURCE_BATTERY_PERCENT, "power.battery_percent", false, false, "planned"},
+    {RULE_SOURCE_POWER_USB_PRESENT, "power.usb_present", false, false, "planned"},
+    {RULE_SOURCE_BMI270_MOTION, "bmi270.motion", false, false, "planned"},
+    {RULE_SOURCE_HAT_PIR_MOTION, "hat.pir.motion", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_ENV3_TEMPERATURE_C, "hat.env3.temperature_c", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_ENV3_HUMIDITY_RH, "hat.env3.humidity_rh", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_ENV3_PRESSURE_HPA, "hat.env3.pressure_hpa", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_LIGHT_LUX, "hat.light.lux", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_TOF_DISTANCE_MM, "hat.tof.distance_mm", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_NCIR_TEMPERATURE_C, "hat.ncir.temperature_c", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_THERMAL_AVG_C, "hat.thermal.avg_c", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_THERMAL_MAX_C, "hat.thermal.max_c", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_HEART_RATE_BPM, "hat.heart_rate.bpm", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_HAT_ADC_VOLTAGE_MV, "hat.adc.voltage_mv", false, false, "missing_hat_driver"},
+    {RULE_SOURCE_GPIO_DIGITAL, "gpio.digital", true, true, "implemented"},
+    {RULE_SOURCE_GPIO_EDGE, "gpio.edge", true, true, "implemented"},
+    {RULE_SOURCE_GPIO_PULSE_COUNT, "gpio.pulse_count", false, false, "missing_gpio_driver"},
+    {RULE_SOURCE_GPIO_FREQUENCY_HZ, "gpio.frequency_hz", false, false, "missing_gpio_driver"},
+    {RULE_SOURCE_ADC_VOLTAGE_MV, "adc.voltage_mv", false, false, "planned"},
 };
 
 static const action_capability_t s_action_caps[] = {
@@ -78,9 +84,24 @@ static const action_capability_t s_action_caps[] = {
 
 bool capability_source_supported(rule_source_t source)
 {
+    return capability_source_runtime_available(source);
+}
+
+bool capability_source_schema_supported(rule_source_t source)
+{
     for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
         if (s_source_caps[i].source == source) {
-            return s_source_caps[i].supported;
+            return s_source_caps[i].schema_supported;
+        }
+    }
+    return false;
+}
+
+bool capability_source_runtime_available(rule_source_t source)
+{
+    for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
+        if (s_source_caps[i].source == source) {
+            return s_source_caps[i].runtime_available;
         }
     }
     return false;
@@ -96,7 +117,7 @@ bool capability_action_supported(rule_action_type_t action)
     return false;
 }
 
-const char *capability_source_reason(rule_source_t source)
+const char *capability_source_availability_reason(rule_source_t source)
 {
     for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
         if (s_source_caps[i].source == source) {
@@ -104,6 +125,11 @@ const char *capability_source_reason(rule_source_t source)
         }
     }
     return "unknown_source";
+}
+
+const char *capability_source_reason(rule_source_t source)
+{
+    return capability_source_availability_reason(source);
 }
 
 const char *capability_action_reason(rule_action_type_t action)
@@ -273,9 +299,33 @@ size_t capability_build_json(char *out, size_t out_len)
         return used;
     }
     for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
-        if (s_source_caps[i].supported) {
+        if (s_source_caps[i].schema_supported) {
             (void)append_json_string_array_item(out, out_len, &used, s_source_caps[i].name, &first);
         }
+    }
+    if (!append_text(out, out_len, &used, "],\"source_capabilities\":[")) {
+        return used;
+    }
+    first = true;
+    for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
+        if (!s_source_caps[i].schema_supported) {
+            continue;
+        }
+        if (!first && !append_text(out, out_len, &used, ",")) {
+            return used;
+        }
+        first = false;
+        const int written = snprintf(out + used, out_len - used,
+                                     "{\"name\":\"%s\",\"schema_supported\":%s,\"runtime_available\":%s,\"reason\":\"%s\"}",
+                                     s_source_caps[i].name,
+                                     s_source_caps[i].schema_supported ? "true" : "false",
+                                     s_source_caps[i].runtime_available ? "true" : "false",
+                                     s_source_caps[i].reason);
+        if (written < 0 || (size_t)written >= out_len - used) {
+            used = out_len > 0 ? out_len - 1u : 0;
+            return used;
+        }
+        used += (size_t)written;
     }
     if (!append_text(out, out_len, &used, "],\"actions\":[")) {
         return used;
@@ -291,7 +341,7 @@ size_t capability_build_json(char *out, size_t out_len)
     }
     first = true;
     for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
-        if (!s_source_caps[i].supported) {
+        if (!s_source_caps[i].runtime_available) {
             (void)append_json_string_array_item(out, out_len, &used, s_source_caps[i].name, &first);
         }
     }
@@ -316,7 +366,7 @@ size_t capability_build_json(char *out, size_t out_len)
     first = true;
     for (size_t i = 0; i < sizeof(s_source_caps) / sizeof(s_source_caps[0]); ++i) {
         if (source_is_hat(s_source_caps[i].source)) {
-            (void)append_json_capability_item(out, out_len, &used, s_source_caps[i].name, s_source_caps[i].supported,
+            (void)append_json_capability_item(out, out_len, &used, s_source_caps[i].name, s_source_caps[i].runtime_available,
                                              s_source_caps[i].reason, &first);
         }
     }

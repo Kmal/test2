@@ -150,3 +150,44 @@ config APP_STATUS_UI_LCD_REFRESH_MS
     depends on APP_STATUS_UI_LCD
 
 endmenu
+
+menu "StickS3 sound-level triggers"
+
+config APP_SOUND_LEVEL_TRIGGERS
+    bool "Enable sound-level trigger capture"
+    default n
+
+config APP_SOUND_LEVEL_SAMPLE_RATE_HZ
+    int "Sound trigger sample rate"
+    default 16000
+    depends on APP_SOUND_LEVEL_TRIGGERS
+
+config APP_SOUND_LEVEL_WINDOW_MS
+    int "Sound trigger metrics window"
+    default 100
+    range 20 1000
+    depends on APP_SOUND_LEVEL_TRIGGERS
+
+config APP_SOUND_LEVEL_READ_TIMEOUT_MS
+    int "Sound trigger I2S read timeout"
+    default 20
+    range 1 1000
+    depends on APP_SOUND_LEVEL_TRIGGERS
+
+config APP_SOUND_LEVEL_CALIBRATE_ON_START
+    bool "Calibrate sound floor on startup"
+    default y
+    depends on APP_SOUND_LEVEL_TRIGGERS
+
+config APP_SOUND_LEVEL_CALIBRATION_WINDOWS
+    int "Sound calibration windows"
+    default 30
+    range 1 600
+    depends on APP_SOUND_LEVEL_TRIGGERS
+
+config APP_SOUND_LEVEL_FAIL_BOOT_ON_AUDIO_ERROR
+    bool "Fail boot if sound-trigger audio init fails"
+    default n
+    depends on APP_SOUND_LEVEL_TRIGGERS
+
+endmenu

@@ -64,6 +64,8 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(rule_web_get_status_json(&web, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "http_network_ready") != NULL);
     ASSERT_TRUE(strstr(json, "\"wifi\"") != NULL);
+    ASSERT_TRUE(strstr(json, "\"sound\"") != NULL);
+    ASSERT_TRUE(strstr(json, "audio_capture_disabled") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "Trigger source") != NULL);
     ASSERT_TRUE(strstr(json, "Import / export JSON") != NULL);
@@ -143,6 +145,11 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "\"ok\"") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/capabilities", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "pin_conflicts") != NULL);
+    ASSERT_TRUE(strstr(json, "source_capabilities") != NULL);
+    ASSERT_TRUE(strstr(json, "sound.rms_dbfs") != NULL);
+    ASSERT_TRUE(strstr(json, "schema_supported") != NULL);
+    ASSERT_TRUE(strstr(json, "runtime_available") != NULL);
+    ASSERT_TRUE(strstr(json, "audio_capture_disabled") != NULL);
     ASSERT_TRUE(strstr(json, "hat.thermal.avg_c") != NULL);
     ASSERT_TRUE(strstr(json, "pulse_count") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/config", NULL, json, sizeof(json)));
@@ -154,6 +161,20 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", "defaults", json, sizeof(json)));
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/rules/test", NULL, json, sizeof(json)));
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", "{\"preset\":\"sound_local_ui\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "Sound clipped alert") != NULL);
+    ASSERT_TRUE(strstr(json, "sound.clipped") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config", "{\"preset\":\"loud_sound_local_ui\"}", json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "Loud sound alert") != NULL);
+    ASSERT_TRUE(strstr(json, "sound.rms_dbfs") != NULL);
+    ASSERT_TRUE(strstr(json, "\"comparator\":\"gte\"") != NULL);
+    ASSERT_TRUE(strstr(json, "\"threshold_i32\":-5120") != NULL);
+    ASSERT_TRUE(strstr(json, "\"sustain_ms\":250") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"sound.peak_dbfs\",\"action\":\"local_ui\"}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "sound.peak_dbfs") != NULL);
+    ASSERT_TRUE(strstr(json, "\"comparator\":\"gte\"") != NULL);
+    ASSERT_TRUE(strstr(json, "\"threshold_i32\":-5120") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/rules/test", NULL, json, sizeof(json)));
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
                                         "{\"source\":\"button.key1.short\",\"action\":\"http_post\",\"http_url\":\"https://example.invalid/hook\",\"http_bearer_token\":\"secret-token\"}",

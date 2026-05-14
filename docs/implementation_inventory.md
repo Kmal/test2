@@ -11,14 +11,14 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `app_mode.c` | default | yes | Initializes and names the local control app mode used by boot/status state. |
 | `app_time.c` | default | yes | Provides timezone storage/formatting and `/api/time` JSON support used by boot and Web UI. |
 | `app_wifi.c` | default | yes | Starts station/setup-AP support, Wi-Fi scan/connect/AP/mode APIs, network status JSON, and SNTP sync task. |
-| `audio_metrics.c` | helper-only | yes | Audio level metric/calibration helper source; not linked by the default app component and no default task feeds live metrics. |
+| `audio_metrics.c` | optional feature | yes | Audio level metric/calibration helper source linked when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`; consumed by `sound_level_service.c` for live sound rules. |
 | `audio_pipeline.c` | helper-only | yes | PCM capture/playback buffer helper source; not linked by the default app component. |
 | `audio_resample.c` | helper-only | yes | Audio resampling helper source; not linked by the default app component. |
-| `board_audio.c` | helper-only | yes | Optional audio initializer sequence helper; not linked by the default app component and not called by `app_main()`. |
-| `board_audio_clock.c` | helper-only | yes | Optional 16 kHz/12.288 MHz/512 kHz audio clock profile helper; not linked by the default app component. |
-| `board_audio_power.c` | helper-only | no | Optional M5PM1 audio rail enable wrapper; not linked by the default app component, while LCD power uses the shared M5PM1 helper through `status_lcd.c`. |
+| `board_audio.c` | optional feature | yes | Capture-only audio initializer linked when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` and called from `app_main()` for sound-level triggers. |
+| `board_audio_clock.c` | optional feature | yes | Optional 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by sound-level trigger builds. |
+| `board_audio_power.c` | optional feature | no | Optional M5PM1 L3B audio rail enable wrapper linked by sound-level trigger builds while preserving LCD M5PM1 behavior. |
 | `board_i2c.c` | default | no | ESP-IDF shared I2C bus initializer used by LCD/status UI paths and available to board helpers. |
-| `board_i2s.c` | helper-only | no | Optional capture-only/full-duplex I2S driver source; not linked by the default app component. |
+| `board_i2s.c` | optional feature | yes | Optional capture-only/full-duplex I2S driver source linked by sound-level trigger builds; includes mono `int16_t` decode helper coverage. |
 | `button_state.c` | default | yes | Active-low KEY1/KEY2 debouncing and event classification for status UI and automation facts. |
 | `capability_registry.c` | default | yes | Central capability gate for supported/disabled sources/actions and safe GPIO profile validation. |
 | `display_text.c` | default | yes | LCD text measuring, sanitizing, wrapping/marquee, collision, and glyph rendering support. |
@@ -28,7 +28,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `register_bus.c` | default | no | ESP-IDF I2C register-bus cache/read/write helper used by M5PM1/codec-style drivers. |
 | `rule_config_store.c` | default | yes | NVS-backed automation config load/save/default fallback used by boot, Web UI, and status UI updates. |
 | `rule_engine.c` | default | yes | Rule condition evaluation, false-to-true firing, sustain, cooldown, action fan-out, and sequence assignment. |
-| `rule_runtime.c` | default | yes | Runtime bridge from button/GPIO/BLE/Wi-Fi/sound facts to rule engine and action dispatcher; default boot creates GPIO/network/BLE producers, not sound metrics. |
+| `rule_runtime.c` | default | yes | Runtime bridge from button/GPIO/BLE/Wi-Fi/sound facts to rule engine and action dispatcher; opt-in sound service feeds live metrics through this existing path. |
 | `rule_types.c` | default | yes | Rule defaults, validation, source/action names, safe GPIO/capability checks, and binary config serialization. |
 | `rule_web.c` | default | yes | On-demand HTTP Web UI/API implementation for config, status, time, Wi-Fi, capabilities, test actions, GPIO, and HAT probe. |
 | `status_lcd.c` | default | no | Optional LCD bring-up/render task path behind `CONFIG_APP_STATUS_UI_LCD`; failures are non-fatal. |

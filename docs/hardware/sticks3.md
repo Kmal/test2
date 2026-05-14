@@ -49,8 +49,8 @@ The current default firmware is a local configuration and automation device. Fro
 | LCD power and panel initialization | ✅ Implemented/wired when `CONFIG_APP_STATUS_UI_LCD=y` | `status_ui_init()` initializes the shared I2C bus, calls the M5PM1 LCD/L3B power helper, initializes the ST7789P3 panel, enables backlight GPIO38, and treats LCD failure as non-fatal. |
 | Two StickS3 keys | ✅ Implemented/wired | Only GPIO11/KEY1 and GPIO12/KEY2 are polled as user keys; they drive menu navigation and button automation facts. |
 | M5PM1 L3B helper | 🟡 Helper path plus LCD use | The source-backed GPIO2-high sequence exists and is used by LCD power; the audio-specific `board_audio_power_enable()` helper also exists, but default boot does not invoke the audio initializer. |
-| Capture-only I2S/ES8311 profile | 🟡 Helper path only | `board_audio_init_with_ops()` can sequence I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup, but the default app component does not link the optional audio sources and `app_main()` does not call it. |
-| Sound metrics from microphone | ⛔ Not wired by default | Audio metric helpers exist, but no default task reads I2S samples and feeds sound facts into the rule runtime. |
+| Capture-only I2S/ES8311 profile | 🟡 Opt-in implemented | `board_audio_init_with_ops()` sequences I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`; the default app build still does not link or call the optional audio sources. |
+| Sound metrics from microphone | ⛔ Not wired by default | Audio metric helpers exist, but the opt-in `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build starts a capture-only task that reads normalized I2S microphone samples and feeds sound facts into the rule runtime. |
 | I2S TX / local speaker output | ⛔ Not implemented | Full-duplex/TX is not selected by default, and AW8737/M5PM1 speaker-amplifier control remains blocked with `ESP_ERR_NOT_SUPPORTED`. |
 | IR send | ✅ Implemented/wired for actions | NEC IR actions use the RMT TX path on GPIO46 after rule validation. |
 | IR receive | ⛔ Not implemented | GPIO42 is reserved as IR RX, but no receive action/source is wired. |
@@ -83,11 +83,11 @@ The optional capture-only software profile is intentionally explicit when the au
 - LRCK/WS: GPIO15
 - ES8311 12.288 MHz / 16 kHz clock-manager register-2 value used by the current project sequence: `0x40`
 
-For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success. This is not a default-boot claim: the current `app_main()` path does not call the audio initializer.
+For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success. This is not a default-boot claim: the default build does not call the audio initializer, while `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` calls it for capture-only microphone metrics.
 
 ## M5PM1 L3B audio power sequence
 
-The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The implemented helper configures M5PM1 GPIO2 as a normal output, push-pull drive, and **high** output using the same tested GPIO-helper path as LCD/L3B setup. The current M5Stack M5GFX StickS3 initialization source drives `PYG2` high to enable L3B, writes `I2C_CFG=0x00`, and waits for the rail before LCD reset. M5PM1 powers up in 100 kHz I2C mode, so the shared register-bus cache keeps the M5PM1 device handle at 100 kHz while other devices can use the board-default 400 kHz speed. The PMIC helper retries a first `ESP_ERR_INVALID_RESPONSE` once, because the boot log showed the LCD path failing on the first M5PM1 GPIO-function read while a later L3B access succeeded. The separate M5PM1 identity probe remains optional. In the current default boot, this sequence is reached through LCD power initialization when LCD is enabled; audio-specific rail enable before ES8311 access exists in the optional audio initializer but is not called by `app_main()`.
+The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The implemented helper configures M5PM1 GPIO2 as a normal output, push-pull drive, and **high** output using the same tested GPIO-helper path as LCD/L3B setup. The current M5Stack M5GFX StickS3 initialization source drives `PYG2` high to enable L3B, writes `I2C_CFG=0x00`, and waits for the rail before LCD reset. M5PM1 powers up in 100 kHz I2C mode, so the shared register-bus cache keeps the M5PM1 device handle at 100 kHz while other devices can use the board-default 400 kHz speed. The PMIC helper retries a first `ESP_ERR_INVALID_RESPONSE` once, because the boot log showed the LCD path failing on the first M5PM1 GPIO-function read while a later L3B access succeeded. The separate M5PM1 identity probe remains optional. In the default boot, this sequence is reached through LCD power initialization when LCD is enabled; the opt-in sound-level trigger build also uses the audio-specific rail enable before ES8311 access.
 
 This L3B enable sequence is not treated as evidence that local speaker output is safe. Speaker-amplifier pulse/control remains blocked and returns `ESP_ERR_NOT_SUPPORTED` until its exact source-backed M5PM1/AW8737 sequence is documented and tested.
 
@@ -115,7 +115,7 @@ BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing thr
 
 ## Audio init failure policy
 
-`board_audio_init_with_ops()` initializes in this order when an optional audio path links and calls it: shared I2C, optional M5PM1 probe, required source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet. The current default app component does not link the optional audio sources and the default `app_main()` path does not invoke this initializer.
+`board_audio_init_with_ops()` initializes in this order when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` links and calls it: shared I2C, optional M5PM1 probe, required source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet. The default app component does not link the optional audio sources and the default `app_main()` path does not invoke this initializer.
 
 ## Automation hardware scope
 
@@ -123,7 +123,7 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 
 ## Unknowns / deferred decisions
 
-- Whether a future product requires optional audio capture; the default control firmware does not expose audio or sound-level telemetry.
+- Physical StickS3 validation of the opt-in sound-level capture path, including measured I2S clocks and ES8311 sample alignment; the default control firmware still does not expose audio or sound-level telemetry.
 - Exact M5PM1 speaker amplifier command sequence.
 - Whether BMI270, ADC, battery, or HAT features are needed by a future product feature.
 
@@ -141,3 +141,10 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 - BMI270 datasheet: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/core/K128%20CoreS3/BMI270.PDF
 - ESP32-S3 technical reference manual: https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/477/esp32-s3_technical_reference_manual_cn.pdf
 - Espressif Bluetooth architecture documentation: https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/bt-architecture/overview.html
+
+
+## Sound-level trigger reference review
+
+Sound-level trigger work requires an upstream/vendor reference review before changing audio code. For this implementation, the ESP-IDF programming guide was used for component/Kconfig conventions, FreeRTOS task/semaphore use, logging/error style, and the channel-based I2S API assumptions. M5Stack StickS3 product and Arduino/M5PM1 documentation, the StickS3 schematic, M5PM1, M5Unified, and M5GFX sources were cross-checked for the ESP32-S3-PICO-1-N8R8 board identity, ES8311 mono codec, MEMS microphone, AW8737 amplifier, MCLK/BCLK/LRCK/DIN/DOUT pins, shared I2C addresses, M5PM1 L3B power behavior, and LCD/L3B safety. The ES8311 datasheet was used for ADC/I2S-format expectations, MCLK/LRCK clocking, and capture-only codec setup. The BMI270 datasheet was reviewed only to avoid altering the shared I2C/interrupt behavior; sound-level trigger code does not initialize or change BMI270 state.
+
+When enabled, sound-level triggers use `BOARD_AUDIO_PROFILE_CAPTURE_ONLY`. The speaker amplifier, I2S TX/DAC path, and full-duplex speaker behavior remain disabled for this feature; only the ES8311 microphone capture path is brought up.

@@ -241,7 +241,7 @@ bool automation_rule_validate(const automation_rule_t *rule, char *error, size_t
         set_error(error, error_len, "invalid trigger source");
         return false;
     }
-    if (!capability_source_supported(rule->when.source)) {
+    if (!capability_source_schema_supported(rule->when.source)) {
         set_error(error, error_len, "unsupported trigger source");
         return false;
     }

@@ -46,8 +46,14 @@ compile test_board_audio -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}
   "${ROOT}/main/board_audio.c" "${ROOT}/tests/host/fakes/fake_board_deps.c" "${ROOT}/tests/host/test_board_audio.c"
 compile test_board_audio_clock -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/board_audio_clock.c" "${ROOT}/tests/host/test_board_audio_clock.c"
+compile test_board_i2s_decode -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/board_i2s.c" "${ROOT}/tests/host/test_board_i2s_decode.c"
+compile test_sound_level_service -DSOUND_LEVEL_SERVICE_ENABLE_TEST_HOOKS -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/audio_metrics.c" "${ROOT}/main/sound_level_service.c" "${ROOT}/tests/host/test_sound_level_service.c" -lm
 compile test_rule_types -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_rule_types.c"
+compile test_capability_sound_enabled -DCONFIG_APP_SOUND_LEVEL_TRIGGERS=1 -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_sound_enabled.c"
 compile test_rule_engine -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/tests/host/test_rule_engine.c"
 compile test_trigger_sources -I"${ROOT}/main" \
@@ -75,7 +81,10 @@ compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
 "${BUILD_DIR}/test_m5pm1_gpio"
 "${BUILD_DIR}/test_board_audio"
 "${BUILD_DIR}/test_board_audio_clock"
+"${BUILD_DIR}/test_board_i2s_decode"
+"${BUILD_DIR}/test_sound_level_service"
 "${BUILD_DIR}/test_rule_types"
+"${BUILD_DIR}/test_capability_sound_enabled"
 "${BUILD_DIR}/test_rule_engine"
 "${BUILD_DIR}/test_trigger_sources"
 "${BUILD_DIR}/test_action_dispatcher"

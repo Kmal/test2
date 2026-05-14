@@ -23,7 +23,7 @@ On the default `esp32s3` build the app currently does the following:
 4. ✅ Loads the local automation rule configuration from NVS, or safe defaults if the stored blob is missing/invalid.
 5. ✅ Starts the rule runtime, action worker, GPIO polling, network-state polling, and BLE-state polling tasks; the Web UI HTTP server is deferred until the Web UI service is enabled from the on-device menu.
 6. ✅ Starts the custom BLE GATT status/rule-event service, publishes BLE status, and keeps the device alive in an error state if BLE startup fails.
-7. 🟡 Leaves the audio board bring-up path as source/host-tested helper code, but **not called by `app_main()` and not linked into the default app component**. The current default boot path does not call `board_audio_init()`, does not enable the M5PM1 L3B audio rail from `app_main()`, does not configure I2S, and does not initialize ES8311. The capture-only code path exists for a future optional audio build/initializer, but it is not wired into default boot.
+7. 🟡 Leaves sound-level capture disabled in the default build. When maintainers opt in with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`, `app_main()` initializes the capture-only StickS3 ES8311/I2S path and starts the sound-level service; with the default `n`, no live audio capture task is linked or started.
 
 ### Capability matrix from code
 
@@ -41,7 +41,7 @@ On the default `esp32s3` build the app currently does the following:
 | Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
 | BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
 | GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
-| Sound-level triggers | 🟡 Helper path only | Sound fact emission and validation support exist, and audio metric helpers are host-tested, but default boot has no audio capture/metrics producer feeding `rule_runtime_process_metrics()` and does not link optional audio sources. |
+| Sound-level triggers | 🟡 Opt-in implemented | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` links the audio sources, starts capture-only ES8311/I2S microphone capture, computes metrics, and feeds existing sound facts into the rule runtime. The default remains disabled unless `config/sdkconfig.defaults` is intentionally changed. |
 | HTTP POST action | ✅ Implemented/wired | Dispatch uses `esp_http_client` when network readiness is true. |
 | NEC IR send action | ✅ Implemented/wired | Dispatch uses the RMT TX path on the configured IR TX GPIO. |
 | Local UI action | ✅ Implemented/wired | Dispatch sets the status UI ready state. |
@@ -49,7 +49,7 @@ On the default `esp32s3` build the app currently does the following:
 | GPIO pulse/frequency | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
 | Battery, USB-power, BMI270, ADC facts | ⛔ Not implemented | Sources are defined but not supported by the capability registry. |
 | Speaker output / AW8737 control | ⛔ Not implemented | No source-backed speaker-amplifier sequence is wired; speaker output remains blocked. |
-| Audio board init / capture-only I2S / ES8311 | 🟡 Helper path only | `board_audio_init_with_ops()` and profile drivers exist as source and are host-tested, but `main/CMakeLists.txt` does not link the optional audio sources into the default app component and default boot does not invoke them. |
+| Audio board init / capture-only I2S / ES8311 | 🟡 Opt-in implemented | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` links the optional audio sources and invokes the capture-only initializer; the default app build still leaves them disabled. |
 | PCM streaming / sound telemetry | ⛔ Not wired in default firmware | BLE transport exposes status and rule events, not PCM or sound-level telemetry. |
 
 ### BLE rule-event service
@@ -61,7 +61,7 @@ The default transport is a custom Bluetooth LE GATT rule-event service advertise
 | `0xFFF4` | Status | `M5TS` status packet read/notify. |
 | `0xFFF5` | Rule events | `M5RE` notifications when configured automation rules fire BLE-message actions. |
 
-The default firmware does not start audio capture, PCM debug streaming, or sound-level telemetry. The launcher/menu UI is the product UI on boot. Sound trigger enums and metric helpers exist as source/host-tested helpers, but the default app component does not link optional audio sources and no default boot task feeds live microphone metrics into the rule runtime.
+The default firmware does not start audio capture, PCM debug streaming, or sound-level telemetry. The launcher/menu UI is the product UI on boot. Sound trigger enums, metric helpers, and the capture-only sound-level service are available only when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`; the default app component does not link optional audio sources and no default boot task feeds live microphone metrics into the rule runtime.
 
 **Transport decision:** Classic Bluetooth HFP is rejected because StickS3 uses ESP32-S3-PICO-1-N8R8 and ESP32-S3 does not support Bluetooth Classic / BR/EDR. USB Audio and BLE Audio are deferred until official support, roles, memory, host compatibility, and product requirements are verified.
 
@@ -164,7 +164,7 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 ## What has been done
 
 - Replaced the misleading Classic Bluetooth HFP microphone direction with a StickS3-compatible BLE rule-event transport. ESP32-S3 does not support Bluetooth Classic / BR/EDR, so HFP remains quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY` and is unavailable for `esp32s3`.
-- Implemented source-backed StickS3 board constants, shared I2C ownership, optional M5PM1 L3B audio-rail enable helpers, optional capture-only I2S/ES8311 initialization helpers, LCD status UI, documented key polling, and audio safety checks. The audio helpers are not invoked by the current default `app_main()` boot path.
+- Implemented source-backed StickS3 board constants, shared I2C ownership, optional M5PM1 L3B audio-rail enable helpers, optional capture-only I2S/ES8311 initialization helpers, LCD status UI, documented key polling, and audio safety checks. The sound-level service invokes the audio helpers only when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`; the default `app_main()` boot path leaves them disabled.
 - Removed the legacy meter UI path and kept BLE status/rule-event packets for automation.
 - Added Wi-Fi station/setup-AP provisioning, LCD keyboard provisioning, a local web UI, JSON APIs, NVS-backed automation config storage, and capability reporting.
 - Added the local rule automation core: schema, validation, engine, runtime, button/BLE/Wi-Fi/GPIO facts wired by default, sound fact helpers without a default producer, HTTP/IR/BLE/UI actions, safe GPIO validation, and host/static test coverage.
@@ -276,7 +276,7 @@ Documentation must describe the current product as a custom BLE rule-event and l
 | LCD reset | GPIO21 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_RST_GPIO` | Display reset. |
 | LCD backlight | GPIO38 | ESP32-S3 -> LCD backlight | `BOARD_LCD_BL_GPIO` | Active-high backlight enable. |
 
-The optional capture-only audio clock profile is explicit when that helper path is called: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock-manager register-2 value `0x40`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. The current default boot path does not call this audio initializer.
+The optional capture-only audio clock profile is explicit when that helper path is called: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock-manager register-2 value `0x40`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. The default build does not call this audio initializer; the `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build uses it for capture-only microphone metrics.
 
 ## Development checks
 
@@ -307,3 +307,8 @@ ESP-IDF build/flash validation still requires an ESP-IDF environment and attache
 - ES8311 audio codec datasheet PDF: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/products/atom/Atomic%20Echo%20Base/ES8311.pdf
 - BMI270 IMU datasheet PDF: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/core/K128%20CoreS3/BMI270.PDF
 - Repository hardware notes: `docs/hardware/sticks3.md`
+
+
+## Sound-level trigger opt-in
+
+Sound-level triggers are implemented as an explicit optional feature. Set `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` to link `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`, initialize the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY`, and emit live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts through the existing automation runtime. The repository default remains disabled unless `config/sdkconfig.defaults` is intentionally changed.
