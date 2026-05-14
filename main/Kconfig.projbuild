@@ -52,8 +52,9 @@ config APP_WIFI_ENABLE
     default y
     help
         Start ESP-IDF Wi-Fi during boot, try saved station credentials, and
-        fall back to a setup access point so the local HTTP configuration UI is
-        reachable from a browser.
+        fall back to a setup access point. The local HTTP Web UI server is
+        started only when the on-device Web UI flow enables it, so disabling
+        Web UI can stop the server and release its RAM resources.
 
 config APP_WIFI_AP_SSID
     string "Setup access point SSID"
@@ -106,7 +107,7 @@ config APP_WIFI_KEYBOARD_PROVISIONING
         When saved station credentials are missing or fail, show a Launcher-style
         virtual keyboard on the StickS3 LCD before falling back to the setup AP.
         This is disabled by default so boot continues to the normal dashboard and
-        credentials can be entered from Connect to Wi-Fi or the setup AP web UI.
+        credentials can be entered from Connect to Wi-Fi or from the Web UI after it is enabled.
 
 config APP_WIFI_KEYBOARD_TIMEOUT_MS
     int "LCD keyboard provisioning timeout in milliseconds"

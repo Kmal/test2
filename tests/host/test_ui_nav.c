@@ -23,7 +23,7 @@ static void test_main_setup_hierarchy(void)
     const ui_screen_def_t *main = ui_nav_current(&nav);
     ASSERT_TRUE(main != NULL);
     ASSERT_TRUE(strcmp(main->title, "Main") == 0);
-    ASSERT_TRUE(find_item(main, "Configuration Web UI") >= 0);
+    ASSERT_TRUE(find_item(main, "Web UI") >= 0);
     ASSERT_TRUE(find_item(main, "Connect to Wi-Fi") >= 0);
     ASSERT_TRUE(find_item(main, "Connect to Bluetooth") >= 0);
 
@@ -31,6 +31,10 @@ static void test_main_setup_hierarchy(void)
     const ui_screen_def_t *config = ui_nav_current(&nav);
     ASSERT_TRUE(config != NULL);
     ASSERT_TRUE(find_item(config, "Wi-Fi Mode") >= 0);
+    const ui_menu_item_t *wifi_mode = ui_nav_selected_item(&nav);
+    ASSERT_TRUE(wifi_mode != NULL);
+    ASSERT_TRUE(strcmp(wifi_mode->label, "Wi-Fi Mode") == 0);
+    ASSERT_TRUE(wifi_mode->action == UI_ACTION_WEB_UI_WIFI_MODE);
     ASSERT_TRUE(find_item(config, "AP Mode") >= 0);
 }
 

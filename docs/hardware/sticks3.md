@@ -40,12 +40,12 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a local configuration and automation device. It initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the web configuration server, status UI, and the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default firmware does not initialize I2S audio, does not start sound-level telemetry, does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+The current default firmware is a local configuration and automation device. It initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the on-demand Web UI server lifecycle, status UI, and the shared ESP-IDF v6 I2C master bus as needed for the source-backed M5PM1 L3B/LCD power sequence. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default firmware does not initialize I2S audio, does not start sound-level telemetry, does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ## On-device UI hierarchy
 
 The onboard UI exposes:
-- Configuration Web UI
+- Web UI
 - Connect to Wi-Fi
 - Connect to Bluetooth
 - All automations
