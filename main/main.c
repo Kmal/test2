@@ -133,7 +133,6 @@ static action_result_t app_send_local_ui_rule_action(const rule_event_t *event, 
         result.action = event->action;
     }
     status_ui_set_state(STATUS_UI_STATE_READY);
-    status_ui_set_service_enabled(true);
     return result;
 }
 
@@ -267,11 +266,7 @@ static void app_rule_runtime_init(void)
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     rule_runtime_set_ble_sender(&s_rule_runtime, app_send_ble_rule_action, NULL);
 #endif
-    if (rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store)) {
-        ESP_LOGI(TAG, "rule runtime init: rule web server started");
-    } else {
-        ESP_LOGE(TAG, "rule runtime init: rule web server failed to start");
-    }
+    ESP_LOGI(TAG, "rule runtime init: web server deferred until Web UI is enabled");
     if (s_rule_mutex != NULL) {
         xSemaphoreGive(s_rule_mutex);
     }
@@ -347,6 +342,37 @@ static void automation_config_changed_cb(void *ctx)
     }
 }
 
+/* The Web UI HTTP server owns a task, URI handler table, stack, and heap
+ * buffers inside esp_http_server. Keep those resources allocated only while
+ * the on-device Web UI flow has explicitly enabled the service. */
+static void app_web_ui_service_changed(bool enabled, void *ctx)
+{
+    (void)ctx;
+    if (!s_rule_runtime_ready) {
+        ESP_LOGW(TAG, "web UI service change ignored before rule runtime is ready: %s", enabled ? "enable" : "disable");
+        return;
+    }
+
+    if (s_rule_mutex != NULL) {
+        (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
+    }
+    if (enabled) {
+        if (!s_rule_web.started && rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store)) {
+            ESP_LOGI(TAG, "web UI server started");
+        } else if (!s_rule_web.started) {
+            ESP_LOGE(TAG, "web UI server failed to start");
+        }
+    } else {
+        if (s_rule_web.started) {
+            rule_web_stop(&s_rule_web);
+            ESP_LOGI(TAG, "web UI server stopped and resources released");
+        }
+    }
+    if (s_rule_mutex != NULL) {
+        xSemaphoreGive(s_rule_mutex);
+    }
+}
+
 static void app_idle_forever(void)
 {
     while (true) {
@@ -369,6 +395,7 @@ void app_main(void)
         .key1_pressed = key1_pressed_cb,
         .key2_pressed = key2_pressed_cb,
         .automation_config_changed = automation_config_changed_cb,
+        .service_enabled_changed = app_web_ui_service_changed,
     };
 
     ESP_LOGI(TAG, "app_main: NVS init start");
@@ -398,17 +425,14 @@ void app_main(void)
     ESP_LOGI(TAG, "app_main: BLE GATT rule-event init start");
     ret = transport_ble_gatt_start();
     if (ret != ESP_OK) {
-        status_ui_set_service_enabled(false);
         status_ui_set_state(STATUS_UI_STATE_ERROR);
         ESP_LOGE(TAG, "BLE GATT rule-event transport failed to start: %s; staying alive", esp_err_to_name(ret));
         app_idle_forever();
     }
     app_publish_ble_status();
-    status_ui_set_service_enabled(true);
     status_ui_set_state(STATUS_UI_STATE_READY);
     ESP_LOGI(TAG, "Bluetooth LE rule-event transport and configuration UI are running");
 #else
-    status_ui_set_service_enabled(false);
     status_ui_set_state(STATUS_UI_STATE_NO_TRANSPORT);
     ESP_LOGW(TAG, "No StickS3 BLE rule-event transport is selected; local UI remains available");
 #endif

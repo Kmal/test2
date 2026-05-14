@@ -9,7 +9,7 @@
     UI_ITEM_FLAGS(label_, target_, action_, field_, flow_, automation_index_, 0u)
 
 static const ui_menu_item_t s_main_items[] = {
-    UI_ITEM("Configuration Web UI", UI_SCREEN_CONFIG_WEB_UI, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_NONE, 0),
+    UI_ITEM("Web UI", UI_SCREEN_CONFIG_WEB_UI, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_NONE, 0),
     UI_ITEM("Connect to Wi-Fi", UI_SCREEN_CONNECT_WIFI, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_NONE, 0),
     UI_ITEM("Connect to Bluetooth", UI_SCREEN_CONNECT_BLUETOOTH, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_NONE, 0),
     UI_ITEM("All automations", UI_SCREEN_AUTOMATIONS, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_NONE, 0),
@@ -17,7 +17,7 @@ static const ui_menu_item_t s_main_items[] = {
 };
 
 static const ui_menu_item_t s_config_web_ui_items[] = {
-    UI_ITEM("Wi-Fi Mode", UI_SCREEN_CONFIG_WIFI_MODE, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_CONFIG_WIFI, 0),
+    UI_ITEM("Wi-Fi Mode", UI_SCREEN_CONFIG_WIFI_MODE, UI_ACTION_WEB_UI_WIFI_MODE, UI_FIELD_NONE, UI_FLOW_CONFIG_WIFI, 0),
     UI_ITEM("AP Mode", UI_SCREEN_CONFIG_AP_MODE, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_CONFIG_AP, 0),
 };
 
@@ -95,7 +95,7 @@ static const ui_menu_item_t s_settings_items[] = {
 
 static const ui_screen_def_t s_screens[UI_SCREEN_COUNT] = {
     [UI_SCREEN_MAIN] = { UI_SCREEN_MAIN, UI_SCREEN_MAIN, "Main", s_main_items, ARRAY_COUNT(s_main_items), UI_FLOW_NONE },
-    [UI_SCREEN_CONFIG_WEB_UI] = { UI_SCREEN_CONFIG_WEB_UI, UI_SCREEN_MAIN, "Configuration Web UI", s_config_web_ui_items, ARRAY_COUNT(s_config_web_ui_items), UI_FLOW_NONE },
+    [UI_SCREEN_CONFIG_WEB_UI] = { UI_SCREEN_CONFIG_WEB_UI, UI_SCREEN_MAIN, "Web UI", s_config_web_ui_items, ARRAY_COUNT(s_config_web_ui_items), UI_FLOW_NONE },
     [UI_SCREEN_CONFIG_WIFI_MODE] = { UI_SCREEN_CONFIG_WIFI_MODE, UI_SCREEN_CONFIG_WEB_UI, "Wi-Fi Mode", s_config_wifi_mode_items, ARRAY_COUNT(s_config_wifi_mode_items), UI_FLOW_CONFIG_WIFI },
     [UI_SCREEN_CONFIG_WIFI_SCAN] = { UI_SCREEN_CONFIG_WIFI_SCAN, UI_SCREEN_CONFIG_WIFI_MODE, "Scan Nearby Wi-Fi", NULL, 0u, UI_FLOW_CONFIG_WIFI },
     [UI_SCREEN_CONFIG_WIFI_SELECT_SSID] = { UI_SCREEN_CONFIG_WIFI_SELECT_SSID, UI_SCREEN_CONFIG_WIFI_SCAN, "Select SSID", NULL, 0u, UI_FLOW_CONFIG_WIFI },

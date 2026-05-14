@@ -104,10 +104,28 @@ static bool s_config_loaded;
 static EventGroupHandle_t s_wifi_events;
 static bool s_ntp_initialized;
 static bool s_ntp_sync_task_running;
+static bool s_last_connect_failed_due_to_password;
 
 #define APP_WIFI_EVENT_STA_CONNECTED BIT0
 #define APP_WIFI_EVENT_STA_DISCONNECTED BIT1
 
+
+static bool disconnect_reason_indicates_password(uint8_t reason)
+{
+#ifdef WIFI_REASON_AUTH_FAIL
+    if (reason == WIFI_REASON_AUTH_FAIL) return true;
+#endif
+#ifdef WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT
+    if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT) return true;
+#endif
+#ifdef WIFI_REASON_HANDSHAKE_TIMEOUT
+    if (reason == WIFI_REASON_HANDSHAKE_TIMEOUT) return true;
+#endif
+#ifdef WIFI_REASON_MIC_FAILURE
+    if (reason == WIFI_REASON_MIC_FAILURE) return true;
+#endif
+    return false;
+}
 
 static bool system_time_is_synced(void)
 {
@@ -296,13 +314,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     (void)arg;
     if (base == WIFI_EVENT) {
         if (id == WIFI_EVENT_STA_DISCONNECTED) {
+            const wifi_event_sta_disconnected_t *event = (const wifi_event_sta_disconnected_t *)data;
+            uint8_t reason = event != NULL ? event->reason : 0u;
             s_sta_connected = false;
             copy_string(s_sta_ip, sizeof(s_sta_ip), "0.0.0.0");
+            s_last_connect_failed_due_to_password = disconnect_reason_indicates_password(reason);
             action_http_set_network_ready(false);
             if (s_wifi_events != NULL) {
                 xEventGroupSetBits(s_wifi_events, APP_WIFI_EVENT_STA_DISCONNECTED);
             }
-            ESP_LOGI(TAG, "station disconnected");
+            ESP_LOGI(TAG, "station disconnected: reason=%u password_related=%s", (unsigned)reason, s_last_connect_failed_due_to_password ? "yes" : "no");
         } else if (id == WIFI_EVENT_AP_START) {
             s_ap_started = true;
             esp_netif_ip_info_t ip_info;
@@ -611,6 +632,7 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     s_config.sta_persist = persist;
     s_config.preferred_mode = s_ap_started ? APP_WIFI_MODE_APSTA : APP_WIFI_MODE_STA;
     s_sta_connected = false;
+    s_last_connect_failed_due_to_password = false;
     action_http_set_network_ready(false);
     if (s_wifi_events != NULL) {
         xEventGroupClearBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED | APP_WIFI_EVENT_STA_DISCONNECTED);
@@ -627,9 +649,13 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     ESP_LOGI(TAG, "connecting to Wi-Fi SSID %s", ssid);
     const TickType_t timeout_ticks = pdMS_TO_TICKS(CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS);
     if (s_wifi_events != NULL) {
-        EventBits_t bits = xEventGroupWaitBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED, pdFALSE, pdFALSE, timeout_ticks);
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_events, APP_WIFI_EVENT_STA_CONNECTED | APP_WIFI_EVENT_STA_DISCONNECTED, pdFALSE, pdFALSE, timeout_ticks);
         if ((bits & APP_WIFI_EVENT_STA_CONNECTED) == 0u && !s_sta_connected) {
-            ESP_LOGW(TAG, "connection timed out waiting for IP for SSID %s", ssid);
+            if ((bits & APP_WIFI_EVENT_STA_DISCONNECTED) != 0u) {
+                ESP_LOGW(TAG, "connection failed for SSID %s (password_related=%s)", ssid, s_last_connect_failed_due_to_password ? "yes" : "no");
+            } else {
+                ESP_LOGW(TAG, "connection timed out waiting for IP for SSID %s", ssid);
+            }
             return false;
         }
     } else {
@@ -642,6 +668,7 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
             return false;
         }
     }
+    s_last_connect_failed_due_to_password = false;
     if (persist && !persist_config(&s_config)) {
         ESP_LOGW(TAG, "connected but failed to persist Wi-Fi credentials");
     }
@@ -705,6 +732,11 @@ bool app_wifi_forget_sta_credentials(void)
     s_config.sta_password[0] = '\0';
     s_config.sta_persist = false;
     return persist_config(&s_config);
+}
+
+bool app_wifi_last_connect_failed_due_to_password(void)
+{
+    return s_last_connect_failed_due_to_password;
 }
 
 bool app_wifi_scan(app_wifi_scan_results_t *out)
@@ -970,6 +1002,11 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     load_config_once();
     copy_string(s_config.sta_ssid, sizeof(s_config.sta_ssid), ssid);
     copy_string(s_config.sta_password, sizeof(s_config.sta_password), password);
+    return false;
+}
+
+bool app_wifi_last_connect_failed_due_to_password(void)
+{
     return false;
 }
 

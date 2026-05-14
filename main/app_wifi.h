@@ -59,6 +59,7 @@ bool app_wifi_set_config(const app_wifi_config_t *config, bool persist);
 bool app_wifi_get_status(app_wifi_status_t *out);
 bool app_wifi_set_mode(app_wifi_mode_t mode);
 bool app_wifi_connect(const char *ssid, const char *password, bool persist);
+bool app_wifi_last_connect_failed_due_to_password(void);
 bool app_wifi_scan(app_wifi_scan_results_t *out);
 bool app_wifi_start_ap_configured(const char *ap_ssid, const char *ap_password, uint8_t channel, bool persist);
 bool app_wifi_forget_sta_credentials(void);

@@ -255,10 +255,16 @@ status_ui_state_t status_ui_get_state(void)
 
 void status_ui_set_service_enabled(bool enabled)
 {
+    bool changed;
     portENTER_CRITICAL(&s_state_mux);
+    changed = s_service_enabled != enabled;
     s_service_enabled = enabled;
+    s_ui.dirty = true;
     portEXIT_CRITICAL(&s_state_mux);
-    ESP_LOGI(TAG, "transport service: %s", bool_label(enabled));
+    ESP_LOGI(TAG, "web UI service: %s", bool_label(enabled));
+    if (changed && s_handlers.service_enabled_changed != NULL) {
+        s_handlers.service_enabled_changed(enabled, s_handlers.ctx);
+    }
 }
 
 bool status_ui_get_service_enabled(void)
@@ -369,7 +375,7 @@ static bool status_ui_begin_wifi_password_edit(ui_runtime_t *ui, ui_flow_id_t fl
     return status_ui_keyboard_open_menu_edit(ui, &password_item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
 }
 
-static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi)
+static bool status_ui_wifi_connect_with_password(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi, const char *password, bool persist)
 {
     if (ui == NULL || wifi == NULL || wifi->ssid[0] == '\0') {
         if (wifi != NULL) snprintf(wifi->last_error, sizeof(wifi->last_error), "SSID required");
@@ -377,7 +383,7 @@ static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state
         return false;
     }
     wifi->web_url[0] = '\0';
-    bool ok = app_wifi_connect(wifi->ssid, wifi->password, true);
+    bool ok = app_wifi_connect(wifi->ssid, password != NULL ? password : "", persist);
     if (ok) {
         app_wifi_status_t status;
         if (app_wifi_get_status(&status)) {
@@ -387,6 +393,36 @@ static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state
     snprintf(wifi->last_error, sizeof(wifi->last_error), "%s", ok ? "Connected and saved" : "Wi-Fi connect failed");
     ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "Wi-Fi saved" : "Wi-Fi connect failed", 2500u);
     return ok;
+}
+
+static bool status_ui_wifi_connect_and_save(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi)
+{
+    return status_ui_wifi_connect_with_password(ui, wifi, wifi != NULL ? wifi->password : "", true);
+}
+
+static bool status_ui_wifi_try_saved_password(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi, ui_flow_id_t flow, bool manual)
+{
+    app_wifi_config_t config;
+    if (ui == NULL || wifi == NULL || !app_wifi_get_config(&config) || strcmp(config.sta_ssid, wifi->ssid) != 0 || config.sta_password[0] == '\0') {
+        return status_ui_begin_wifi_password_edit(ui, flow, manual);
+    }
+
+    snprintf(wifi->password, sizeof(wifi->password), "%s", config.sta_password);
+    wifi->has_password = true;
+    if (status_ui_wifi_connect_with_password(ui, wifi, config.sta_password, false)) {
+        if (flow == UI_FLOW_CONFIG_WIFI) status_ui_set_service_enabled(true);
+        (void)ui_nav_enter(&ui->nav, status_ui_wifi_done_screen(flow, manual));
+        return true;
+    }
+
+    if (app_wifi_last_connect_failed_due_to_password()) {
+        wifi->password[0] = '\0';
+        wifi->has_password = false;
+        return status_ui_begin_wifi_password_edit(ui, flow, manual);
+    }
+
+    (void)ui_nav_enter(&ui->nav, status_ui_wifi_done_screen(flow, manual));
+    return false;
 }
 
 static bool status_ui_ap_load_config(ui_runtime_t *ui)
@@ -421,8 +457,36 @@ static bool status_ui_ap_start(ui_runtime_t *ui)
     if (!status_ui_ap_save_config(ui)) return false;
     bool ok = app_wifi_start_ap_configured(ui->ap.ap_name, ui->ap.ap_password, ui->ap.channel, true);
     (void)status_ui_ap_refresh_url(ui);
+    if (ok) status_ui_set_service_enabled(true);
     ui_runtime_set_toast(ui, ok ? UI_TOAST_SUCCESS : UI_TOAST_ERROR, ok ? "AP Mode started" : "AP start failed", 2500u);
     return ok;
+}
+
+static bool status_ui_action_web_ui_wifi_mode(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    (void)item;
+    if (ui == NULL) return false;
+    if (!app_wifi_is_sta_connected()) {
+        ui_runtime_set_toast(ui, UI_TOAST_WARNING, "Connect Wi-Fi first", 2500u);
+        (void)ui_nav_enter(&ui->nav, UI_SCREEN_CONNECT_WIFI);
+        return false;
+    }
+
+    app_wifi_status_t status;
+    ui_wifi_flow_state_t *wifi = ui_runtime_wifi_flow(ui, UI_FLOW_CONFIG_WIFI);
+    if (wifi != NULL) {
+        wifi->web_url[0] = '\0';
+        if (app_wifi_get_status(&status)) {
+            snprintf(wifi->ssid, sizeof(wifi->ssid), "%s", status.sta_ssid);
+            snprintf(wifi->web_url, sizeof(wifi->web_url), "%s", status.web_url);
+        }
+        wifi->has_selected_ssid = wifi->ssid[0] != '\0';
+        snprintf(wifi->last_error, sizeof(wifi->last_error), "Web UI enabled");
+    }
+    status_ui_set_service_enabled(true);
+    ui_runtime_set_toast(ui, UI_TOAST_SUCCESS, "Web UI enabled", 2500u);
+    (void)ui_nav_enter(&ui->nav, UI_SCREEN_CONFIG_WIFI_CONNECT_SAVE);
+    return true;
 }
 
 static bool status_ui_action_wifi_scan(ui_runtime_t *ui, const ui_menu_item_t *item)
@@ -440,7 +504,7 @@ static bool status_ui_action_wifi_select_ssid(ui_runtime_t *ui, const ui_menu_it
         ui_runtime_set_toast(ui, UI_TOAST_WARNING, "No Wi-Fi found", 2000u);
         return false;
     }
-    return status_ui_begin_wifi_password_edit(ui, item->flow, false);
+    return status_ui_wifi_try_saved_password(ui, wifi, item->flow, false);
 }
 
 static bool status_ui_select_current_scan(ui_runtime_t *ui, ui_flow_id_t flow)
@@ -604,6 +668,7 @@ static void status_ui_dispatch_action(ui_runtime_t *ui, const ui_menu_item_t *it
     case UI_ACTION_NAVIGATE: (void)ui_nav_enter(&ui->nav, item->target); break;
     case UI_ACTION_BACK: (void)ui_nav_back(&ui->nav); break;
 #if CONFIG_APP_STATUS_UI_LCD
+    case UI_ACTION_WEB_UI_WIFI_MODE: (void)status_ui_action_web_ui_wifi_mode(ui, item); break;
     case UI_ACTION_WIFI_SCAN: (void)status_ui_action_wifi_scan(ui, item); break;
     case UI_ACTION_WIFI_SELECT_SSID: (void)status_ui_action_wifi_select_ssid(ui, item); break;
     case UI_ACTION_WIFI_ENTER_SSID: (void)status_ui_action_wifi_enter_ssid(ui, item); break;
@@ -632,6 +697,14 @@ static void status_ui_activate_selected_item(void)
     status_ui_dispatch_action(&s_ui, item);
 }
 
+static bool status_ui_is_wifi_done_screen(ui_screen_id_t screen)
+{
+    return screen == UI_SCREEN_CONFIG_WIFI_CONNECT_SAVE ||
+           screen == UI_SCREEN_CONFIG_WIFI_MANUAL_CONNECT_SAVE ||
+           screen == UI_SCREEN_CONNECT_WIFI_CONNECT_SAVE ||
+           screen == UI_SCREEN_CONNECT_WIFI_MANUAL_CONNECT_SAVE;
+}
+
 void status_ui_handle_input(status_ui_input_t input)
 {
 #if CONFIG_APP_STATUS_UI_LCD
@@ -646,6 +719,7 @@ void status_ui_handle_input(status_ui_input_t input)
 
     bool activate = false;
     bool select_scan = false;
+    bool disable_web_ui_service = false;
     ui_flow_id_t select_scan_flow = UI_FLOW_NONE;
     portENTER_CRITICAL(&s_state_mux);
     if (!s_ui.menu_active && input != STATUS_UI_INPUT_BACK) {
@@ -690,6 +764,9 @@ void status_ui_handle_input(status_ui_input_t input)
     case STATUS_UI_INPUT_BACK:
         if (s_ui.menu_active && s_ui.nav.current == UI_SCREEN_MAIN) {
             s_ui.menu_active = true;
+        } else if (s_ui.menu_active && status_ui_is_wifi_done_screen(s_ui.nav.current)) {
+            disable_web_ui_service = true;
+            ui_nav_init(&s_ui.nav);
         } else if (s_ui.menu_active) {
             (void)ui_nav_back(&s_ui.nav);
         }
@@ -700,6 +777,9 @@ void status_ui_handle_input(status_ui_input_t input)
     }
     portEXIT_CRITICAL(&s_state_mux);
 
+    if (disable_web_ui_service) {
+        status_ui_set_service_enabled(false);
+    }
     if (select_scan) {
         (void)status_ui_select_current_scan(&s_ui, select_scan_flow);
     } else if (activate) {
@@ -1350,7 +1430,7 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
             ui_runtime_set_toast(&s_ui, UI_TOAST_WARNING, "SSID required", 2000u);
             return;
         }
-        (void)status_ui_begin_wifi_password_edit(&s_ui, item->flow, true);
+        (void)status_ui_wifi_try_saved_password(&s_ui, wifi, item->flow, true);
         break;
     }
     case UI_ACTION_WIFI_ENTER_PASSWORD: {
@@ -1359,6 +1439,7 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
         snprintf(wifi->password, sizeof(wifi->password), "%s", text != NULL ? text : "");
         wifi->has_password = true;
         if (status_ui_wifi_connect_and_save(&s_ui, wifi)) {
+            if (item->flow == UI_FLOW_CONFIG_WIFI) status_ui_set_service_enabled(true);
             (void)ui_nav_enter(&s_ui.nav, item->target);
         } else {
             wifi->password[0] = '\0';
@@ -2090,6 +2171,6 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
     ESP_LOGI(TAG, "status UI ready; StickS3 keys KEY1=%d KEY2=%d",
              BOARD_BUTTON_KEY1_GPIO, BOARD_BUTTON_KEY2_GPIO);
     ESP_LOGI(TAG, "status: %s", status_ui_state_name(status_ui_get_state()));
-    ESP_LOGI(TAG, "transport service: %s", bool_label(status_ui_get_service_enabled()));
+    ESP_LOGI(TAG, "web UI service: %s", bool_label(status_ui_get_service_enabled()));
     return ESP_OK;
 }
