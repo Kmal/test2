@@ -9,14 +9,12 @@
 #define ASSERT_TRUE(value) do { if (!(value)) { fprintf(stderr, "%s:%d assertion failed: %s\n", __FILE__, __LINE__, #value); exit(1); } } while (0)
 #define ASSERT_EQ(expected, actual) do { if ((expected) != (actual)) { fprintf(stderr, "%s:%d expected %d got %d\n", __FILE__, __LINE__, (int)(expected), (int)(actual)); exit(1); } } while (0)
 
-static int16_t s_raw[256];
+static int32_t s_raw[256];
 static size_t s_raw_bytes;
 static i2s_std_config_t s_last_rx_cfg;
 static i2s_std_config_t s_last_tx_cfg;
 static unsigned s_rx_init_count;
 static unsigned s_tx_init_count;
-static int32_t s_raw[256];
-static size_t s_raw_bytes;
 
 const board_audio_clock_profile_t *board_audio_clock_get_profile(void)
 {
@@ -38,6 +36,7 @@ esp_err_t i2s_new_channel(const i2s_chan_config_t *chan_cfg, i2s_chan_handle_t *
     if (rx_handle != NULL) { *rx_handle = (i2s_chan_handle_t)1; }
     return ESP_OK;
 }
+
 esp_err_t i2s_channel_init_std_mode(i2s_chan_handle_t handle, const i2s_std_config_t *std_cfg)
 {
     if (handle == (i2s_chan_handle_t)1) {
@@ -49,7 +48,7 @@ esp_err_t i2s_channel_init_std_mode(i2s_chan_handle_t handle, const i2s_std_conf
     }
     return ESP_OK;
 }
-esp_err_t i2s_channel_init_std_mode(i2s_chan_handle_t handle, const i2s_std_config_t *std_cfg) { (void)handle; (void)std_cfg; return ESP_OK; }
+
 esp_err_t i2s_channel_enable(i2s_chan_handle_t handle) { (void)handle; return ESP_OK; }
 esp_err_t i2s_channel_disable(i2s_chan_handle_t handle) { (void)handle; return ESP_OK; }
 esp_err_t i2s_del_channel(i2s_chan_handle_t handle) { (void)handle; return ESP_OK; }
@@ -59,6 +58,7 @@ esp_err_t i2s_channel_write(i2s_chan_handle_t handle, const void *src, size_t si
     if (bytes_written != NULL) { *bytes_written = size; }
     return ESP_OK;
 }
+
 esp_err_t i2s_channel_read(i2s_chan_handle_t handle, void *dest, size_t size, size_t *bytes_read, uint32_t timeout_ms)
 {
     (void)handle; (void)timeout_ms;
@@ -68,10 +68,10 @@ esp_err_t i2s_channel_read(i2s_chan_handle_t handle, void *dest, size_t size, si
     return ESP_OK;
 }
 
-static void set_raw(const int16_t *raw, size_t samples)
+static void set_raw(const int32_t *raw, size_t words)
 {
-    memcpy(s_raw, raw, samples * sizeof(raw[0]));
-    s_raw_bytes = samples * sizeof(raw[0]);
+    memcpy(s_raw, raw, words * sizeof(raw[0]));
+    s_raw_bytes = words * sizeof(raw[0]);
 }
 
 static void test_capture_only_pin_config(void)
@@ -84,6 +84,7 @@ static void test_capture_only_pin_config(void)
     ASSERT_EQ(15, s_last_rx_cfg.gpio_cfg.ws);
     ASSERT_EQ(14, s_last_rx_cfg.gpio_cfg.din);
     ASSERT_EQ(I2S_GPIO_UNUSED, s_last_rx_cfg.gpio_cfg.dout);
+    ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_rx_cfg.slot_cfg.slot_bit_width);
 }
 
 static void test_full_duplex_pin_config(void)
@@ -100,22 +101,9 @@ static void test_full_duplex_pin_config(void)
     ASSERT_EQ(16, s_last_rx_cfg.gpio_cfg.dout);
     ASSERT_EQ(14, s_last_tx_cfg.gpio_cfg.din);
     ASSERT_EQ(16, s_last_tx_cfg.gpio_cfg.dout);
+    ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_rx_cfg.slot_cfg.slot_bit_width);
+    ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_tx_cfg.slot_cfg.slot_bit_width);
     ASSERT_EQ(ESP_OK, board_i2s_deinit());
-}
-
-static void test_read_samples(void)
-{
-    ASSERT_EQ(ESP_OK, board_i2s_init_profile(BOARD_AUDIO_PROFILE_CAPTURE_ONLY));
-    int16_t raw[] = {
-        1234,
-        -1234,
-        0,
-        32767,
-        -32768,
-static void set_raw(const int32_t *raw, size_t words)
-{
-    memcpy(s_raw, raw, words * sizeof(raw[0]));
-    s_raw_bytes = words * sizeof(raw[0]);
 }
 
 static void test_decode_samples(void)
@@ -142,7 +130,6 @@ static void test_decode_samples(void)
 
 static void test_partial_raw_read_handling(void)
 {
-    int16_t raw[] = {42, -7};
     int32_t raw[] = { ((int32_t)42) << 16, (int32_t)((uint32_t)0xFFF90000u) };
     int16_t samples[1];
     size_t read = 0;
@@ -156,7 +143,6 @@ int main(void)
 {
     test_capture_only_pin_config();
     test_full_duplex_pin_config();
-    test_read_samples();
     test_decode_samples();
     test_partial_raw_read_handling();
     puts("board_i2s_decode tests passed");

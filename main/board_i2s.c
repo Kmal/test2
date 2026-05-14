@@ -174,12 +174,7 @@ esp_err_t board_i2s_read(void *dest, size_t size, size_t *bytes_read, uint32_t t
 
 esp_err_t board_i2s_read_mono_i16(int16_t *dest, size_t max_samples, size_t *samples_read, uint32_t timeout_ms)
 {
-    size_t bytes_read = 0;
-
-    if (dest == NULL || max_samples == 0 || samples_read == NULL ||
-        max_samples > (SIZE_MAX / sizeof(dest[0]))) {
     int32_t raw_words[256];
-    size_t bytes_read = 0;
 
     if (dest == NULL || max_samples == 0 || samples_read == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -187,19 +182,15 @@ esp_err_t board_i2s_read_mono_i16(int16_t *dest, size_t max_samples, size_t *sam
 
     *samples_read = 0;
 
-    /*
-     * The ES8311 clocking uses 32 BCLK ticks per slot for the required
-     * 512 kHz BCLK, but the ESP-IDF standard driver still packs RX DMA data
-     * according to data_bit_width. With I2S_DATA_BIT_WIDTH_16BIT, the receive
-     * buffer is int16_t samples, not int32_t physical slots.
-     */
-    esp_err_t err = board_i2s_read(dest, max_samples * sizeof(dest[0]), &bytes_read, timeout_ms);
-    esp_err_t err = board_i2s_read(raw_words, sizeof(raw_words), &bytes_read, timeout_ms);
+    const size_t words_to_read = (max_samples < (sizeof(raw_words) / sizeof(raw_words[0])))
+                                 ? max_samples
+                                 : (sizeof(raw_words) / sizeof(raw_words[0]));
+    size_t bytes_read = 0;
+    esp_err_t err = board_i2s_read(raw_words, words_to_read * sizeof(raw_words[0]), &bytes_read, timeout_ms);
     if (err != ESP_OK) {
         return err;
     }
 
-    *samples_read = bytes_read / sizeof(dest[0]);
     const size_t words = bytes_read / sizeof(raw_words[0]);
     *samples_read = board_i2s_decode_mono16_from_32slot(raw_words, words, dest, max_samples);
     return *samples_read > 0 ? ESP_OK : ESP_ERR_TIMEOUT;
