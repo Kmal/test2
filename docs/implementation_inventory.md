@@ -9,6 +9,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `action_http.c` | default | yes | HTTP POST action helper is used by the app HTTP sender when network readiness is true; host tests cover JSON/config readiness behavior. |
 | `action_ir.c` | default | yes | NEC IR send action helper is wired through the app IR sender and validates carrier/repeat/timeout bounds. |
 | `app_mode.c` | default | yes | Initializes and names the local control app mode used by boot/status state. |
+| `app_sound_level_demand.c` | default | yes | Shared sound-capture demand helper that combines enabled sound-rule trigger demand with Web UI telemetry demand before `main.c` starts the single capture service. |
 | `app_time.c` | default | yes | Provides timezone storage/formatting and `/api/time` JSON support used by boot and Web UI. |
 | `app_wifi.c` | default | yes | Starts station/setup-AP support, Wi-Fi scan/connect/AP/mode APIs, network status JSON, and SNTP sync task. |
 | `audio_metrics.c` | default via sound config | yes | Audio level metric/calibration helper source linked by the default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build; consumed by `sound_level_service.c` for live sound rules. |
@@ -35,7 +36,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `rule_runtime.c` | default | yes | Runtime bridge from button/GPIO/BLE/Wi-Fi/sound facts to rule engine and action dispatcher; the default sound service feeds live metrics through this existing path. |
 | `rule_types.c` | default | yes | Rule defaults, validation, source/action names, safe GPIO/capability checks, and binary config serialization. |
 | `rule_web.c` | default | yes | On-demand HTTP Web UI/API implementation for config, status, time, Wi-Fi, capabilities, test actions, GPIO, and HAT probe. |
-| `sound_level_service.c` | default via sound config | yes | Demand-driven capture task/service source linked by default sound-level trigger builds; it reads microphone samples, computes metrics, and feeds sound facts only while enabled sound rules exist. |
+| `sound_level_service.c` | default via sound config | yes | Demand-driven capture task/service source linked by default sound-level trigger builds; it reads microphone samples, computes metrics, and feeds sound facts while enabled sound rules or Web UI telemetry demand exist. |
 | `status_lcd.c` | default | no | Optional LCD bring-up/render task path behind `CONFIG_APP_STATUS_UI_LCD`; failures are non-fatal. |
 | `status_ui.c` | default | no | Status UI task, key polling, launcher/menu integration, toasts, service enablement, and automation config callbacks. |
 | `transport_ble_gatt.c` | conditional | no | Custom BLE GATT status/rule-event transport compiled when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`. |

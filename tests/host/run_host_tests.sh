@@ -61,6 +61,8 @@ compile test_board_i2s_decode -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/board_i2s.c" "${ROOT}/tests/host/test_board_i2s_decode.c"
 compile test_sound_level_service -DSOUND_LEVEL_SERVICE_ENABLE_TEST_HOOKS -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/audio_metrics.c" "${ROOT}/main/sound_level_service.c" "${ROOT}/tests/host/test_sound_level_service.c" -lm
+compile test_app_sound_level_demand -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/app_sound_level_demand.c" "${ROOT}/tests/host/test_app_sound_level_demand.c"
 compile test_rule_types -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_rule_types.c"
 compile test_capability_sound_enabled -DCONFIG_APP_SOUND_LEVEL_TRIGGERS=1 -I"${FAKE_INC}" -I"${ROOT}/main" \
@@ -105,6 +107,7 @@ compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
 "${BUILD_DIR}/test_board_audio_clock"
 "${BUILD_DIR}/test_board_i2s_decode"
 "${BUILD_DIR}/test_sound_level_service"
+"${BUILD_DIR}/test_app_sound_level_demand"
 "${BUILD_DIR}/test_rule_types"
 "${BUILD_DIR}/test_capability_sound_enabled"
 "${BUILD_DIR}/test_capability_hardware_enabled"

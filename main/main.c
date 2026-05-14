@@ -23,6 +23,7 @@
 #include "app_mode.h"
 #include "app_time.h"
 #include "app_wifi.h"
+#include "app_sound_level_demand.h"
 #include "sdkconfig.h"
 #if CONFIG_APP_SOUND_LEVEL_TRIGGERS
 #include "board_audio.h"
@@ -62,6 +63,7 @@ static bool s_rule_network_ready;
 static sound_level_service_t *s_sound_level_service;
 static bool s_sound_level_ready;
 static bool s_sound_level_audio_initialized;
+static app_sound_level_demand_t s_sound_level_demand;
 #endif
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 static TaskHandle_t s_rule_ble_task;
@@ -70,6 +72,7 @@ static bool s_rule_ble_connected;
 #endif
 
 #if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+static bool app_sound_level_capture_needed(const automation_config_t *config);
 static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx);
 static void app_sound_level_release_audio(void);
 static void app_sound_level_release_if_stopped(void);
@@ -321,7 +324,7 @@ static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx)
     if (s_sound_level_ready) {
         return sound_level_service_build_status_json(s_sound_level_service, out, out_len);
     }
-    if (!automation_config_has_enabled_sound_source(&s_rule_config)) {
+    if (!app_sound_level_capture_needed(&s_rule_config)) {
         const int written = snprintf(out, out_len,
                                      "{\"enabled\":false,\"running\":false,"
                                      "\"state\":\"idle\","
@@ -329,6 +332,12 @@ static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx)
         return written > 0 && (size_t)written < out_len;
     }
     return sound_level_service_build_status_json(NULL, out, out_len);
+}
+
+static bool app_sound_level_capture_needed(const automation_config_t *config)
+{
+    app_sound_level_demand_update_trigger(&s_sound_level_demand, config);
+    return app_sound_level_demand_capture_needed(&s_sound_level_demand);
 }
 
 static void app_sound_level_release_audio(void)
@@ -359,7 +368,7 @@ static void app_sound_level_stop(void)
     if (s_sound_level_ready) {
         sound_level_service_request_stop(s_sound_level_service);
         s_sound_level_ready = false;
-        ESP_LOGI(TAG, "sound triggers: capture task stop requested (no enabled sound rules)");
+        ESP_LOGI(TAG, "sound capture: capture task stop requested (no active demand)");
     }
     for (int i = 0; i < 60 && s_sound_level_service->task != NULL; ++i) {
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -369,12 +378,13 @@ static void app_sound_level_stop(void)
 
 /* Start microphone capture only while at least one enabled rule consumes a sound source.
  * This keeps sensor monitoring demand-driven even though the sound feature is
- * compiled into the default build. */
+ * compiled into the default build. Web UI telemetry keeps capture active through
+ * the same shared service so there is still only one I2S reader. */
 static void app_sound_level_sync(const automation_config_t *config)
 {
     rule_web_set_sound_status_builder(app_sound_level_status_json, NULL);
 
-    if (!automation_config_has_enabled_sound_source(config)) {
+    if (!app_sound_level_capture_needed(config)) {
         app_sound_level_stop();
         return;
     }
@@ -437,7 +447,9 @@ static void app_sound_level_sync(const automation_config_t *config)
     }
 
     s_sound_level_ready = true;
-    ESP_LOGI(TAG, "sound triggers: capture task started for enabled sound rule");
+    ESP_LOGI(TAG, "sound capture: capture task started (trigger_demand=%s telemetry_demand=%s)",
+             s_sound_level_demand.trigger ? "true" : "false",
+             s_sound_level_demand.telemetry ? "true" : "false");
 }
 #endif
 
@@ -525,12 +537,19 @@ static void app_web_ui_service_changed(bool enabled, void *ctx)
         return;
     }
 
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+    bool sound_telemetry_changed = false;
+#endif
     if (s_rule_mutex != NULL) {
         (void)xSemaphoreTake(s_rule_mutex, portMAX_DELAY);
     }
     if (enabled) {
         if (!s_rule_web.started && rule_web_start(&s_rule_web, &s_rule_runtime, &s_rule_store)) {
             rule_web_set_config_changed_callback(&s_rule_web, app_rule_web_config_changed_cb, NULL);
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+            app_sound_level_demand_set_telemetry(&s_sound_level_demand, true);
+            sound_telemetry_changed = true;
+#endif
             ESP_LOGI(TAG, "web UI server started");
         } else if (!s_rule_web.started) {
             ESP_LOGE(TAG, "web UI server failed to start");
@@ -538,12 +557,21 @@ static void app_web_ui_service_changed(bool enabled, void *ctx)
     } else {
         if (s_rule_web.started) {
             rule_web_stop(&s_rule_web);
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+            app_sound_level_demand_set_telemetry(&s_sound_level_demand, false);
+            sound_telemetry_changed = true;
+#endif
             ESP_LOGI(TAG, "web UI server stopped and resources released");
         }
     }
     if (s_rule_mutex != NULL) {
         xSemaphoreGive(s_rule_mutex);
     }
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+    if (sound_telemetry_changed) {
+        app_sound_level_sync(&s_rule_config);
+    }
+#endif
 }
 
 static void app_idle_forever(void)

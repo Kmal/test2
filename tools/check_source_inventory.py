@@ -135,7 +135,7 @@ def main() -> int:
         errors.append(f"optional helper sources missing host-test compilation: {sorted(missing_host)}")
 
     inventory_text = INVENTORY_DOC.read_text(encoding="utf-8")
-    for phrase in ["Runtime capture starts only while at least one enabled automation rule uses a `sound.*` trigger", "Maintainers can still disable the feature through Kconfig"]:
+    for phrase in ["Runtime capture starts only while shared demand is active", "Maintainers can still disable the feature through Kconfig"]:
         if phrase not in docs_text:
             errors.append(f"docs/README.md missing implementation-status phrase: {phrase!r}")
     if "one row per C implementation file" not in inventory_text:

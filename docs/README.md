@@ -23,7 +23,7 @@ On the default `esp32s3` build the app currently does the following:
 4. ✅ Loads the local automation rule configuration from NVS, or safe defaults if the stored blob is missing/invalid.
 5. ✅ Starts the rule runtime, action worker, GPIO polling, network-state polling, and BLE-state polling tasks; the Web UI HTTP server is deferred until the Web UI service is enabled from the on-device menu.
 6. ✅ Starts the custom BLE GATT status/rule-event service, publishes BLE status, and keeps the device alive in an error state if BLE startup fails.
-7. ✅ Includes sound-level capture in the default build through `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`: `app_main()` initializes and monitors the capture-only StickS3 ES8311/I2S path only while at least one enabled automation rule uses a `sound.*` trigger. Maintainers can still disable the feature through Kconfig for audio-free builds.
+7. ✅ Includes sound-level capture in the default build through `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`: `app_main()` initializes and monitors the capture-only StickS3 ES8311/I2S path only while shared sound-capture demand is active: enabled `sound.*` automation rules or Web UI telemetry. Maintainers can still disable the feature through Kconfig for audio-free builds.
 
 ### Capability matrix from code
 
@@ -36,11 +36,11 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
 | BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
 | GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
-| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while at least one enabled automation rule uses a `sound.*` trigger, then computes metrics and feeds existing sound facts into the rule runtime. |
+| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while shared demand is active: enabled `sound.*` automation rules or Web UI telemetry. The same service computes metrics, feeds sound facts into the rule runtime, and exposes live status metrics to the Web UI. |
 | HAT sources | ⛔ Not implemented / fail-closed | Capabilities report HAT sources disabled and the HAT probe returns unsupported. |
 | GPIO pulse/frequency sources | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
 | Battery, USB-power, BMI270, ADC facts | ✅ Implemented/Kconfig-gated | `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` are implemented when their `CONFIG_APP_*_FACTS` gates are enabled; ADC exposure is limited to the source-backed safe ADC1 allowlist. |
-| PCM streaming / sound telemetry | 🟡 Sound telemetry only | BLE transport exposes status and rule events, not PCM streaming; sound-level telemetry is produced locally for automation when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. |
+| PCM streaming / sound telemetry | 🟡 Sound telemetry only | BLE transport exposes status and rule events, not PCM streaming; sound-level telemetry is produced by the single local capture service for automation and Web UI status when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. |
 
 #### Actions and outputs
 
@@ -76,7 +76,7 @@ The default transport is a custom Bluetooth LE GATT rule-event service advertise
 | `0xFFF4` | Status | `M5TS` status packet read/notify. |
 | `0xFFF5` | Rule events | `M5RE` notifications when configured automation rules fire BLE-message actions. |
 
-The default firmware includes capture-only sound-level telemetry for local automation, but it starts monitoring only while enabled `sound.*` rules exist and still does not expose PCM debug streaming. The launcher/menu UI is the product UI on boot. Sound trigger enums, metric helpers, and the capture-only sound-level service are available through `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`, which is enabled in the checked-in defaults and can be disabled for audio-free builds.
+The default firmware includes capture-only sound-level telemetry for local automation and Web UI status, but it starts monitoring only while enabled `sound.*` rules or Web UI telemetry demand exist and still does not expose PCM debug streaming. The launcher/menu UI is the product UI on boot. Sound trigger enums, metric helpers, and the capture-only sound-level service are available through `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`, which is enabled in the checked-in defaults and can be disabled for audio-free builds.
 
 **Transport decision:** Classic Bluetooth HFP is rejected because StickS3 uses ESP32-S3-PICO-1-N8R8 and ESP32-S3 does not support Bluetooth Classic / BR/EDR. USB Audio and BLE Audio are deferred until official support, roles, memory, host compatibility, and product requirements are verified.
 
@@ -172,7 +172,7 @@ The implemented and wired automation foundation includes:
 - Action dispatch for BLE rule-event notifications, HTTP POST, NEC IR send, and local UI signaling.
 - Host tests for the rule engine, config store, runtime, web handlers, trigger adapters, and action modules.
 
-Currently wired default-boot trigger sources are `button.key1.short`, `button.key2.short`, `ble.connected`, `wifi.connected`, `gpio.digital`, `gpio.edge`, `sound.rms_dbfs`, `sound.peak_dbfs`, `sound.clipped`, `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` when their Kconfig gates are enabled. Sound facts are produced by the capture-only sound-level service when audio initialization succeeds and at least one enabled automation rule uses a `sound.*` source. Hardware facts are produced by the polling-only hardware fact service. `gpio.pulse_count`, `gpio.frequency_hz`, and all HAT sensor sources remain defined but disabled until drivers and hardware behavior are verified.
+Currently wired default-boot trigger sources are `button.key1.short`, `button.key2.short`, `ble.connected`, `wifi.connected`, `gpio.digital`, `gpio.edge`, `sound.rms_dbfs`, `sound.peak_dbfs`, `sound.clipped`, `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` when their Kconfig gates are enabled. Sound facts and Web UI sound metrics are produced by the single capture-only sound-level service when audio initialization succeeds and at least one enabled automation rule uses a `sound.*` source or Web UI telemetry demand is active. Hardware facts are produced by the polling-only hardware fact service. `gpio.pulse_count`, `gpio.frequency_hz`, and all HAT sensor sources remain defined but disabled until drivers and hardware behavior are verified.
 
 Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `local_ui`. HAT operations are defined but disabled until source-backed drivers are implemented.
 
@@ -201,7 +201,7 @@ The automation plan is now summarized here instead of in a separate planning REA
 
 - **Rule model and validation:** schema version 1, up to 8 rules, up to 3 actions per rule, bounded names/source keys/HTTP fields, cooldown and sustain limits, source/action validation, and safe defaults.
 - **Rule engine:** deterministic source matching, comparators, false-to-true transition detection, sustain-duration tracking, cooldown enforcement, event sequencing, and fire counts.
-- **Trigger runtime:** KEY1/KEY2 facts, BLE connection facts, Wi-Fi readiness facts, safe GPIO digital/edge facts, and sound-level facts are wired by default; sound sensor monitoring starts only when enabled `sound.*` rules exist and audio initialization succeeds.
+- **Trigger runtime:** KEY1/KEY2 facts, BLE connection facts, Wi-Fi readiness facts, safe GPIO digital/edge facts, and sound-level facts are wired by default; sound sensor monitoring starts only when shared sound demand exists (enabled `sound.*` rules or Web UI telemetry) and audio initialization succeeds.
 - **Capability gating:** `/api/capabilities` reports supported and disabled sources/actions. Battery/USB, BMI270, and ADC source runtime availability follows Kconfig gates; validation still rejects unsupported HAT, GPIO pulse/frequency, unsafe ADC/GPIO routes, and HAT-action features.
 - **Action dispatch:** BLE rule-event notifications, HTTP POST events, NEC IR send, and local UI feedback are implemented; HAT actions return unsupported.
 - **Web/storage path:** `/` serves the compact setup UI, `/api/config` imports/exports/saves bounded NVS configs, `/api/time` reads/updates timezone state, and invalid stored configs fall back to safe defaults.
@@ -327,6 +327,6 @@ ESP-IDF build/flash validation still requires an ESP-IDF environment and attache
 
 ## Sound-level trigger default
 
-Global sensor-monitoring rule: firmware must initialize and monitor a sensor only while at least one enabled automation rule uses that sensor as a trigger; if no enabled automation uses that sensor, the sensor producer must stay stopped and release its runtime RAM/task resources. GPIO and sound-level monitoring both follow this demand-driven pattern, and future sensor producers should use the same source-usage checks.
+Global sensor-monitoring rule: firmware must initialize and monitor a sensor only while an explicit demand source needs it. For GPIO this is enabled-rule source usage; for sound capture this is the union of enabled `sound.*` automation rules and Web UI telemetry. If neither trigger nor telemetry demand is active, the producer must stay stopped and release its runtime RAM/task resources. Future sensor producers should keep demand sources explicit and avoid duplicate readers.
 
-Sound-level triggers are enabled in the checked-in defaults with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. This links `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`. To honor demand-driven sensor monitoring, the firmware allocates the sound service state and initializes the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` only while at least one enabled automation rule uses a `sound.*` trigger; live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts then flow through the existing automation runtime. Maintainers can still turn the Kconfig option off for audio-free builds.
+Sound-level triggers are enabled in the checked-in defaults with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. This links `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`. To honor demand-driven sensor monitoring, the firmware allocates the sound service state and initializes the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` only while shared sound demand is active. Enabled `sound.*` rules consume live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts through the existing automation runtime, and Web UI telemetry reads the same service status/last-metrics path without starting a second I2S reader. Maintainers can still turn the Kconfig option off for audio-free builds.

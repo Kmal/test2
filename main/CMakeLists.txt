@@ -13,6 +13,7 @@ set(APP_SRCS
     "ui_nav.c"
     "ui_model.c"
     "app_wifi.c"
+    "app_sound_level_demand.c"
     "button_state.c"
     "rule_types.c"
     "rule_engine.c"

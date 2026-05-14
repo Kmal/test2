@@ -36,12 +36,12 @@ def strip_c_comments(source: str) -> str:
 def main() -> int:
     errors: list[str] = []
     main_text = strip_c_comments(MAIN.read_text(encoding="utf-8"))
-    sound_gate = "if (!automation_config_has_enabled_sound_source(config))"
+    sound_gate = "if (!app_sound_level_capture_needed(config))"
     audio_init = "board_audio_init(&audio_config)"
     if audio_init not in main_text:
         errors.append("main.c must wire board_audio_init for demand-driven sound triggers")
     elif sound_gate not in main_text or main_text.index(sound_gate) > main_text.index(audio_init):
-        errors.append("main.c must gate board_audio_init behind enabled sound-source usage")
+        errors.append("main.c must gate board_audio_init behind shared sound-capture demand")
     if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" not in main_text:
         errors.append("main.c must request the capture-only profile for sound triggers")
     if "board_audio_deinit" not in main_text:
@@ -50,6 +50,19 @@ def main() -> int:
         errors.append("audio init failures must not reboot-loop the board unless explicitly configured")
     if "rule_runtime_process_metrics" in main_text:
         errors.append("main.c must leave sound metric production inside sound_level_service")
+    if "app_sound_level_demand_set_telemetry" not in main_text or "s_sound_level_demand" not in main_text:
+        errors.append("main.c must track Web UI telemetry sound-capture demand separately from trigger demand")
+    if "no_enabled_sound_rule" in main_text and "if (!app_sound_level_capture_needed(&s_rule_config))" not in main_text:
+        errors.append("sound status must report no_enabled_sound_rule only when shared capture demand is inactive")
+    if "sound_level_service_start(s_sound_level_service)" not in main_text:
+        errors.append("main.c must centralize sound_level_service_start in app_sound_level_sync")
+    if main_text.count("sound_level_service_start(") != 1:
+        errors.append("main.c must have exactly one sound_level_service_start call for the shared capture service")
+    ready_guard = "if (s_sound_level_ready) {\n        return;\n    }"
+    if ready_guard not in main_text:
+        errors.append("main.c must return early when the shared sound capture service is already ready")
+    elif main_text.index(ready_guard) > main_text.index("sound_level_service_start(s_sound_level_service)"):
+        errors.append("main.c must check s_sound_level_ready before starting the shared sound capture service")
 
     cmake_text = CMAKE.read_text(encoding="utf-8")
     sound_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS\)(.*?)endif\(\)", cmake_text, flags=re.S)
