@@ -32,6 +32,12 @@ def main() -> int:
         HARDWARE_DOC: [
             manifest["soc"],
             "ESP32-S3 supports Bluetooth LE, not Bluetooth Classic / BR/EDR",
+            "Firmware pin mapping",
+            "Signal/function",
+            "Firmware constant",
+            "BOARD_I2S_MCLK_IO",
+            "BOARD_LCD_MOSI_GPIO",
+            "BOARD_IR_TX_GPIO",
             "GPIO18",
             "GPIO14",
             "GPIO17",

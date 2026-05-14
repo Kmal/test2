@@ -36,6 +36,34 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 | IR TX | GPIO46 | M5Stack StickS3 pin map |
 | IR RX | GPIO42 | M5Stack StickS3 pin map |
 
+## Firmware pin mapping
+
+`main/board_sticks3.h` is the authoritative firmware header for board-specific pins and hardware constants. This table keeps the removed README pin map in the hardware reference so board wiring, directions, and firmware constants stay documented in one hardware-focused place.
+
+| Signal/function | ESP32-S3 GPIO/address | Direction | Firmware constant | Notes |
+| --- | ---: | --- | --- | --- |
+| SoC/module | ESP32-S3-PICO-1-N8R8 | N/A | N/A | ESP32-S3 does not support Bluetooth Classic / BR/EDR. |
+| I2S MCLK | GPIO18 | ESP32-S3 -> ES8311 | `BOARD_I2S_MCLK_IO` | Current profile uses fixed MCLK at 12.288 MHz. |
+| I2S BCLK | GPIO17 | ESP32-S3 -> ES8311 | `BOARD_I2S_BCK_IO` | Current documented target is 512 kHz for 16 kHz, 16-bit mono capture. |
+| I2S LRCLK/WS | GPIO15 | ESP32-S3 -> ES8311 | `BOARD_I2S_WS_IO` | Current profile uses 16 kHz LRCK. |
+| I2S RX / codec DOUT (`G14_I2S_DOUT`) | GPIO14 | ES8311 -> ESP32-S3 | `BOARD_I2S_DI_IO` | Microphone/ADC samples read by the ESP32-S3. |
+| I2S TX / codec DIN (`G16_I2S_DIN`) | GPIO16 | ESP32-S3 -> ES8311 | `BOARD_I2S_DO_IO` | Codec DAC/input data pin; not driven in the default capture-only profile. |
+| I2C SDA | GPIO47 | Bidirectional | `BOARD_I2C_SDA_IO` | Shared ES8311/BMI270/M5PM1 control bus. |
+| I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock; M5PM1 handle remains at 100 kHz for power-up behavior. |
+| ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
+| BMI270 I2C address | `0x68` | N/A | `BOARD_BMI270_ADDR` | Used by the polling-only `bmi270.motion` hardware fact service when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing remains unused. |
+| M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Used for source-backed L3B audio rail and LCD power sequence. |
+| User key 1 | GPIO11 | Input | `BOARD_BUTTON_KEY1_GPIO` | Official StickS3 `KEY1`, active-low with pull-up; cycles display pages and emits automation facts. |
+| User key 2 | GPIO12 | Input | `BOARD_BUTTON_KEY2_GPIO` | Official StickS3 `KEY2`, active-low with pull-up; cycles app modes and emits automation facts. |
+| LCD MOSI | GPIO39 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_MOSI_GPIO` | Must not be configured as a status button or user GPIO. |
+| LCD SCLK | GPIO40 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_SCLK_GPIO` | SPI clock for the onboard 135x240 LCD. |
+| LCD RS/DC | GPIO45 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_DC_GPIO` | Display data/command select. |
+| LCD CS | GPIO41 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_CS_GPIO` | Display chip select. |
+| LCD reset | GPIO21 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_RST_GPIO` | Display reset. |
+| LCD backlight | GPIO38 | ESP32-S3 -> LCD backlight | `BOARD_LCD_BL_GPIO` | Active-high backlight enable. |
+| IR TX | GPIO46 | ESP32-S3 -> IR LED | `BOARD_IR_TX_GPIO` | NEC IR send action uses this RMT TX route after rule validation. |
+| IR RX | GPIO42 | IR receiver -> ESP32-S3 | `BOARD_IR_RX_GPIO` | Reserved as documented IR RX; no receive action/source is wired. |
+
 ## Current firmware status
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
