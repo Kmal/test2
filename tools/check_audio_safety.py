@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Validate default StickS3 audio safety policy."""
+"""Validate that default StickS3 boot keeps optional audio bring-up fail-closed."""
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -10,32 +11,46 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "main" / "main.c"
 BOARD_I2S = ROOT / "main" / "board_i2s.c"
 ES8311 = ROOT / "main" / "es8311.c"
-SOUND_METER = ROOT / "main" / "sound_meter.c"
+CMAKE = ROOT / "main" / "CMakeLists.txt"
+OPTIONAL_AUDIO_APP_SRCS = (
+    "audio_metrics.c",
+    "audio_pipeline.c",
+    "audio_resample.c",
+    "board_audio.c",
+    "board_audio_power.c",
+    "board_i2s.c",
+    "es8311.c",
+    "sound_meter.c",
+)
+
+
+def strip_c_comments(source: str) -> str:
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    return re.sub(r"//.*", "", source)
 
 
 def main() -> int:
     errors: list[str] = []
-    main_text = MAIN.read_text(encoding="utf-8")
-    if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" not in main_text:
-        errors.append("main.c must use BOARD_AUDIO_PROFILE_CAPTURE_ONLY for default boot")
-    if ".require_audio_power_enable = true" not in main_text:
-        errors.append("default boot must enable the source-backed M5PM1 L3B audio rail before ES8311 access")
-    if ".probe_m5pm1 = false" not in main_text:
-        errors.append("default capture-only boot must skip the optional M5PM1 identity probe")
+    main_text = strip_c_comments(MAIN.read_text(encoding="utf-8"))
+    if "board_audio_init" in main_text:
+        errors.append("main.c default boot must not call optional board_audio_init")
+    if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" in main_text:
+        errors.append("main.c must not imply default audio capture is wired without a metrics producer")
     if "ESP_ERROR_CHECK(board_audio_init" in main_text:
         errors.append("audio init failures must not reboot-loop the board")
+    if "rule_runtime_process_metrics" in main_text:
+        errors.append("main.c must not claim sound metrics are produced until audio capture is wired")
+
+    cmake_text = CMAKE.read_text(encoding="utf-8")
+    for source in OPTIONAL_AUDIO_APP_SRCS:
+        if f'"{source}"' in cmake_text:
+            errors.append(f"default app component must not link optional audio source {source}")
 
     i2s_text = BOARD_I2S.read_text(encoding="utf-8")
     if "&s_rx_handle" not in i2s_text or "s_tx_handle : NULL" not in i2s_text:
         errors.append("board_i2s.c must default to RX-only standard-channel allocation")
     if "BOARD_AUDIO_PROFILE_FULL_DUPLEX" not in i2s_text or "BOARD_I2S_DO_IO" not in i2s_text:
         errors.append("board_i2s.c must make TX explicit only for full-duplex profile")
-
-    sound_meter_text = SOUND_METER.read_text(encoding="utf-8")
-    if "board_i2s_read(pcm_samples, s_config.pcm_chunk_bytes" not in sound_meter_text:
-        errors.append("sound_meter.c must honor configured PCM chunk size for I2S reads")
-    if "s_config.pcm_chunk_bytes -= s_config.pcm_chunk_bytes % sizeof(int16_t)" not in sound_meter_text:
-        errors.append("sound_meter.c must align PCM chunk size to complete int16_t samples")
 
     es_text = ES8311.read_text(encoding="utf-8")
     if "ES8311_PROFILE_ADC_ONLY" not in es_text:

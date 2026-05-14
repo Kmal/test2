@@ -178,6 +178,14 @@ static void test_rule_web_status(void)
                                         json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "\"ok\":true") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
+                                        "{\"gpio_pin\":4x,\"gpio_profile\":\"digital_high_low\",\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\":false") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
+                                        "{\"gpio_pin\":4,\"gpio_profile\":\"digital_high_low\"x,\"gpio_debounce_ms\":20}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "\"ok\":false") != NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/gpio/test",
                                         "{\"gpio_pin\":39,\"gpio_profile\":\"digital_high_low\",\"gpio_debounce_ms\":20}",
                                         json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "\"ok\":false") != NULL);

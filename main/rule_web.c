@@ -390,6 +390,8 @@ static bool write_config_json(const automation_config_t *config, char *out, size
     return true;
 }
 
+static bool json_value_boundary(char ch);
+
 static bool json_get_string(const char *body, const char *key, char *out, size_t out_len)
 {
     if (body == NULL || key == NULL || out == NULL || out_len == 0) {
@@ -457,7 +459,13 @@ static bool json_get_string(const char *body, const char *key, char *out, size_t
         out[used++] = decoded;
     }
     out[used] = '\0';
-    return *pos == '\"';
+    return *pos == '\"' && json_value_boundary(pos[1]);
+}
+
+static bool json_value_boundary(char ch)
+{
+    return ch == '\0' || ch == ',' || ch == '}' || ch == ']' ||
+           ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 }
 
 static bool json_get_bool(const char *body, const char *key, bool *out)
@@ -479,11 +487,11 @@ static bool json_get_bool(const char *body, const char *key, bool *out)
     while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') {
         pos++;
     }
-    if (strncmp(pos, "true", 4) == 0) {
+    if (strncmp(pos, "true", 4) == 0 && json_value_boundary(pos[4])) {
         *out = true;
         return true;
     }
-    if (strncmp(pos, "false", 5) == 0) {
+    if (strncmp(pos, "false", 5) == 0 && json_value_boundary(pos[5])) {
         *out = false;
         return true;
     }
@@ -529,6 +537,9 @@ static bool json_get_i32(const char *body, const char *key, int32_t *out)
             return false;
         }
         pos++;
+    }
+    if (!json_value_boundary(*pos)) {
+        return false;
     }
     *out = negative ? (int32_t)-value : (int32_t)value;
     return true;
