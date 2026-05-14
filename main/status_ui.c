@@ -1,5 +1,7 @@
 #include "status_ui.h"
 
+#include "display_text.h"
+
 #include "board_sticks3.h"
 #include "app_wifi.h"
 #include "app_time.h"
@@ -185,12 +187,25 @@ static void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t
 static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
 static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event);
 static bool status_ui_keyboard_read_line_mode(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, ui_keyboard_mode_t mode, bool secret, uint32_t timeout_ms);
+static display_text_result_t ui_text_put_box(
+    display_text_region_id_t region_id,
+    int x,
+    int y,
+    int w,
+    int h,
+    const char *text,
+    uint16_t color,
+    display_text_fit_t fit,
+    display_text_align_t align,
+    display_text_priority_t priority
+);
 #endif
 
 #if CONFIG_APP_STATUS_UI_LCD
 static esp_lcd_panel_io_handle_t s_panel_io;
 static esp_lcd_panel_handle_t s_panel;
 static uint16_t *s_framebuffer;
+static display_text_context_t s_display_text;
 #endif
 
 typedef struct {
@@ -1040,181 +1055,6 @@ static void status_ui_button_task(void *arg)
 }
 
 #if CONFIG_APP_STATUS_UI_LCD
-static const uint8_t *glyph_rows(char c)
-{
-    static const uint8_t blank[7] = {0, 0, 0, 0, 0, 0, 0};
-    static const uint8_t glyph_0[7] = {14, 17, 19, 21, 25, 17, 14};
-    static const uint8_t glyph_1[7] = {4, 12, 4, 4, 4, 4, 14};
-    static const uint8_t glyph_2[7] = {14, 17, 1, 2, 4, 8, 31};
-    static const uint8_t glyph_3[7] = {30, 1, 1, 14, 1, 1, 30};
-    static const uint8_t glyph_4[7] = {2, 6, 10, 18, 31, 2, 2};
-    static const uint8_t glyph_5[7] = {31, 16, 16, 30, 1, 1, 30};
-    static const uint8_t glyph_6[7] = {14, 16, 16, 30, 17, 17, 14};
-    static const uint8_t glyph_7[7] = {31, 1, 2, 4, 8, 8, 8};
-    static const uint8_t glyph_8[7] = {14, 17, 17, 14, 17, 17, 14};
-    static const uint8_t glyph_9[7] = {14, 17, 17, 15, 1, 1, 14};
-    static const uint8_t glyph_a[7] = {14, 17, 17, 31, 17, 17, 17};
-    static const uint8_t glyph_b[7] = {30, 17, 17, 30, 17, 17, 30};
-    static const uint8_t glyph_c[7] = {14, 17, 16, 16, 16, 17, 14};
-    static const uint8_t glyph_d[7] = {30, 17, 17, 17, 17, 17, 30};
-    static const uint8_t glyph_e[7] = {31, 16, 16, 30, 16, 16, 31};
-    static const uint8_t glyph_f[7] = {31, 16, 16, 30, 16, 16, 16};
-    static const uint8_t glyph_g[7] = {14, 17, 16, 23, 17, 17, 15};
-    static const uint8_t glyph_h[7] = {17, 17, 17, 31, 17, 17, 17};
-    static const uint8_t glyph_i[7] = {14, 4, 4, 4, 4, 4, 14};
-    static const uint8_t glyph_j[7] = {7, 2, 2, 2, 18, 18, 12};
-    static const uint8_t glyph_k[7] = {17, 18, 20, 24, 20, 18, 17};
-    static const uint8_t glyph_l[7] = {16, 16, 16, 16, 16, 16, 31};
-    static const uint8_t glyph_m[7] = {17, 27, 21, 21, 17, 17, 17};
-    static const uint8_t glyph_n[7] = {17, 25, 21, 19, 17, 17, 17};
-    static const uint8_t glyph_o[7] = {14, 17, 17, 17, 17, 17, 14};
-    static const uint8_t glyph_p[7] = {30, 17, 17, 30, 16, 16, 16};
-    static const uint8_t glyph_q[7] = {14, 17, 17, 17, 21, 18, 13};
-    static const uint8_t glyph_r[7] = {30, 17, 17, 30, 20, 18, 17};
-    static const uint8_t glyph_s[7] = {15, 16, 16, 14, 1, 1, 30};
-    static const uint8_t glyph_t[7] = {31, 4, 4, 4, 4, 4, 4};
-    static const uint8_t glyph_u[7] = {17, 17, 17, 17, 17, 17, 14};
-    static const uint8_t glyph_v[7] = {17, 17, 17, 17, 17, 10, 4};
-    static const uint8_t glyph_w[7] = {17, 17, 17, 21, 21, 21, 10};
-    static const uint8_t glyph_x[7] = {17, 17, 10, 4, 10, 17, 17};
-    static const uint8_t glyph_y[7] = {17, 17, 10, 4, 4, 4, 4};
-    static const uint8_t glyph_z[7] = {31, 1, 2, 4, 8, 16, 31};
-    static const uint8_t glyph_lower_a[7] = {0, 0, 14, 1, 15, 17, 15};
-    static const uint8_t glyph_lower_b[7] = {16, 16, 22, 25, 17, 17, 30};
-    static const uint8_t glyph_lower_c[7] = {0, 0, 14, 16, 16, 17, 14};
-    static const uint8_t glyph_lower_d[7] = {1, 1, 13, 19, 17, 17, 15};
-    static const uint8_t glyph_lower_e[7] = {0, 0, 14, 17, 31, 16, 14};
-    static const uint8_t glyph_lower_f[7] = {6, 9, 8, 28, 8, 8, 8};
-    static const uint8_t glyph_lower_g[7] = {0, 0, 15, 17, 15, 1, 14};
-    static const uint8_t glyph_lower_h[7] = {16, 16, 22, 25, 17, 17, 17};
-    static const uint8_t glyph_lower_i[7] = {4, 0, 12, 4, 4, 4, 14};
-    static const uint8_t glyph_lower_j[7] = {2, 0, 6, 2, 2, 18, 12};
-    static const uint8_t glyph_lower_k[7] = {16, 16, 18, 20, 24, 20, 18};
-    static const uint8_t glyph_lower_l[7] = {12, 4, 4, 4, 4, 4, 14};
-    static const uint8_t glyph_lower_m[7] = {0, 0, 26, 21, 21, 21, 21};
-    static const uint8_t glyph_lower_n[7] = {0, 0, 22, 25, 17, 17, 17};
-    static const uint8_t glyph_lower_o[7] = {0, 0, 14, 17, 17, 17, 14};
-    static const uint8_t glyph_lower_p[7] = {0, 0, 30, 17, 30, 16, 16};
-    static const uint8_t glyph_lower_q[7] = {0, 0, 13, 19, 15, 1, 1};
-    static const uint8_t glyph_lower_r[7] = {0, 0, 22, 25, 16, 16, 16};
-    static const uint8_t glyph_lower_s[7] = {0, 0, 15, 16, 14, 1, 30};
-    static const uint8_t glyph_lower_t[7] = {8, 8, 28, 8, 8, 9, 6};
-    static const uint8_t glyph_lower_u[7] = {0, 0, 17, 17, 17, 19, 13};
-    static const uint8_t glyph_lower_v[7] = {0, 0, 17, 17, 17, 10, 4};
-    static const uint8_t glyph_lower_w[7] = {0, 0, 17, 17, 21, 21, 10};
-    static const uint8_t glyph_lower_x[7] = {0, 0, 17, 10, 4, 10, 17};
-    static const uint8_t glyph_lower_y[7] = {0, 0, 17, 17, 15, 1, 14};
-    static const uint8_t glyph_lower_z[7] = {0, 0, 31, 2, 4, 8, 31};
-    static const uint8_t glyph_colon[7] = {0, 4, 4, 0, 4, 4, 0};
-    static const uint8_t glyph_dash[7] = {0, 0, 0, 14, 0, 0, 0};
-    static const uint8_t glyph_dot[7] = {0, 0, 0, 0, 0, 12, 12};
-    static const uint8_t glyph_slash[7] = {1, 1, 2, 4, 8, 16, 16};
-    static const uint8_t glyph_percent[7] = {24, 25, 2, 4, 8, 19, 3};
-    static const uint8_t glyph_at[7] = {14, 17, 23, 21, 23, 16, 14};
-    static const uint8_t glyph_underscore[7] = {0, 0, 0, 0, 0, 0, 31};
-    static const uint8_t glyph_plus[7] = {0, 4, 4, 31, 4, 4, 0};
-    static const uint8_t glyph_question[7] = {14, 17, 1, 2, 4, 0, 4};
-    static const uint8_t glyph_lparen[7] = {2, 4, 8, 8, 8, 4, 2};
-    static const uint8_t glyph_rparen[7] = {8, 4, 2, 2, 2, 4, 8};
-    static const uint8_t glyph_hash[7] = {10, 31, 10, 10, 31, 10, 0};
-    static const uint8_t glyph_dollar[7] = {4, 15, 20, 14, 5, 30, 4};
-    static const uint8_t glyph_amp[7] = {12, 18, 20, 8, 21, 18, 13};
-    static const uint8_t glyph_equal[7] = {0, 0, 31, 0, 31, 0, 0};
-    static const uint8_t glyph_bang[7] = {4, 4, 4, 4, 4, 0, 4};
-    static const uint8_t glyph_caret[7] = {4, 10, 17, 0, 0, 0, 0};
-    static const uint8_t glyph_star[7] = {0, 21, 14, 31, 14, 21, 0};
-    static const uint8_t glyph_gt[7] = {16, 8, 4, 2, 4, 8, 16};
-
-    /* Keep the rendered glyph case-sensitive. The 9-key input cycle stores
-     * lowercase and uppercase letters distinctly (for example 2/a/b/c/A/B/C),
-     * so case folding would make the input field display a/b/c as A/B/C
-     * even though the backing text is lowercase. */
-    switch (c) {
-    case '0': return glyph_0;
-    case '1': return glyph_1;
-    case '2': return glyph_2;
-    case '3': return glyph_3;
-    case '4': return glyph_4;
-    case '5': return glyph_5;
-    case '6': return glyph_6;
-    case '7': return glyph_7;
-    case '8': return glyph_8;
-    case '9': return glyph_9;
-    case 'A': return glyph_a;
-    case 'B': return glyph_b;
-    case 'C': return glyph_c;
-    case 'D': return glyph_d;
-    case 'E': return glyph_e;
-    case 'F': return glyph_f;
-    case 'G': return glyph_g;
-    case 'H': return glyph_h;
-    case 'I': return glyph_i;
-    case 'J': return glyph_j;
-    case 'K': return glyph_k;
-    case 'L': return glyph_l;
-    case 'M': return glyph_m;
-    case 'N': return glyph_n;
-    case 'O': return glyph_o;
-    case 'P': return glyph_p;
-    case 'Q': return glyph_q;
-    case 'R': return glyph_r;
-    case 'S': return glyph_s;
-    case 'T': return glyph_t;
-    case 'U': return glyph_u;
-    case 'V': return glyph_v;
-    case 'W': return glyph_w;
-    case 'X': return glyph_x;
-    case 'Y': return glyph_y;
-    case 'Z': return glyph_z;
-    case 'a': return glyph_lower_a;
-    case 'b': return glyph_lower_b;
-    case 'c': return glyph_lower_c;
-    case 'd': return glyph_lower_d;
-    case 'e': return glyph_lower_e;
-    case 'f': return glyph_lower_f;
-    case 'g': return glyph_lower_g;
-    case 'h': return glyph_lower_h;
-    case 'i': return glyph_lower_i;
-    case 'j': return glyph_lower_j;
-    case 'k': return glyph_lower_k;
-    case 'l': return glyph_lower_l;
-    case 'm': return glyph_lower_m;
-    case 'n': return glyph_lower_n;
-    case 'o': return glyph_lower_o;
-    case 'p': return glyph_lower_p;
-    case 'q': return glyph_lower_q;
-    case 'r': return glyph_lower_r;
-    case 's': return glyph_lower_s;
-    case 't': return glyph_lower_t;
-    case 'u': return glyph_lower_u;
-    case 'v': return glyph_lower_v;
-    case 'w': return glyph_lower_w;
-    case 'x': return glyph_lower_x;
-    case 'y': return glyph_lower_y;
-    case 'z': return glyph_lower_z;
-    case ':': return glyph_colon;
-    case '-': return glyph_dash;
-    case '.': return glyph_dot;
-    case '/': return glyph_slash;
-    case '%': return glyph_percent;
-    case '@': return glyph_at;
-    case '_': return glyph_underscore;
-    case '+': return glyph_plus;
-    case '?': return glyph_question;
-    case '(': return glyph_lparen;
-    case ')': return glyph_rparen;
-    case '#': return glyph_hash;
-    case '$': return glyph_dollar;
-    case '&': return glyph_amp;
-    case '=': return glyph_equal;
-    case '!': return glyph_bang;
-    case '^': return glyph_caret;
-    case '*': return glyph_star;
-    case '>': return glyph_gt;
-    default: return blank;
-    }
-}
-
 static void lcd_fill_rect(int x, int y, int w, int h, uint16_t color)
 {
     int x_end = x + w;
@@ -1238,44 +1078,17 @@ static void lcd_fill_rect(int x, int y, int w, int h, uint16_t color)
     }
 }
 
-static void lcd_draw_char(int x, int y, char c, uint16_t color, uint8_t scale)
+static void status_ui_display_text_fill_rect(
+    int x,
+    int y,
+    int w,
+    int h,
+    uint16_t color,
+    void *ctx
+)
 {
-    const uint8_t *rows = glyph_rows(c);
-    for (int row = 0; row < 7; ++row) {
-        for (int col = 0; col < 5; ++col) {
-            if ((rows[row] & (1U << (4 - col))) != 0) {
-                lcd_fill_rect(x + col * scale, y + row * scale, scale, scale, color);
-            }
-        }
-    }
-}
-
-static void lcd_draw_text(int x, int y, const char *text, uint16_t color, uint8_t scale)
-{
-    int cursor_x = x;
-    while (*text != '\0' && cursor_x < BOARD_LCD_H_RES) {
-        if (*text != ' ') {
-            lcd_draw_char(cursor_x, y, *text, color, scale);
-        }
-        cursor_x += 6 * scale;
-        ++text;
-    }
-}
-
-static int lcd_text_visible_width(const char *text, uint8_t scale)
-{
-    if (text == NULL || text[0] == '\0') {
-        return 0;
-    }
-    return (int)(strlen(text) * 6u * scale) - scale;
-}
-
-static void lcd_draw_text_right_aligned(int right_x, int y, const char *text, uint16_t color, uint8_t scale)
-{
-    if (text == NULL) {
-        return;
-    }
-    lcd_draw_text(right_x - lcd_text_visible_width(text, scale), y, text, color, scale);
+    (void)ctx;
+    lcd_fill_rect(x, y, w, h, color);
 }
 
 static const ui_key_def_t s_9key_defs[UI_KEYBOARD_KEY_COUNT] = {
@@ -1296,16 +1109,6 @@ static const ui_key_def_t s_9key_defs[UI_KEYBOARD_KEY_COUNT] = {
     { UI_KEY_KIND_SPACE, "_", NULL, NULL, 0 },
     { UI_KEY_KIND_OK, "Next", NULL, NULL, 0 },
 };
-
-static void lcd_draw_text_clipped(int x, int y, const char *text, uint16_t color, uint8_t scale, size_t max_chars)
-{
-    char buf[40];
-    if (max_chars >= sizeof(buf)) max_chars = sizeof(buf) - 1u;
-    size_t i = 0;
-    while (i < max_chars && text != NULL && text[i] != '\0') { buf[i] = text[i]; ++i; }
-    buf[i] = '\0';
-    lcd_draw_text(x, y, buf, color, scale);
-}
 
 static void keyboard_snapshot(ui_keyboard_state_t *out)
 {
@@ -1579,7 +1382,10 @@ static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
     int y0 = BOARD_LCD_V_RES - UI_KEYBOARD_OVERLAY_H;
     if (y0 < 0) y0 = 0;
     lcd_fill_rect(0, y0, BOARD_LCD_H_RES, UI_KEYBOARD_OVERLAY_H, 0x1082);
-    lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 4, kb->title, STATUS_UI_LCD_TEXT, 1, 18);
+    ui_text_put_box(DISPLAY_TEXT_REGION_KEYBOARD_TITLE, UI_LEFT_PAD, y0 + 4,
+                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, UI_LINE_H,
+                    kb->title, STATUS_UI_LCD_TEXT, DISPLAY_TEXT_FIT_MARQUEE,
+                    DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_OVERLAY);
     char display[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
     size_t len = strlen(kb->text);
     const size_t display_len = len < sizeof(display) ? len : sizeof(display) - 1u;
@@ -1588,7 +1394,10 @@ static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
         display[i] = (kb->secret && i != pending_index) ? '*' : kb->text[i];
     }
     display[display_len] = '\0';
-    lcd_draw_text_clipped(UI_LEFT_PAD, y0 + 18, display, STATUS_UI_LCD_OK, 1, 19);
+    ui_text_put_box(DISPLAY_TEXT_REGION_KEYBOARD_INPUT, UI_LEFT_PAD, y0 + 18,
+                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, UI_LINE_H,
+                    display, STATUS_UI_LCD_OK, DISPLAY_TEXT_FIT_MARQUEE,
+                    DISPLAY_TEXT_ALIGN_RIGHT, DISPLAY_TEXT_PRIORITY_OVERLAY);
     const int cols = 4;
     const int key_w = BOARD_LCD_H_RES / cols;
     for (uint8_t i = 0; i < UI_KEYBOARD_KEY_COUNT; ++i) {
@@ -1599,7 +1408,10 @@ static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
         const int y = y0 + 34 + row * 18;
         const char *label = s_9key_defs[i].label;
         lcd_fill_rect(x + 1, y, key_w - 2, 17, selected ? STATUS_UI_LCD_OK : 0x2104);
-        lcd_draw_text(x + 3, y + 5, label, selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT, 1);
+        ui_text_put_box(DISPLAY_TEXT_REGION_KEYBOARD_KEY, x + 3, y + 5, key_w - 6, 12,
+                        label, selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT,
+                        DISPLAY_TEXT_FIT_ONE_LINE, DISPLAY_TEXT_ALIGN_LEFT,
+                        DISPLAY_TEXT_PRIORITY_OVERLAY);
     }
 }
 
@@ -1720,38 +1532,114 @@ static void ui_render_clear(void)
     lcd_fill_rect(0, 0, UI_LCD_W, UI_LCD_H, UI_COLOR_BG);
 }
 
+
+static display_text_region_id_t ui_body_row_region(size_t row)
+{
+    switch (row) {
+    case 0: return DISPLAY_TEXT_REGION_BODY_ROW_0;
+    case 1: return DISPLAY_TEXT_REGION_BODY_ROW_1;
+    case 2: return DISPLAY_TEXT_REGION_BODY_ROW_2;
+    case 3: return DISPLAY_TEXT_REGION_BODY_ROW_3;
+    case 4: return DISPLAY_TEXT_REGION_BODY_ROW_4;
+    case 5: return DISPLAY_TEXT_REGION_BODY_ROW_5;
+    case 6: return DISPLAY_TEXT_REGION_BODY_ROW_6;
+    case 7: return DISPLAY_TEXT_REGION_BODY_ROW_7;
+    default: return DISPLAY_TEXT_REGION_BODY_DYNAMIC;
+    }
+}
+
+static display_text_result_t ui_text_put_box(
+    display_text_region_id_t region_id,
+    int x,
+    int y,
+    int w,
+    int h,
+    const char *text,
+    uint16_t color,
+    display_text_fit_t fit,
+    display_text_align_t align,
+    display_text_priority_t priority
+)
+{
+    display_text_box_t box = {
+        .x = x,
+        .y = y,
+        .width = w,
+        .height = h,
+        .scale = 1,
+        .color = color,
+        .bg_color = UI_COLOR_BG,
+        .clear_bg = false,
+        .region_id = region_id,
+        .fit = fit,
+        .align = align,
+        .collision = priority == DISPLAY_TEXT_PRIORITY_OVERLAY ? DISPLAY_TEXT_COLLISION_OVERLAY : DISPLAY_TEXT_COLLISION_REJECT,
+        .priority = priority,
+    };
+    return display_text_put(&s_display_text, &box, text != NULL ? text : "");
+}
+
+static display_text_result_t ui_text_put_line(
+    display_text_region_id_t region_id,
+    int x,
+    int y,
+    int w,
+    const char *text,
+    uint16_t color,
+    display_text_fit_t fit
+)
+{
+    return ui_text_put_box(region_id, x, y, w, UI_LINE_H, text, color, fit,
+                           DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
+}
+
 static void ui_render_status_bar(const ui_status_bar_state_t *status)
 {
     lcd_fill_rect(0, 0, UI_LCD_W, UI_STATUS_BAR_H, UI_COLOR_BAR);
-    lcd_draw_text(UI_LEFT_PAD, 5, (status != NULL && status->time_valid) ? status->time_hhmm : "--:--", UI_COLOR_TEXT, 1);
+    ui_text_put_box(DISPLAY_TEXT_REGION_STATUS_TIME, UI_LEFT_PAD, 5, 38, UI_STATUS_BAR_H - 5,
+                    (status != NULL && status->time_valid) ? status->time_hhmm : "--:--",
+                    UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE, DISPLAY_TEXT_ALIGN_LEFT,
+                    DISPLAY_TEXT_PRIORITY_HIGH);
     if (status != NULL && status->wifi_connected) {
-        lcd_draw_text(48, 5, "Wi-Fi", UI_COLOR_TEXT, 1);
+        ui_text_put_box(DISPLAY_TEXT_REGION_STATUS_WIFI, 48, 5, 42, UI_STATUS_BAR_H - 5,
+                        "Wi-Fi", UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE,
+                        DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
     }
     char battery[8];
     if (status != NULL && status->battery_valid) snprintf(battery, sizeof(battery), "%u%%", (unsigned)status->battery_percent);
     else snprintf(battery, sizeof(battery), "--%%");
-    lcd_draw_text_right_aligned(UI_LCD_W, 5, battery, UI_COLOR_TEXT, 1);
+    ui_text_put_box(DISPLAY_TEXT_REGION_STATUS_BATTERY, UI_LCD_W - 36, 5, 36, UI_STATUS_BAR_H - 5,
+                    battery, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE,
+                    DISPLAY_TEXT_ALIGN_RIGHT, DISPLAY_TEXT_PRIORITY_HIGH);
 }
 
 static void ui_render_title(const char *title)
 {
-    lcd_draw_text_clipped(UI_LEFT_PAD, UI_TITLE_Y, title != NULL ? title : "", UI_COLOR_TEXT, 1, 20);
+    ui_text_put_line(DISPLAY_TEXT_REGION_TITLE, UI_LEFT_PAD, UI_TITLE_Y,
+                     UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, title != NULL ? title : "",
+                     UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE);
 }
 
 static void ui_render_bottom_hints(const char *hints)
 {
-    lcd_draw_text_clipped(UI_LEFT_PAD, UI_LCD_H - UI_BOTTOM_HINT_H, hints, UI_COLOR_DIM, 1, 24);
+    ui_text_put_box(DISPLAY_TEXT_REGION_BOTTOM_HINT, UI_LEFT_PAD, UI_LCD_H - UI_BOTTOM_HINT_H,
+                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, UI_BOTTOM_HINT_H,
+                    hints, UI_COLOR_DIM, DISPLAY_TEXT_FIT_MARQUEE,
+                    DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
 }
 
 static void ui_render_menu(const ui_runtime_t *ui, const ui_screen_def_t *screen)
 {
     int y = UI_BODY_Y;
+    size_t row = 0;
     size_t start = ui->nav.scroll_offset;
-    for (size_t i = start; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i) {
+    for (size_t i = start; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i, ++row) {
         const bool selected = i == ui->nav.selected_index;
-        char line[40];
+        char line[DISPLAY_TEXT_MAX_TEXT];
         snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
-        lcd_draw_text_clipped(UI_LEFT_PAD, y, line, selected ? UI_COLOR_OK : UI_COLOR_TEXT, 1, 21);
+        ui_text_put_line(ui_body_row_region(row), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                         line, selected ? UI_COLOR_OK : UI_COLOR_TEXT,
+                         selected ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
         y += UI_LINE_H;
     }
 }
@@ -1761,68 +1649,86 @@ static void ui_render_wifi_scan_results(const ui_runtime_t *ui, const ui_wifi_fl
     (void)ui;
     int y = UI_BODY_Y;
     if (wifi == NULL || wifi->scan_results.count == 0u) {
-        lcd_draw_text_clipped(UI_LEFT_PAD, y, wifi != NULL && wifi->last_error[0] ? wifi->last_error : "No networks", UI_COLOR_WARN, 1, 20);
+        ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                         wifi != NULL && wifi->last_error[0] ? wifi->last_error : "No networks",
+                         UI_COLOR_WARN, DISPLAY_TEXT_FIT_MARQUEE);
         return;
     }
     size_t visible = wifi->scan_results.count < 7u ? wifi->scan_results.count : 7u;
     size_t first = wifi->selected_scan_index >= visible ? wifi->selected_scan_index - visible + 1u : 0u;
     for (size_t row = 0; row < visible && first + row < wifi->scan_results.count; ++row) {
         size_t i = first + row;
-        char line[48];
+        char line[DISPLAY_TEXT_MAX_TEXT];
         snprintf(line, sizeof(line), "%c%s %ddBm ch%u", i == wifi->selected_scan_index ? '>' : ' ', wifi->scan_results.items[i].ssid[0] ? wifi->scan_results.items[i].ssid : "(hidden)", wifi->scan_results.items[i].rssi, (unsigned)wifi->scan_results.items[i].channel);
-        lcd_draw_text_clipped(UI_LEFT_PAD, y, line, i == wifi->selected_scan_index ? UI_COLOR_OK : UI_COLOR_TEXT, 1, 21);
+        ui_text_put_line(ui_body_row_region(row), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                         line, i == wifi->selected_scan_index ? UI_COLOR_OK : UI_COLOR_TEXT,
+                         i == wifi->selected_scan_index ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
         y += UI_LINE_H;
     }
 }
 
 static void ui_render_wifi_result(const ui_wifi_flow_state_t *wifi)
 {
-    char line[72];
+    char line[DISPLAY_TEXT_MAX_TEXT];
     int y = UI_BODY_Y;
     snprintf(line, sizeof(line), "SSID: %s", wifi != NULL && wifi->ssid[0] ? wifi->ssid : "-");
-    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
     snprintf(line, sizeof(line), "%s", wifi != NULL && wifi->last_error[0] ? wifi->last_error : "Connected and saved");
-    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, wifi != NULL && wifi->web_url[0] ? UI_COLOR_OK : UI_COLOR_WARN, 1, 20);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, wifi != NULL && wifi->web_url[0] ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_WRAP);
     y += UI_LINE_H;
     snprintf(line, sizeof(line), "URL: %s", wifi != NULL && wifi->web_url[0] ? wifi->web_url : "-");
-    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_OK, 1, 20);
+    ui_text_put_box(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                    UI_LCD_H - UI_BOTTOM_HINT_H - y, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_WRAP,
+                    DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
 }
 
 static void ui_render_ap_url(const ui_runtime_t *ui)
 {
-    char line[72];
+    char line[DISPLAY_TEXT_MAX_TEXT];
     int y = UI_BODY_Y;
     snprintf(line, sizeof(line), "SSID: %s", ui->ap.ap_name[0] ? ui->ap.ap_name : "-");
-    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
     snprintf(line, sizeof(line), "URL: %s", ui->ap.url[0] ? ui->ap.url : "-");
-    lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_OK, 1, 20); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Channel: %u", (unsigned)ui->ap.channel);
-    lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Status: %s", ui->ap.started ? "started" : "not started");
-    lcd_draw_text(UI_LEFT_PAD, y, line, ui->ap.started ? UI_COLOR_OK : UI_COLOR_WARN, 1);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, ui->ap.started ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE);
 }
 
 static void ui_render_bluetooth_status(const ui_runtime_t *ui)
 {
-    char line[56];
+    char line[DISPLAY_TEXT_MAX_TEXT];
     int y = UI_BODY_Y;
-    snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Name: %s", ui->bluetooth.device_name); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_TEXT, 1, 20);
+    snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Name: %s", ui->bluetooth.device_name);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE);
+    if (ui->bluetooth.status_text[0] != '\0') {
+        y += UI_LINE_H;
+        snprintf(line, sizeof(line), "%s", ui->bluetooth.status_text);
+        ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP);
+    }
 }
 
 static void ui_render_automation_detail(const ui_runtime_t *ui, const ui_screen_def_t *screen)
 {
     uint8_t index = screen->id == UI_SCREEN_AUTOMATION_2 ? 1u : 0u;
     const ui_automation_state_t *slot = &ui->automations[index];
-    char line[48];
+    char line[DISPLAY_TEXT_MAX_TEXT];
     int y = UI_BODY_Y;
-    snprintf(line, sizeof(line), "Enabled: %s", slot->enabled ? "on" : "off"); lcd_draw_text(UI_LEFT_PAD, y, line, UI_COLOR_DIM, 1); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Trigger: %s", slot->trigger_label); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_DIM, 1, 20); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Action: %s", slot->action_label); lcd_draw_text_clipped(UI_LEFT_PAD, y, line, UI_COLOR_DIM, 1, 20); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Enabled: %s", slot->enabled ? "on" : "off");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Trigger: %s", slot->trigger_label);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Action: %s", slot->action_label);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
     for (size_t i = 0; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i) {
         bool selected = i == ui->nav.selected_index;
         snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
-        lcd_draw_text_clipped(UI_LEFT_PAD, y, line, selected ? UI_COLOR_OK : UI_COLOR_TEXT, 1, 21);
+        ui_text_put_line(ui_body_row_region(i + 3u), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                         line, selected ? UI_COLOR_OK : UI_COLOR_TEXT,
+                         selected ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
         y += UI_LINE_H;
     }
 }
@@ -1841,8 +1747,10 @@ static void ui_render_toast(const ui_toast_t *toast)
         return;
     }
     uint16_t color = toast->kind == UI_TOAST_ERROR ? UI_COLOR_ERR : (toast->kind == UI_TOAST_WARNING ? UI_COLOR_WARN : UI_COLOR_OK);
-    lcd_fill_rect(0, UI_LCD_H - 30, UI_LCD_W, 16, 0x2104);
-    lcd_draw_text_clipped(UI_LEFT_PAD, UI_LCD_H - 27, toast->text, color, 1, 22);
+    lcd_fill_rect(0, UI_LCD_H - 34, UI_LCD_W, 20, 0x2104);
+    ui_text_put_box(DISPLAY_TEXT_REGION_TOAST, UI_LEFT_PAD, UI_LCD_H - 31,
+                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, 16, toast->text, color,
+                    DISPLAY_TEXT_FIT_WRAP, DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_OVERLAY);
 }
 
 static void ui_render_screen(const ui_runtime_t *ui, const ui_screen_def_t *screen)
@@ -1901,10 +1809,13 @@ static void status_ui_render_menu_lcd(const ui_runtime_t *ui)
 
 static void status_ui_render_lcd(void)
 {
+    uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    display_text_begin_frame(&s_display_text, now_ms);
     status_ui_render_menu_lcd(&s_ui);
     if (keyboard_is_active()) {
         status_ui_render_keyboard_lcd();
     }
+    display_text_end_frame(&s_display_text);
 
     esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
     if (err != ESP_OK) {
@@ -2060,6 +1971,14 @@ static esp_err_t status_ui_lcd_init(void)
         spi_bus_free(BOARD_LCD_HOST);
         return ESP_ERR_NO_MEM;
     }
+
+    display_text_context_init(
+        &s_display_text,
+        BOARD_LCD_H_RES,
+        BOARD_LCD_V_RES,
+        status_ui_display_text_fill_rect,
+        NULL
+    );
 
     BaseType_t created = xTaskCreate(status_ui_lcd_task, "status_ui_lcd",
                                      STATUS_UI_LCD_TASK_STACK, NULL,

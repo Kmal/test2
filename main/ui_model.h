@@ -28,7 +28,7 @@ typedef enum {
 
 typedef struct {
     ui_toast_kind_t kind;
-    char text[48];
+    char text[96];
     uint32_t until_tick_ms;
 } ui_toast_t;
 
@@ -40,24 +40,24 @@ typedef struct {
     bool has_selected_ssid;
     bool has_password;
     bool scan_valid;
-    char last_error[48];
-    char web_url[32];
+    char last_error[96];
+    char web_url[96];
 } ui_wifi_flow_state_t;
 
 typedef struct {
     char ap_name[UI_TEXT_AP_NAME_MAX + 1];
     char ap_password[UI_TEXT_AP_PASSWORD_MAX + 1];
     uint8_t channel;
-    char url[64];
+    char url[96];
     bool loaded_from_config;
     bool started;
-    char last_error[48];
+    char last_error[96];
 } ui_ap_flow_state_t;
 
 typedef struct {
     bool ble_connected;
-    char device_name[32];
-    char status_text[48];
+    char device_name[64];
+    char status_text[96];
 } ui_bluetooth_state_t;
 
 typedef struct {
@@ -66,9 +66,9 @@ typedef struct {
     bool enabled;
     rule_source_t trigger_source;
     rule_action_kind_t action_kind;
-    char trigger_label[32];
-    char action_label[32];
-    char last_error[48];
+    char trigger_label[64];
+    char action_label[64];
+    char last_error[96];
 } ui_automation_state_t;
 
 typedef struct {

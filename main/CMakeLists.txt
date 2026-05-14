@@ -4,6 +4,7 @@ set(APP_SRCS
     "board_i2c.c"
     "m5pm1.c"
     "status_ui.c"
+    "display_text.c"
     "app_mode.c"
     "app_time.c"
     "ui_nav.c"
