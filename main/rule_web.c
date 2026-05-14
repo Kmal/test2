@@ -201,6 +201,15 @@ void rule_web_set_sound_status_builder(rule_web_sound_status_cb_t cb, void *ctx)
     s_sound_status_ctx = ctx;
 }
 
+void rule_web_set_config_changed_callback(rule_web_t *web, rule_web_config_changed_cb_t cb, void *ctx)
+{
+    if (web == NULL) {
+        return;
+    }
+    web->config_changed_cb = cb;
+    web->config_changed_ctx = ctx;
+}
+
 bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len)
 {
     if (web == NULL || out == NULL || out_len == 0) {
@@ -966,6 +975,9 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
             const int written = snprintf(out, out_len, "{\"error\":\"config rejected\"}");
             free(config);
             return written > 0 && (size_t)written < out_len;
+        }
+        if (web->config_changed_cb != NULL) {
+            web->config_changed_cb(config, web->config_changed_ctx);
         }
         const bool written = write_config_json(config, out, out_len);
         free(config);

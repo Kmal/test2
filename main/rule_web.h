@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 typedef bool (*rule_web_sound_status_cb_t)(char *out, size_t out_len, void *ctx);
+typedef void (*rule_web_config_changed_cb_t)(const automation_config_t *config, void *ctx);
 
 #ifdef ESP_PLATFORM
 #include "esp_http_server.h"
@@ -22,6 +23,8 @@ typedef struct {
     bool started;
     rule_runtime_t *runtime;
     rule_config_store_t *store;
+    rule_web_config_changed_cb_t config_changed_cb;
+    void *config_changed_ctx;
 #ifdef ESP_PLATFORM
     httpd_handle_t server;
 #endif
@@ -30,5 +33,6 @@ typedef struct {
 bool rule_web_start(rule_web_t *web, rule_runtime_t *runtime, rule_config_store_t *store);
 void rule_web_stop(rule_web_t *web);
 void rule_web_set_sound_status_builder(rule_web_sound_status_cb_t cb, void *ctx);
+void rule_web_set_config_changed_callback(rule_web_t *web, rule_web_config_changed_cb_t cb, void *ctx);
 bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len);
 bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const char *path, const char *body, char *out, size_t out_len);

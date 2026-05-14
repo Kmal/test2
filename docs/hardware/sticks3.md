@@ -40,7 +40,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a local configuration and automation device. From the current code path it initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the on-demand Web UI server lifecycle, status UI, capture-only sound-level telemetry, and the shared ESP-IDF v6 I2C master bus when the LCD/power/audio helper needs it. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default app component links the capture-only audio sources and starts `sound_level_service` when audio initialization succeeds, but it does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+The current default firmware is a local configuration and automation device. From the current code path it initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the on-demand Web UI server lifecycle, status UI, capture-only sound-level telemetry, and the shared ESP-IDF v6 I2C master bus when the LCD/power/audio helper needs it. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default app component links the capture-only audio sources and starts `sound_level_service` only when enabled automation rules use `sound.*` triggers and audio initialization succeeds; it does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ### Code-derived hardware implementation overlay
 
@@ -48,9 +48,9 @@ The current default firmware is a local configuration and automation device. Fro
 | --- | --- | --- |
 | LCD power and panel initialization | ✅ Implemented/wired when `CONFIG_APP_STATUS_UI_LCD=y` | `status_ui_init()` initializes the shared I2C bus, calls the M5PM1 LCD/L3B power helper, initializes the ST7789P3 panel, enables backlight GPIO38, and treats LCD failure as non-fatal. |
 | Two StickS3 keys | ✅ Implemented/wired | Only GPIO11/KEY1 and GPIO12/KEY2 are polled as user keys; they drive menu navigation and button automation facts. |
-| M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-high sequence exists and is used by LCD power and by default sound-level audio initialization. |
+| M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-high sequence exists and is used by LCD power and by demand-driven sound-level audio initialization when enabled `sound.*` rules exist. |
 | Capture-only I2S/ES8311 profile | ✅ Implemented/wired by default | `board_audio_init_with_ops()` sequences I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup because `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is set in the project defaults. |
-| Sound metrics from microphone | ✅ Implemented/wired by default | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build starts a capture-only task that reads normalized I2S microphone samples and feeds sound facts into the rule runtime. |
+| Sound metrics from microphone | ✅ Implemented/default available | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build starts a capture-only task only while enabled automation rules use `sound.*` triggers, reads normalized I2S microphone samples, and feeds sound facts into the rule runtime. |
 | I2S TX / local speaker output | ⛔ Not implemented | Full-duplex/TX is not selected by default, and AW8737/M5PM1 speaker-amplifier control remains blocked with `ESP_ERR_NOT_SUPPORTED`. |
 | IR send | ✅ Implemented/wired for actions | NEC IR actions use the RMT TX path on GPIO46 after rule validation. |
 | IR receive | ⛔ Not implemented | GPIO42 is reserved as IR RX, but no receive action/source is wired. |
@@ -115,7 +115,7 @@ BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing thr
 
 ## Audio init failure policy
 
-`board_audio_init_with_ops()` initializes in this order in the default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build: shared I2C, optional M5PM1 probe, required source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet. Maintainers can still turn the Kconfig option off for audio-free builds.
+`board_audio_init_with_ops()` initializes in this order in the default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build when enabled `sound.*` rules require monitoring: shared I2C, optional M5PM1 probe, required source-backed audio power enable, I2S profile, ES8311 profile. On failure, later steps are skipped and the cleanup hook is called. The production cleanup policy logs the failure and does not guess a power-disable sequence because no source-backed L3B disable sequence exists yet. Maintainers can still turn the Kconfig option off for audio-free builds.
 
 ## Automation hardware scope
 
