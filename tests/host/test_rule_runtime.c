@@ -119,6 +119,94 @@ static action_result_t fake_runtime_local_ui_sender(const rule_event_t *event, v
     return result;
 }
 
+
+static automation_config_t sound_runtime_config(rule_source_t source)
+{
+    automation_config_t config = runtime_config();
+    (void)snprintf(config.rules[0].name, RULE_NAME_MAX, "runtime sound");
+    config.rules[0].when.source = source;
+    config.rules[0].when.comparator = source == RULE_SOURCE_SOUND_CLIPPED ? RULE_COMPARATOR_EQ : RULE_COMPARATOR_GTE;
+    config.rules[0].when.threshold = source == RULE_SOURCE_SOUND_CLIPPED ? rule_value_bool(true) : rule_value_i32(-20 * 256);
+    config.rules[0].when.sustain_ms = 0;
+    config.rules[0].cooldown_ms = 100;
+    return config;
+}
+
+static audio_level_metrics_t sound_metrics(int32_t rms_q8, int32_t peak_q8, uint16_t clipped)
+{
+    audio_level_metrics_t metrics;
+    memset(&metrics, 0, sizeof(metrics));
+    metrics.rms_dbfs_q8 = rms_q8;
+    metrics.peak_dbfs_q8 = peak_q8;
+    metrics.clipped_samples = clipped;
+    return metrics;
+}
+
+static void test_runtime_sound_rms_metrics_to_local_ui_action(void)
+{
+    automation_config_t config = sound_runtime_config(RULE_SOURCE_SOUND_RMS_DBFS);
+    rule_runtime_t runtime;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    audio_level_metrics_t metrics = sound_metrics(-18 * 256, -12 * 256, 0);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 10));
+    ASSERT_EQ(ACTION_RESULT_OK, rule_runtime_get_last_action_result(&runtime).code);
+    ASSERT_EQ(7, rule_runtime_get_last_action_result(&runtime).rule_id);
+}
+
+static void test_runtime_sound_peak_metrics_to_local_ui_action(void)
+{
+    automation_config_t config = sound_runtime_config(RULE_SOURCE_SOUND_PEAK_DBFS);
+    rule_runtime_t runtime;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    audio_level_metrics_t metrics = sound_metrics(-40 * 256, -10 * 256, 0);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 10));
+    ASSERT_EQ(ACTION_RESULT_OK, rule_runtime_get_last_action_result(&runtime).code);
+}
+
+static void test_runtime_sound_clipped_metrics_to_local_ui_action(void)
+{
+    automation_config_t config = sound_runtime_config(RULE_SOURCE_SOUND_CLIPPED);
+    rule_runtime_t runtime;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    audio_level_metrics_t metrics = sound_metrics(-40 * 256, -10 * 256, 1);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 10));
+    ASSERT_EQ(ACTION_RESULT_OK, rule_runtime_get_last_action_result(&runtime).code);
+}
+
+static void test_runtime_sound_sustain_requires_multiple_windows(void)
+{
+    automation_config_t config = sound_runtime_config(RULE_SOURCE_SOUND_RMS_DBFS);
+    config.rules[0].when.sustain_ms = 250;
+    rule_runtime_t runtime;
+    int calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    audio_level_metrics_t metrics = sound_metrics(-18 * 256, -12 * 256, 0);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 100));
+    ASSERT_EQ(0, calls);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 360));
+    ASSERT_EQ(1, calls);
+}
+
+static void test_runtime_sound_cooldown_prevents_repeated_events(void)
+{
+    automation_config_t config = sound_runtime_config(RULE_SOURCE_SOUND_RMS_DBFS);
+    config.rules[0].cooldown_ms = 500;
+    rule_runtime_t runtime;
+    int calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    audio_level_metrics_t metrics = sound_metrics(-18 * 256, -12 * 256, 0);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 100));
+    ASSERT_EQ(1, calls);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 200));
+    ASSERT_EQ(1, calls);
+    audio_level_metrics_t quiet = sound_metrics(-40 * 256, -30 * 256, 0);
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &quiet, 300));
+    ASSERT_EQ(3, rule_runtime_process_metrics(&runtime, &metrics, 701));
+    ASSERT_EQ(2, calls);
+}
+
 static void test_runtime_local_ui_callback(void)
 {
     automation_config_t config = runtime_config();
@@ -147,6 +235,11 @@ int main(void)
     test_runtime_ble_connected_fact_to_action_result();
     test_runtime_wifi_connected_fact_to_action_result();
     test_runtime_local_ui_callback();
+    test_runtime_sound_rms_metrics_to_local_ui_action();
+    test_runtime_sound_peak_metrics_to_local_ui_action();
+    test_runtime_sound_clipped_metrics_to_local_ui_action();
+    test_runtime_sound_sustain_requires_multiple_windows();
+    test_runtime_sound_cooldown_prevents_repeated_events();
     test_replace_config_rejects_invalid();
     puts("rule_runtime tests passed");
     return 0;

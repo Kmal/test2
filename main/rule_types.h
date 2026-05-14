@@ -171,6 +171,9 @@ void automation_config_set_defaults(automation_config_t *config);
 bool automation_rule_validate(const automation_rule_t *rule, char *error, size_t error_len);
 bool automation_config_validate(const automation_config_t *config, char *error, size_t error_len);
 bool rule_source_is_gpio(rule_source_t source);
+bool rule_source_is_sound(rule_source_t source);
+bool automation_config_has_enabled_source(const automation_config_t *config, rule_source_t source);
+bool automation_config_has_enabled_sound_source(const automation_config_t *config);
 
 static inline rule_value_t rule_value_bool(bool value)
 {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that default StickS3 boot keeps optional audio bring-up fail-closed."""
+"""Validate that default StickS3 audio capture stays demand-driven and fail-closed."""
 
 from __future__ import annotations
 
@@ -12,14 +12,18 @@ MAIN = ROOT / "main" / "main.c"
 BOARD_I2S = ROOT / "main" / "board_i2s.c"
 ES8311 = ROOT / "main" / "es8311.c"
 CMAKE = ROOT / "main" / "CMakeLists.txt"
-OPTIONAL_AUDIO_APP_SRCS = (
+SOUND_LEVEL_APP_SRCS = (
     "audio_metrics.c",
-    "audio_pipeline.c",
-    "audio_resample.c",
     "board_audio.c",
+    "board_audio_clock.c",
     "board_audio_power.c",
     "board_i2s.c",
     "es8311.c",
+    "sound_level_service.c",
+)
+FORBIDDEN_DEFAULT_AUDIO_APP_SRCS = (
+    "audio_pipeline.c",
+    "audio_resample.c",
     "sound_meter.c",
 )
 
@@ -32,19 +36,38 @@ def strip_c_comments(source: str) -> str:
 def main() -> int:
     errors: list[str] = []
     main_text = strip_c_comments(MAIN.read_text(encoding="utf-8"))
-    if "board_audio_init" in main_text:
-        errors.append("main.c default boot must not call optional board_audio_init")
-    if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" in main_text:
-        errors.append("main.c must not imply default audio capture is wired without a metrics producer")
+    sound_gate = "if (!automation_config_has_enabled_sound_source(config))"
+    audio_init = "board_audio_init(&audio_config)"
+    if audio_init not in main_text:
+        errors.append("main.c must wire board_audio_init for demand-driven sound triggers")
+    elif sound_gate not in main_text or main_text.index(sound_gate) > main_text.index(audio_init):
+        errors.append("main.c must gate board_audio_init behind enabled sound-source usage")
+    if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" not in main_text:
+        errors.append("main.c must request the capture-only profile for sound triggers")
+    if "board_audio_deinit" not in main_text:
+        errors.append("main.c must release audio resources after sound trigger service stops")
     if "ESP_ERROR_CHECK(board_audio_init" in main_text:
-        errors.append("audio init failures must not reboot-loop the board")
+        errors.append("audio init failures must not reboot-loop the board unless explicitly configured")
     if "rule_runtime_process_metrics" in main_text:
-        errors.append("main.c must not claim sound metrics are produced until audio capture is wired")
+        errors.append("main.c must leave sound metric production inside sound_level_service")
 
     cmake_text = CMAKE.read_text(encoding="utf-8")
-    for source in OPTIONAL_AUDIO_APP_SRCS:
-        if f'"{source}"' in cmake_text:
-            errors.append(f"default app component must not link optional audio source {source}")
+    sound_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS\)(.*?)endif\(\)", cmake_text, flags=re.S)
+    if not sound_block_match:
+        errors.append("default app component must guard sound sources with CONFIG_APP_SOUND_LEVEL_TRIGGERS")
+        sound_block = ""
+    else:
+        sound_block = sound_block_match.group(1)
+    for source in SOUND_LEVEL_APP_SRCS:
+        if f'"{source}"' not in sound_block:
+            errors.append(f"sound-level config must link required source {source}")
+    cmake_without_sound_block = cmake_text.replace(sound_block_match.group(0), "") if sound_block_match else cmake_text
+    for source in SOUND_LEVEL_APP_SRCS + FORBIDDEN_DEFAULT_AUDIO_APP_SRCS:
+        if f'"{source}"' in cmake_without_sound_block:
+            errors.append(f"app component must not link audio source outside sound-level config {source}")
+    for source in FORBIDDEN_DEFAULT_AUDIO_APP_SRCS:
+        if f'"{source}"' in sound_block:
+            errors.append(f"sound-level config must not link unsupported audio source {source}")
 
     i2s_text = BOARD_I2S.read_text(encoding="utf-8")
     if "&s_rx_handle" not in i2s_text or "s_tx_handle : NULL" not in i2s_text:

@@ -19,6 +19,8 @@ static board_audio_profile_t s_active_profile;
 static bool s_i2s_ready;
 
 
+
+
 static void board_i2s_cleanup_partial(bool rx_enabled, bool tx_enabled)
 {
     if (s_tx_handle != NULL) {
@@ -40,6 +42,7 @@ static void board_i2s_cleanup_partial(bool rx_enabled, bool tx_enabled)
 
 static esp_err_t board_i2s_enable_channel(i2s_chan_handle_t handle, const char *name)
 {
+    (void)name;
     esp_err_t err = i2s_channel_enable(handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S %s channel enable failed: %s", name, esp_err_to_name(err));
@@ -132,9 +135,23 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
              profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "full-duplex" : "capture-only",
              clock->sample_rate_hz, clock->mclk_hz, clock->bclk_hz, clock->lrck_hz,
              clock->bits_per_sample, clock->channels, (int)std_cfg.slot_cfg.slot_bit_width);
-    ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=%s",
-             BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO,
-             profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "GPIO14" : "unused");
+    if (profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX) {
+        ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=GPIO%d",
+                 BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO, BOARD_I2S_DO_IO);
+    } else {
+        ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=unused",
+                 BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO);
+    }
+    return ESP_OK;
+}
+
+esp_err_t board_i2s_deinit(void)
+{
+    const bool rx_enabled = s_i2s_ready && s_rx_handle != NULL;
+    const bool tx_enabled = s_i2s_ready && s_tx_handle != NULL;
+    board_i2s_cleanup_partial(rx_enabled, tx_enabled);
+    s_active_profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY;
+    ESP_LOGI(TAG, "I2S channels released");
     return ESP_OK;
 }
 
@@ -144,6 +161,33 @@ esp_err_t board_i2s_read(void *dest, size_t size, size_t *bytes_read, uint32_t t
         return ESP_ERR_INVALID_STATE;
     }
     return i2s_channel_read(s_rx_handle, dest, size, bytes_read, timeout_ms);
+}
+
+
+esp_err_t board_i2s_read_mono_i16(int16_t *dest, size_t max_samples, size_t *samples_read, uint32_t timeout_ms)
+{
+    size_t bytes_read = 0;
+
+    if (dest == NULL || max_samples == 0 || samples_read == NULL ||
+        max_samples > (SIZE_MAX / sizeof(dest[0]))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *samples_read = 0;
+
+    /*
+     * The ES8311 clocking uses 32 BCLK ticks per slot for the required
+     * 512 kHz BCLK, but the ESP-IDF standard driver still packs RX DMA data
+     * according to data_bit_width. With I2S_DATA_BIT_WIDTH_16BIT, the receive
+     * buffer is int16_t samples, not int32_t physical slots.
+     */
+    esp_err_t err = board_i2s_read(dest, max_samples * sizeof(dest[0]), &bytes_read, timeout_ms);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *samples_read = bytes_read / sizeof(dest[0]);
+    return *samples_read > 0 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 esp_err_t board_i2s_write(const void *src, size_t size, size_t *bytes_written, uint32_t timeout_ms)

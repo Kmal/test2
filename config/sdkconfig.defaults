@@ -15,6 +15,10 @@ CONFIG_APP_WIFI_CONNECT_TIMEOUT_MS=15000
 CONFIG_APP_WIFI_NTP_SYNC_TIMEOUT_MS=15000
 CONFIG_LWIP_SNTP_MAX_SERVERS=4
 CONFIG_APP_WIFI_KEYBOARD_PROVISIONING=n
+
+## Sound-level capture is enabled by default for StickS3. The feature remains
+## Kconfig-controllable and uses the capture-only ES8311/I2S microphone path.
+CONFIG_APP_SOUND_LEVEL_TRIGGERS=y
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 

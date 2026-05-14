@@ -30,6 +30,7 @@ typedef struct {
 
 esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const board_audio_ops_t *ops);
 esp_err_t board_audio_init(const board_audio_config_t *config);
+esp_err_t board_audio_deinit(void);
 
 #ifdef __cplusplus
 }

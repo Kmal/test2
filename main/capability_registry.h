@@ -6,6 +6,9 @@
 #include <stddef.h>
 
 bool capability_source_supported(rule_source_t source);
+bool capability_source_schema_supported(rule_source_t source);
+bool capability_source_runtime_available(rule_source_t source);
+const char *capability_source_availability_reason(rule_source_t source);
 bool capability_action_supported(rule_action_type_t action);
 const char *capability_source_reason(rule_source_t source);
 const char *capability_action_reason(rule_action_type_t action);

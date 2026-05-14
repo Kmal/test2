@@ -151,6 +151,9 @@ void rule_web_stop(rule_web_t *web)
 }
 
 
+static rule_web_sound_status_cb_t s_sound_status_cb;
+static void *s_sound_status_ctx;
+
 static const char s_rule_setup_page[] =
     "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>StickS3 Control</title>"
     "<style>*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#eef2ff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:76rem;margin:auto;padding:1rem}.hero{display:flex;justify-content:space-between;gap:1rem;align-items:center}.hero h1{margin:.2rem 0;font-size:1.8rem}.hero p,label{color:#94a3b8}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(22rem,1fr));gap:1rem}.card,.panel{background:#151b2e;border:1px solid #26324d;border-radius:1rem;padding:1rem;margin:.7rem 0}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;margin-top:.25rem;padding:.55rem;border-radius:.6rem;border:1px solid #26324d;background:#0f172a;color:#eef2ff}textarea{min-height:10rem;font-family:ui-monospace,monospace}button{margin:.25rem .25rem .25rem 0;padding:.55rem .75rem;border:0;border-radius:.65rem;background:#2563eb;color:white}button.secondary{background:#334155}button.danger{background:#b91c1c}button:disabled{opacity:.55}.tabs{display:flex;gap:.5rem;flex-wrap:wrap}.banner{display:none;border-radius:.75rem;padding:.7rem .9rem;margin:.75rem 0}.banner.info{display:block;background:#0c4a6e}.banner.ok{display:block;background:#14532d}.banner.warn{display:block;background:#713f12}.banner.err{display:block;background:#7f1d1d}.kv{display:grid;grid-template-columns:7rem 1fr;gap:.3rem .7rem}.kv b{color:#94a3b8}.status{white-space:pre-wrap;overflow:auto;max-height:16rem;background:#020617;border:1px solid #26324d;border-radius:.75rem;padding:.75rem;color:#cbd5e1}.network-row{display:block;width:100%;text-align:left;background:#1e293b}.pill{padding:.2rem .5rem;border-radius:999px;background:#334155;color:#cbd5e1}</style></head>"
@@ -191,6 +194,22 @@ static const char s_rule_setup_page[] =
     "$('load_config').onclick=refresh;$('export_config').onclick=async()=>applyConfig(await api('/api/config'));$('save_time').onclick=async()=>{const d=await op(api('/api/time',{method:'POST',body:JSON.stringify({timezone:$('timezone').value})}),'Saving timezone...');if(d)timeSummary(d)};$('save_config').onclick=async()=>{const d=await op(api('/api/config',{method:'POST',body:body()}),'Saving rule...');if(d)applyConfig(d)};$('import_config').onclick=async()=>{const d=await op(api('/api/config',{method:'POST',body:$('config_json').value}),'Importing JSON...');if(d)applyConfig(d)};"
     "$('test_rule').onclick=async()=>dump('status',await op(api('/api/rules/test',{method:'POST'}),'Testing rule...'));$('gpio_test').onclick=async()=>dump('status',await op(api('/api/gpio/test',{method:'POST',body:body()}),'Checking GPIO...'));$('hat_probe').onclick=async()=>dump('hat_status',await op(api('/api/hat/probe',{method:'POST',body:JSON.stringify({source:$('hat_source').value})}),'Probing HAT...'));refresh().catch(()=>{});</script></main></body></html>";
 
+
+void rule_web_set_sound_status_builder(rule_web_sound_status_cb_t cb, void *ctx)
+{
+    s_sound_status_cb = cb;
+    s_sound_status_ctx = ctx;
+}
+
+void rule_web_set_config_changed_callback(rule_web_t *web, rule_web_config_changed_cb_t cb, void *ctx)
+{
+    if (web == NULL) {
+        return;
+    }
+    web->config_changed_cb = cb;
+    web->config_changed_ctx = ctx;
+}
+
 bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len)
 {
     if (web == NULL || out == NULL || out_len == 0) {
@@ -200,11 +219,15 @@ bool rule_web_get_status_json(const rule_web_t *web, char *out, size_t out_len)
     if (!app_wifi_status_json(wifi, sizeof(wifi))) {
         (void)snprintf(wifi, sizeof(wifi), "{\"enabled\":false}");
     }
+    char sound[512];
+    if (s_sound_status_cb == NULL || !s_sound_status_cb(sound, sizeof(sound), s_sound_status_ctx)) {
+        (void)snprintf(sound, sizeof(sound), "{\"enabled\":false,\"running\":false,\"state\":\"disabled\",\"reason\":\"audio_capture_disabled\"}");
+    }
     action_result_t result = rule_runtime_get_last_action_result(web->runtime);
     const int written = snprintf(out, out_len,
-                                 "{\"started\":%s,\"last_action\":%d,\"capabilities_ready\":true,\"http_network_ready\":%s,\"wifi\":%s}",
+                                 "{\"started\":%s,\"last_action\":%d,\"capabilities_ready\":true,\"http_network_ready\":%s,\"wifi\":%s,\"sound\":%s}",
                                  web->started ? "true" : "false", (int)result.code,
-                                 action_http_network_ready() ? "true" : "false", wifi);
+                                 action_http_network_ready() ? "true" : "false", wifi, sound);
     return written > 0 && (size_t)written < out_len;
 }
 
@@ -687,8 +710,11 @@ static bool make_json_config(automation_config_t *config, const char *body)
     rule->actions[0].timeout_ms = 1000;
     rule->cooldown_ms = 1000;
     if (source == RULE_SOURCE_SOUND_RMS_DBFS || source == RULE_SOURCE_SOUND_PEAK_DBFS) {
-        rule->when.comparator = RULE_COMPARATOR_GT;
+        rule->when.comparator = RULE_COMPARATOR_GTE;
         rule->when.threshold = rule_value_i32(-20 * 256);
+    } else if (source == RULE_SOURCE_SOUND_CLIPPED) {
+        rule->when.comparator = RULE_COMPARATOR_EQ;
+        rule->when.threshold = rule_value_bool(true);
     } else {
         rule->when.comparator = RULE_COMPARATOR_EQ;
         rule->when.threshold = rule_value_bool(true);
@@ -753,9 +779,19 @@ static void make_preset_config(automation_config_t *config, const char *preset)
     rule->cooldown_ms = 1000;
     rule->when.comparator = RULE_COMPARATOR_EQ;
     rule->when.threshold = rule_value_bool(true);
-    if (strcmp(preset, "sound_local_ui") == 0) {
+    if (strcmp(preset, "loud_sound_local_ui") == 0) {
+        (void)snprintf(rule->name, sizeof(rule->name), "Loud sound alert");
+        rule->when.source = RULE_SOURCE_SOUND_RMS_DBFS;
+        rule->when.comparator = RULE_COMPARATOR_GTE;
+        rule->when.threshold = rule_value_i32(-20 * 256);
+        rule->when.sustain_ms = 250;
+        rule->actions[0].type = RULE_ACTION_LOCAL_UI;
+        rule->cooldown_ms = 1000;
+    } else if (strcmp(preset, "sound_local_ui") == 0) {
         (void)snprintf(rule->name, sizeof(rule->name), "Sound clipped alert");
         rule->when.source = RULE_SOURCE_SOUND_CLIPPED;
+        rule->when.comparator = RULE_COMPARATOR_EQ;
+        rule->when.threshold = rule_value_bool(true);
     } else if (strcmp(preset, "button_local_ui") == 0) {
         (void)snprintf(rule->name, sizeof(rule->name), "KEY1 local alert");
         rule->when.source = RULE_SOURCE_KEY1_SHORT;
@@ -766,6 +802,9 @@ static const char *config_preset_from_body(const char *body)
 {
     if (body == NULL || body[0] == '\0' || strcmp(body, "defaults") == 0) {
         return "defaults";
+    }
+    if (strcmp(body, "loud_sound_local_ui") == 0 || strstr(body, "loud_sound_local_ui") != NULL) {
+        return "loud_sound_local_ui";
     }
     if (strcmp(body, "sound_local_ui") == 0 || strstr(body, "sound_local_ui") != NULL) {
         return "sound_local_ui";
@@ -936,6 +975,9 @@ bool rule_web_handle_request(rule_web_t *web, rule_web_method_t method, const ch
             const int written = snprintf(out, out_len, "{\"error\":\"config rejected\"}");
             free(config);
             return written > 0 && (size_t)written < out_len;
+        }
+        if (web->config_changed_cb != NULL) {
+            web->config_changed_cb(config, web->config_changed_ctx);
         }
         const bool written = write_config_json(config, out, out_len);
         free(config);

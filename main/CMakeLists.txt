@@ -38,6 +38,18 @@ if(CONFIG_APP_TRANSPORT_HFP_LEGACY)
     list(APPEND APP_SRCS "transport_hfp_legacy.c")
 endif()
 
+if(CONFIG_APP_SOUND_LEVEL_TRIGGERS)
+    list(APPEND APP_SRCS
+        "audio_metrics.c"
+        "board_audio.c"
+        "board_audio_clock.c"
+        "board_audio_power.c"
+        "board_i2s.c"
+        "es8311.c"
+        "sound_level_service.c"
+    )
+endif()
+
 idf_component_register(
     SRCS ${APP_SRCS}
     INCLUDE_DIRS "."

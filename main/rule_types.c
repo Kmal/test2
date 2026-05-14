@@ -194,6 +194,40 @@ bool rule_value_equal(rule_value_t left, rule_value_t right)
     }
 }
 
+bool rule_source_is_sound(rule_source_t source)
+{
+    return source == RULE_SOURCE_SOUND_RMS_DBFS || source == RULE_SOURCE_SOUND_PEAK_DBFS ||
+           source == RULE_SOURCE_SOUND_CLIPPED;
+}
+
+bool automation_config_has_enabled_source(const automation_config_t *config, rule_source_t source)
+{
+    if (config == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < config->rule_count && i < RULE_MAX_RULES; ++i) {
+        const automation_rule_t *rule = &config->rules[i];
+        if (rule->enabled && rule->when.source == source) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool automation_config_has_enabled_sound_source(const automation_config_t *config)
+{
+    if (config == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < config->rule_count && i < RULE_MAX_RULES; ++i) {
+        const automation_rule_t *rule = &config->rules[i];
+        if (rule->enabled && rule_source_is_sound(rule->when.source)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void automation_config_set_defaults(automation_config_t *config)
 {
     if (config == NULL) {
@@ -241,7 +275,7 @@ bool automation_rule_validate(const automation_rule_t *rule, char *error, size_t
         set_error(error, error_len, "invalid trigger source");
         return false;
     }
-    if (!capability_source_supported(rule->when.source)) {
+    if (!capability_source_schema_supported(rule->when.source)) {
         set_error(error, error_len, "unsupported trigger source");
         return false;
     }
