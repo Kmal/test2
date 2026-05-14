@@ -5,12 +5,12 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-STATUS_UI = ROOT / "main" / "status_ui.c"
+UI_KEYBOARD = ROOT / "main" / "ui_keyboard.c"
 DISPLAY_TEXT = ROOT / "main" / "display_text.c"
 
 
-def read_status_ui() -> str:
-    return STATUS_UI.read_text(encoding="utf-8")
+def read_ui_keyboard() -> str:
+    return UI_KEYBOARD.read_text(encoding="utf-8")
 
 
 def read_display_text() -> str:
@@ -25,7 +25,7 @@ def extract_key_cycles(source: str) -> dict[str, str]:
 
 
 def test_phone_keys_cycle_digit_lowercase_then_uppercase() -> None:
-    cycles = extract_key_cycles(read_status_ui())
+    cycles = extract_key_cycles(read_ui_keyboard())
     expected = {
         "2ABC": "2abcABC",
         "3DEF": "3defDEF",

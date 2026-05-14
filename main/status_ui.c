@@ -1,6 +1,5 @@
 #include "status_ui.h"
 
-#include "display_text.h"
 
 #include "board_sticks3.h"
 #include "app_wifi.h"
@@ -8,6 +7,9 @@
 #include "sdkconfig.h"
 #include "ui_nav.h"
 #include "ui_model.h"
+#include "status_lcd.h"
+#include "ui_keyboard.h"
+#include "ui_render.h"
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
 #include "transport_ble_gatt.h"
 #endif
@@ -26,15 +28,6 @@
 #include "freertos/queue.h"
 #endif
 
-#if CONFIG_APP_STATUS_UI_LCD
-#include "board_i2c.h"
-#include "m5pm1.h"
-#include "driver/spi_master.h"
-#include "esp_heap_caps.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_vendor.h"
-#endif
 
 #define STATUS_UI_DEBOUNCE_MS 50
 #define STATUS_UI_POLL_MS 25
@@ -50,51 +43,11 @@
 #endif
 
 #if CONFIG_APP_STATUS_UI_LCD
-#define STATUS_UI_LCD_TASK_STACK 4096
-#define STATUS_UI_LCD_TASK_PRIORITY 4
-#ifdef CONFIG_APP_STATUS_UI_LCD_REFRESH_MS
-#define STATUS_UI_LCD_REFRESH_MS CONFIG_APP_STATUS_UI_LCD_REFRESH_MS
-#else
-#define STATUS_UI_LCD_REFRESH_MS 100
-#endif
 #ifdef CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS
 #define STATUS_UI_KEYBOARD_TIMEOUT_MS CONFIG_APP_WIFI_KEYBOARD_TIMEOUT_MS
 #else
 #define STATUS_UI_KEYBOARD_TIMEOUT_MS 0
 #endif
-#define STATUS_UI_LCD_TEXT_SCALE 2
-#define STATUS_UI_LCD_BG 0x0000
-#define STATUS_UI_LCD_HEADER_BG 0x001F
-#define STATUS_UI_LCD_TEXT 0xFFFF
-#define STATUS_UI_LCD_DIM 0x8410
-#define STATUS_UI_LCD_OK 0x07E0
-#define STATUS_UI_LCD_WARN 0xFFE0
-#define STATUS_UI_LCD_ERR 0xF800
-#define STATUS_UI_LCD_LINE_HEIGHT 16
-#define STATUS_UI_LCD_LEFT_PAD 4
-#define STATUS_UI_LCD_TOP_PAD 4
-#define STATUS_UI_KEYBOARD_MAX_TEXT UI_TEXT_WIFI_PASSWORD_MAX
-#define STATUS_UI_KEYBOARD_LONG_MS 600
-#define UI_LCD_W BOARD_LCD_H_RES
-#define UI_LCD_H BOARD_LCD_V_RES
-#define UI_STATUS_BAR_H 18
-#define UI_TITLE_Y 22
-#define UI_BODY_Y 42
-#define UI_LINE_H 16
-#define UI_BOTTOM_HINT_H 14
-#define UI_LEFT_PAD 4
-#define UI_RIGHT_PAD 4
-#define UI_MENU_MAX_VISIBLE_ROWS 9
-#define UI_COLOR_BG STATUS_UI_LCD_BG
-#define UI_COLOR_BAR STATUS_UI_LCD_HEADER_BG
-#define UI_COLOR_TEXT STATUS_UI_LCD_TEXT
-#define UI_COLOR_DIM STATUS_UI_LCD_DIM
-#define UI_COLOR_OK STATUS_UI_LCD_OK
-#define UI_COLOR_WARN STATUS_UI_LCD_WARN
-#define UI_COLOR_ERR STATUS_UI_LCD_ERR
-#define UI_KEYBOARD_KEY_COUNT 16
-#define UI_KEYBOARD_OVERLAY_H 108
-#define UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS 2000
 #endif
 
 static const char *TAG = "STATUS_UI";
@@ -108,12 +61,14 @@ static ui_runtime_t s_ui;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 #if CONFIG_APP_STATUS_UI_LCD
-typedef enum {
-    STATUS_UI_KEYBOARD_EVENT_SELECT = 0,
-    STATUS_UI_KEYBOARD_EVENT_NEXT,
-    STATUS_UI_KEYBOARD_EVENT_PREV,
-    STATUS_UI_KEYBOARD_EVENT_OK,
-} status_ui_keyboard_event_t;
+static QueueHandle_t s_virtual_keyboard_queue;
+static QueueHandle_t s_input_queue;
+static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
+static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event);
+static void status_ui_render_lcd(void *ctx);
+#endif
+
+#if CONFIG_APP_STATUS_UI_LCD
 static bool keyboard_is_active(void);
 static void keyboard_queue_event(status_ui_keyboard_event_t event);
 static bool status_ui_keyboard_active_locked(void);
@@ -122,91 +77,7 @@ static void status_ui_route_button_to_menu(status_ui_input_t input);
 static void status_ui_input_task(void *arg);
 #endif
 
-#if CONFIG_APP_STATUS_UI_LCD
-typedef enum {
-    UI_KEYBOARD_MODE_TEXT = 0,
-    UI_KEYBOARD_MODE_PASSWORD,
-    UI_KEYBOARD_MODE_NUMERIC,
-    UI_KEYBOARD_MODE_SYMBOL
-} ui_keyboard_mode_t;
 
-typedef enum {
-    UI_KEYBOARD_RESULT_NONE = 0,
-    UI_KEYBOARD_RESULT_OK,
-    UI_KEYBOARD_RESULT_CANCEL
-} ui_keyboard_result_t;
-
-typedef enum {
-    UI_KEY_KIND_CHAR = 0,
-    UI_KEY_KIND_OK,
-    UI_KEY_KIND_DELETE,
-    UI_KEY_KIND_SPACE,
-    UI_KEY_KIND_MODE,
-    UI_KEY_KIND_CANCEL
-} ui_key_kind_t;
-
-typedef struct {
-    ui_key_kind_t kind;
-    const char *label;
-    const char *chars_text;
-    const char *chars_symbol;
-    char numeric_char;
-} ui_key_def_t;
-
-typedef struct {
-    bool active;
-    ui_keyboard_mode_t mode;
-    ui_keyboard_result_t result;
-    bool secret;
-    char title[24];
-    char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
-    size_t max_len;
-    uint8_t selected_key;
-    uint8_t last_key;
-    uint8_t cycle_index;
-    bool has_pending_cycle;
-    uint32_t last_key_tick_ms;
-} ui_keyboard_state_t;
-
-typedef struct {
-    bool active;
-    ui_menu_item_t item;
-} ui_keyboard_menu_edit_t;
-
-static QueueHandle_t s_keyboard_queue;
-static QueueHandle_t s_input_queue;
-static ui_keyboard_state_t s_keyboard;
-static ui_keyboard_menu_edit_t s_keyboard_edit;
-static bool ui_keyboard_open(ui_keyboard_state_t *kb, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
-static void ui_keyboard_close(ui_keyboard_state_t *kb);
-static void ui_keyboard_handle_next(ui_keyboard_state_t *kb);
-static void ui_keyboard_handle_prev(ui_keyboard_state_t *kb);
-static void ui_keyboard_handle_select(ui_keyboard_state_t *kb);
-static void ui_keyboard_commit_pending(ui_keyboard_state_t *kb);
-static void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t now_ms);
-static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
-static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event);
-static bool status_ui_keyboard_read_line_mode(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, ui_keyboard_mode_t mode, bool secret, uint32_t timeout_ms);
-static display_text_result_t ui_text_put_box(
-    display_text_region_id_t region_id,
-    int x,
-    int y,
-    int w,
-    int h,
-    const char *text,
-    uint16_t color,
-    display_text_fit_t fit,
-    display_text_align_t align,
-    display_text_priority_t priority
-);
-#endif
-
-#if CONFIG_APP_STATUS_UI_LCD
-static esp_lcd_panel_io_handle_t s_panel_io;
-static esp_lcd_panel_handle_t s_panel;
-static uint16_t *s_framebuffer;
-static display_text_context_t s_display_text;
-#endif
 
 typedef struct {
     gpio_num_t gpio;
@@ -824,21 +695,21 @@ static bool keyboard_is_active(void)
 {
     bool active;
     portENTER_CRITICAL(&s_state_mux);
-    active = s_keyboard.active;
+    active = ui_keyboard_session_state()->active;
     portEXIT_CRITICAL(&s_state_mux);
     return active;
 }
 
 static void keyboard_queue_event(status_ui_keyboard_event_t event)
 {
-    if (s_keyboard_queue != NULL) {
-        (void)xQueueSend(s_keyboard_queue, &event, 0);
+    if (s_virtual_keyboard_queue != NULL) {
+        (void)xQueueSend(s_virtual_keyboard_queue, &event, 0);
     }
 }
 
 static bool status_ui_keyboard_active_locked(void)
 {
-    return s_keyboard.active;
+    return ui_keyboard_session_state()->active;
 }
 
 static void status_ui_route_button_to_keyboard(status_ui_input_t input)
@@ -858,7 +729,7 @@ static void status_ui_route_button_to_keyboard(status_ui_input_t input)
     default:
         return;
     }
-    if (s_keyboard_edit.active) {
+    if (ui_keyboard_session_edit()->active) {
         status_ui_keyboard_handle_menu_event(event);
     } else {
         keyboard_queue_event(event);
@@ -890,7 +761,7 @@ static void status_ui_dispatch_key1_short(status_button_t *button)
 {
 #if CONFIG_APP_STATUS_UI_LCD
     if (keyboard_is_active()) {
-        if (s_keyboard_edit.active) {
+        if (ui_keyboard_session_edit()->active) {
             status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_SELECT);
         } else {
             keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_SELECT);
@@ -911,7 +782,7 @@ static void status_ui_dispatch_key1_short(status_button_t *button)
 static void status_ui_dispatch_key2_single(void)
 {
     if (keyboard_is_active()) {
-        if (s_keyboard_edit.active) {
+        if (ui_keyboard_session_edit()->active) {
             status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_NEXT);
         } else {
             keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_NEXT);
@@ -926,7 +797,7 @@ static void status_ui_dispatch_key2_single(void)
 static void status_ui_dispatch_key2_double(void)
 {
     if (keyboard_is_active()) {
-        if (s_keyboard_edit.active) {
+        if (ui_keyboard_session_edit()->active) {
             status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
         } else {
             keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
@@ -939,7 +810,7 @@ static void status_ui_dispatch_key2_double(void)
 static void status_ui_dispatch_key2_long(void)
 {
     if (keyboard_is_active()) {
-        if (s_keyboard_edit.active) {
+        if (ui_keyboard_session_edit()->active) {
             status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
         } else {
             keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
@@ -1055,131 +926,13 @@ static void status_ui_button_task(void *arg)
 }
 
 #if CONFIG_APP_STATUS_UI_LCD
-static void lcd_fill_rect(int x, int y, int w, int h, uint16_t color)
-{
-    int x_end = x + w;
-    int y_end = y + h;
-    if (x < 0) {
-        x = 0;
-    }
-    if (y < 0) {
-        y = 0;
-    }
-    if (x_end > BOARD_LCD_H_RES) {
-        x_end = BOARD_LCD_H_RES;
-    }
-    if (y_end > BOARD_LCD_V_RES) {
-        y_end = BOARD_LCD_V_RES;
-    }
-    for (int row = y; row < y_end; ++row) {
-        for (int col = x; col < x_end; ++col) {
-            s_framebuffer[row * BOARD_LCD_H_RES + col] = color;
-        }
-    }
-}
-
-static void status_ui_display_text_fill_rect(
-    int x,
-    int y,
-    int w,
-    int h,
-    uint16_t color,
-    void *ctx
-)
-{
-    (void)ctx;
-    lcd_fill_rect(x, y, w, h, color);
-}
-
-static const ui_key_def_t s_9key_defs[UI_KEYBOARD_KEY_COUNT] = {
-    { UI_KEY_KIND_CHAR, "1", "1", "1", '1' },
-    { UI_KEY_KIND_CHAR, "2ABC", "2abcABC", "2abc", '2' },
-    { UI_KEY_KIND_CHAR, "3DEF", "3defDEF", "3def", '3' },
-    { UI_KEY_KIND_CHAR, "-", "-", "-", '-' },
-    { UI_KEY_KIND_CHAR, "4GHI", "4ghiGHI", "4ghi", '4' },
-    { UI_KEY_KIND_CHAR, "5JKL", "5jklJKL", "5jkl", '5' },
-    { UI_KEY_KIND_CHAR, "6MNO", "6mnoMNO", "6mno", '6' },
-    { UI_KEY_KIND_CHAR, ".", ".", ".", '.' },
-    { UI_KEY_KIND_CHAR, "7PQRS", "7pqrsPQRS", "7pqrs", '7' },
-    { UI_KEY_KIND_CHAR, "8TUV", "8tuvTUV", "8tuv", '8' },
-    { UI_KEY_KIND_CHAR, "9WXYZ", "9wxyzWXYZ", "9wxyz", '9' },
-    { UI_KEY_KIND_DELETE, "DEL", NULL, NULL, 0 },
-    { UI_KEY_KIND_CHAR, "*#(", "*#(", "*#(", '*' },
-    { UI_KEY_KIND_CHAR, "0+", "0+", "0+", '0' },
-    { UI_KEY_KIND_SPACE, "_", NULL, NULL, 0 },
-    { UI_KEY_KIND_OK, "Next", NULL, NULL, 0 },
-};
 
 static void keyboard_snapshot(ui_keyboard_state_t *out)
 {
     portENTER_CRITICAL(&s_state_mux);
-    ui_keyboard_commit_expired_pending(&s_keyboard, (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
-    *out = s_keyboard;
+    ui_keyboard_commit_expired_pending(ui_keyboard_session_state(), (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+    *out = *ui_keyboard_session_state();
     portEXIT_CRITICAL(&s_state_mux);
-}
-
-static const char *ui_keyboard_chars_for_key(const ui_keyboard_state_t *kb, const ui_key_def_t *key)
-{
-    if (kb->mode == UI_KEYBOARD_MODE_NUMERIC) return NULL;
-    return kb->mode == UI_KEYBOARD_MODE_SYMBOL ? key->chars_symbol : key->chars_text;
-}
-
-static bool ui_keyboard_append_char(ui_keyboard_state_t *kb, char ch)
-{
-    if (kb == NULL) return false;
-    size_t len = strlen(kb->text);
-    if (len >= kb->max_len || len + 1u >= sizeof(kb->text)) {
-        return false;
-    }
-    kb->text[len] = ch;
-    kb->text[len + 1u] = '\0';
-    return true;
-}
-
-static void ui_keyboard_commit_pending(ui_keyboard_state_t *kb)
-{
-    if (kb == NULL) return;
-    kb->has_pending_cycle = false;
-}
-
-static void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t now_ms)
-{
-    if (kb == NULL || !kb->has_pending_cycle) return;
-    if ((now_ms - kb->last_key_tick_ms) >= UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS) {
-        ui_keyboard_commit_pending(kb);
-    }
-}
-
-static void ui_keyboard_backspace(ui_keyboard_state_t *kb)
-{
-    size_t len = strlen(kb->text);
-    if (len > 0u) kb->text[len - 1u] = '\0';
-    kb->has_pending_cycle = false;
-}
-
-static bool ui_keyboard_open(ui_keyboard_state_t *kb, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret)
-{
-    if (kb == NULL || max_len == 0u) return false;
-    memset(kb, 0, sizeof(*kb));
-    kb->active = true;
-    kb->mode = mode;
-    kb->secret = secret;
-    kb->max_len = max_len > STATUS_UI_KEYBOARD_MAX_TEXT ? STATUS_UI_KEYBOARD_MAX_TEXT : max_len;
-    kb->selected_key = 0u;
-    snprintf(kb->title, sizeof(kb->title), "%s", title != NULL ? title : "Input");
-    snprintf(kb->text, sizeof(kb->text), "%s", initial != NULL ? initial : "");
-    kb->text[kb->max_len] = '\0';
-    return true;
-}
-
-static void ui_keyboard_close(ui_keyboard_state_t *kb)
-{
-    if (kb != NULL) kb->active = false;
-}
-
-static bool ui_keyboard_is_active(const ui_keyboard_state_t *kb)
-{
-    return kb != NULL && kb->active;
 }
 
 
@@ -1191,17 +944,17 @@ static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui,
                                               ui_keyboard_mode_t mode,
                                               bool secret)
 {
-    if (ui == NULL || item == NULL || s_panel == NULL || s_framebuffer == NULL) {
+    if (ui == NULL || item == NULL || !status_lcd_is_ready()) {
         return false;
     }
     if (max_len > STATUS_UI_KEYBOARD_MAX_TEXT) {
         max_len = STATUS_UI_KEYBOARD_MAX_TEXT;
     }
     portENTER_CRITICAL(&s_state_mux);
-    bool opened = ui_keyboard_open(&s_keyboard, title, initial, max_len, mode, secret);
+    bool opened = ui_keyboard_open(ui_keyboard_session_state(), title, initial, max_len, mode, secret);
     if (opened) {
-        s_keyboard_edit.active = true;
-        s_keyboard_edit.item = *item;
+        ui_keyboard_session_edit()->active = true;
+        ui_keyboard_session_edit()->item = *item;
         ui->dirty = true;
     }
     portEXIT_CRITICAL(&s_state_mux);
@@ -1285,34 +1038,34 @@ static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t even
     char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1] = {0};
 
     portENTER_CRITICAL(&s_state_mux);
-    if (!s_keyboard_edit.active) {
+    if (!ui_keyboard_session_edit()->active) {
         portEXIT_CRITICAL(&s_state_mux);
         keyboard_queue_event(event);
         return;
     }
     switch (event) {
     case STATUS_UI_KEYBOARD_EVENT_SELECT:
-        ui_keyboard_handle_select(&s_keyboard);
+        ui_keyboard_handle_select(ui_keyboard_session_state(), (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
         break;
     case STATUS_UI_KEYBOARD_EVENT_NEXT:
-        ui_keyboard_handle_next(&s_keyboard);
+        ui_keyboard_handle_next(ui_keyboard_session_state());
         break;
     case STATUS_UI_KEYBOARD_EVENT_PREV:
-        ui_keyboard_handle_prev(&s_keyboard);
+        ui_keyboard_handle_prev(ui_keyboard_session_state());
         break;
     case STATUS_UI_KEYBOARD_EVENT_OK:
-        ui_keyboard_commit_pending(&s_keyboard);
-        s_keyboard.result = UI_KEYBOARD_RESULT_OK;
+        ui_keyboard_commit_pending(ui_keyboard_session_state());
+        ui_keyboard_session_state()->result = UI_KEYBOARD_RESULT_OK;
         break;
     default:
         break;
     }
-    result = s_keyboard.result;
+    result = ui_keyboard_session_state()->result;
     if (result != UI_KEYBOARD_RESULT_NONE) {
-        item = s_keyboard_edit.item;
-        snprintf(text, sizeof(text), "%s", s_keyboard.text);
-        s_keyboard_edit.active = false;
-        ui_keyboard_close(&s_keyboard);
+        item = ui_keyboard_session_edit()->item;
+        snprintf(text, sizeof(text), "%s", ui_keyboard_session_state()->text);
+        ui_keyboard_session_edit()->active = false;
+        ui_keyboard_close(ui_keyboard_session_state());
     }
     portEXIT_CRITICAL(&s_state_mux);
 
@@ -1321,99 +1074,6 @@ static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t even
     }
 }
 
-static void ui_keyboard_handle_next(ui_keyboard_state_t *kb)
-{
-    if (kb == NULL) return;
-    ui_keyboard_commit_pending(kb);
-    kb->selected_key = (uint8_t)((kb->selected_key + 1u) % UI_KEYBOARD_KEY_COUNT);
-}
-
-static void ui_keyboard_handle_prev(ui_keyboard_state_t *kb)
-{
-    if (kb == NULL) return;
-    ui_keyboard_commit_pending(kb);
-    kb->selected_key = kb->selected_key == 0u ? UI_KEYBOARD_KEY_COUNT - 1u : kb->selected_key - 1u;
-}
-
-static void ui_keyboard_handle_select(ui_keyboard_state_t *kb)
-{
-    if (kb == NULL) return;
-    const ui_key_def_t *key = &s_9key_defs[kb->selected_key];
-    switch (key->kind) {
-    case UI_KEY_KIND_CHAR: {
-        if (kb->mode == UI_KEYBOARD_MODE_NUMERIC) {
-            (void)ui_keyboard_append_char(kb, key->numeric_char);
-            return;
-        }
-        const char *chars = ui_keyboard_chars_for_key(kb, key);
-        if (chars == NULL || chars[0] == '\0') return;
-        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        ui_keyboard_commit_expired_pending(kb, now_ms);
-        if (kb->has_pending_cycle && kb->last_key == kb->selected_key && strlen(kb->text) > 0u) {
-            kb->cycle_index = (uint8_t)((kb->cycle_index + 1u) % strlen(chars));
-            kb->text[strlen(kb->text) - 1u] = chars[kb->cycle_index];
-        } else {
-            ui_keyboard_commit_pending(kb);
-            if (ui_keyboard_append_char(kb, chars[0])) {
-                kb->last_key = kb->selected_key;
-                kb->cycle_index = 0u;
-                kb->has_pending_cycle = true;
-            }
-        }
-        kb->last_key_tick_ms = now_ms;
-        break;
-    }
-    case UI_KEY_KIND_OK: ui_keyboard_commit_pending(kb); kb->result = UI_KEYBOARD_RESULT_OK; break;
-    case UI_KEY_KIND_DELETE: ui_keyboard_backspace(kb); break;
-    case UI_KEY_KIND_SPACE: ui_keyboard_commit_pending(kb); (void)ui_keyboard_append_char(kb, ' '); break;
-    case UI_KEY_KIND_MODE:
-        ui_keyboard_commit_pending(kb);
-        if (kb->mode == UI_KEYBOARD_MODE_TEXT || kb->mode == UI_KEYBOARD_MODE_PASSWORD) kb->mode = UI_KEYBOARD_MODE_SYMBOL;
-        else if (kb->mode == UI_KEYBOARD_MODE_SYMBOL) kb->mode = kb->secret ? UI_KEYBOARD_MODE_PASSWORD : UI_KEYBOARD_MODE_TEXT;
-        break;
-    case UI_KEY_KIND_CANCEL: kb->result = UI_KEYBOARD_RESULT_CANCEL; break;
-    default: break;
-    }
-}
-
-static void ui_render_keyboard_overlay(const ui_keyboard_state_t *kb)
-{
-    if (!ui_keyboard_is_active(kb)) return;
-    int y0 = BOARD_LCD_V_RES - UI_KEYBOARD_OVERLAY_H;
-    if (y0 < 0) y0 = 0;
-    lcd_fill_rect(0, y0, BOARD_LCD_H_RES, UI_KEYBOARD_OVERLAY_H, 0x1082);
-    ui_text_put_box(DISPLAY_TEXT_REGION_KEYBOARD_TITLE, UI_LEFT_PAD, y0 + 4,
-                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, UI_LINE_H,
-                    kb->title, STATUS_UI_LCD_TEXT, DISPLAY_TEXT_FIT_MARQUEE,
-                    DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_OVERLAY);
-    char display[STATUS_UI_KEYBOARD_MAX_TEXT + 1];
-    size_t len = strlen(kb->text);
-    const size_t display_len = len < sizeof(display) ? len : sizeof(display) - 1u;
-    const size_t pending_index = kb->has_pending_cycle && len > 0u ? len - 1u : SIZE_MAX;
-    for (size_t i = 0; i < display_len; ++i) {
-        display[i] = (kb->secret && i != pending_index) ? '*' : kb->text[i];
-    }
-    display[display_len] = '\0';
-    ui_text_put_box(DISPLAY_TEXT_REGION_KEYBOARD_INPUT, UI_LEFT_PAD, y0 + 18,
-                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, UI_LINE_H,
-                    display, STATUS_UI_LCD_OK, DISPLAY_TEXT_FIT_MARQUEE,
-                    DISPLAY_TEXT_ALIGN_RIGHT, DISPLAY_TEXT_PRIORITY_OVERLAY);
-    const int cols = 4;
-    const int key_w = BOARD_LCD_H_RES / cols;
-    for (uint8_t i = 0; i < UI_KEYBOARD_KEY_COUNT; ++i) {
-        const bool selected = kb->selected_key == i;
-        const int col = i % cols;
-        const int row = i / cols;
-        const int x = col * key_w;
-        const int y = y0 + 34 + row * 18;
-        const char *label = s_9key_defs[i].label;
-        lcd_fill_rect(x + 1, y, key_w - 2, 17, selected ? STATUS_UI_LCD_OK : 0x2104);
-        ui_text_put_box(DISPLAY_TEXT_REGION_KEYBOARD_KEY, x + 3, y + 5, key_w - 6, 12,
-                        label, selected ? STATUS_UI_LCD_BG : STATUS_UI_LCD_TEXT,
-                        DISPLAY_TEXT_FIT_ONE_LINE, DISPLAY_TEXT_ALIGN_LEFT,
-                        DISPLAY_TEXT_PRIORITY_OVERLAY);
-    }
-}
 
 static void status_ui_render_keyboard_lcd(void)
 {
@@ -1425,25 +1085,25 @@ static void status_ui_render_keyboard_lcd(void)
 static void keyboard_move(int delta)
 {
     portENTER_CRITICAL(&s_state_mux);
-    if (delta > 0) ui_keyboard_handle_next(&s_keyboard); else ui_keyboard_handle_prev(&s_keyboard);
+    if (delta > 0) ui_keyboard_handle_next(ui_keyboard_session_state()); else ui_keyboard_handle_prev(ui_keyboard_session_state());
     portEXIT_CRITICAL(&s_state_mux);
 }
 
 static void keyboard_select(void)
 {
     portENTER_CRITICAL(&s_state_mux);
-    ui_keyboard_handle_select(&s_keyboard);
+    ui_keyboard_handle_select(ui_keyboard_session_state(), (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
     portEXIT_CRITICAL(&s_state_mux);
 }
 
 static bool status_ui_keyboard_read_line_mode(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, ui_keyboard_mode_t mode, bool secret, uint32_t timeout_ms)
 {
-    if (out == NULL || out_len == 0 || max_len == 0 || s_keyboard_queue == NULL || s_panel == NULL || s_framebuffer == NULL) return false;
+    if (out == NULL || out_len == 0 || max_len == 0 || s_virtual_keyboard_queue == NULL || !status_lcd_is_ready()) return false;
     if (max_len >= out_len) max_len = out_len - 1u;
     if (max_len > STATUS_UI_KEYBOARD_MAX_TEXT) max_len = STATUS_UI_KEYBOARD_MAX_TEXT;
-    xQueueReset(s_keyboard_queue);
+    xQueueReset(s_virtual_keyboard_queue);
     portENTER_CRITICAL(&s_state_mux);
-    (void)ui_keyboard_open(&s_keyboard, title, initial, max_len, mode, secret);
+    (void)ui_keyboard_open(ui_keyboard_session_state(), title, initial, max_len, mode, secret);
     portEXIT_CRITICAL(&s_state_mux);
     const TickType_t start = xTaskGetTickCount();
     const TickType_t timeout = timeout_ms == 0 ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
@@ -1457,26 +1117,26 @@ static bool status_ui_keyboard_read_line_mode(const char *title, const char *ini
             TickType_t remaining = timeout - elapsed;
             if (remaining < wait) wait = remaining;
         }
-        if (xQueueReceive(s_keyboard_queue, &event, wait) == pdTRUE) {
+        if (xQueueReceive(s_virtual_keyboard_queue, &event, wait) == pdTRUE) {
             if (event == STATUS_UI_KEYBOARD_EVENT_SELECT) keyboard_select();
             else if (event == STATUS_UI_KEYBOARD_EVENT_NEXT) keyboard_move(1);
             else if (event == STATUS_UI_KEYBOARD_EVENT_PREV) keyboard_move(-1);
             else if (event == STATUS_UI_KEYBOARD_EVENT_OK) {
                 portENTER_CRITICAL(&s_state_mux);
-                ui_keyboard_commit_pending(&s_keyboard);
-                s_keyboard.result = UI_KEYBOARD_RESULT_OK;
+                ui_keyboard_commit_pending(ui_keyboard_session_state());
+                ui_keyboard_session_state()->result = UI_KEYBOARD_RESULT_OK;
                 portEXIT_CRITICAL(&s_state_mux);
             }
         }
         portENTER_CRITICAL(&s_state_mux);
-        ui_keyboard_result_t result = s_keyboard.result;
-        if (result == UI_KEYBOARD_RESULT_OK) snprintf(out, out_len, "%s", s_keyboard.text);
-        if (result != UI_KEYBOARD_RESULT_NONE) ui_keyboard_close(&s_keyboard);
+        ui_keyboard_result_t result = ui_keyboard_session_state()->result;
+        if (result == UI_KEYBOARD_RESULT_OK) snprintf(out, out_len, "%s", ui_keyboard_session_state()->text);
+        if (result != UI_KEYBOARD_RESULT_NONE) ui_keyboard_close(ui_keyboard_session_state());
         portEXIT_CRITICAL(&s_state_mux);
         if (result != UI_KEYBOARD_RESULT_NONE) { ok = result == UI_KEYBOARD_RESULT_OK; break; }
     }
     portENTER_CRITICAL(&s_state_mux);
-    s_keyboard.active = false;
+    ui_keyboard_session_state()->active = false;
     portEXIT_CRITICAL(&s_state_mux);
     return ok;
 }
@@ -1527,482 +1187,33 @@ static void status_ui_update_battery(ui_status_bar_state_t *bar)
 #endif
 }
 
-static void ui_render_clear(void)
+static void status_ui_render_menu_lcd(ui_runtime_t *ui)
 {
-    lcd_fill_rect(0, 0, UI_LCD_W, UI_LCD_H, UI_COLOR_BG);
-}
-
-
-static display_text_region_id_t ui_body_row_region(size_t row)
-{
-    switch (row) {
-    case 0: return DISPLAY_TEXT_REGION_BODY_ROW_0;
-    case 1: return DISPLAY_TEXT_REGION_BODY_ROW_1;
-    case 2: return DISPLAY_TEXT_REGION_BODY_ROW_2;
-    case 3: return DISPLAY_TEXT_REGION_BODY_ROW_3;
-    case 4: return DISPLAY_TEXT_REGION_BODY_ROW_4;
-    case 5: return DISPLAY_TEXT_REGION_BODY_ROW_5;
-    case 6: return DISPLAY_TEXT_REGION_BODY_ROW_6;
-    case 7: return DISPLAY_TEXT_REGION_BODY_ROW_7;
-    default: return DISPLAY_TEXT_REGION_BODY_DYNAMIC;
-    }
-}
-
-static display_text_result_t ui_text_put_box(
-    display_text_region_id_t region_id,
-    int x,
-    int y,
-    int w,
-    int h,
-    const char *text,
-    uint16_t color,
-    display_text_fit_t fit,
-    display_text_align_t align,
-    display_text_priority_t priority
-)
-{
-    display_text_box_t box = {
-        .x = x,
-        .y = y,
-        .width = w,
-        .height = h,
-        .scale = 1,
-        .color = color,
-        .bg_color = UI_COLOR_BG,
-        .clear_bg = false,
-        .region_id = region_id,
-        .fit = fit,
-        .align = align,
-        .collision = priority == DISPLAY_TEXT_PRIORITY_OVERLAY ? DISPLAY_TEXT_COLLISION_OVERLAY : DISPLAY_TEXT_COLLISION_REJECT,
-        .priority = priority,
-    };
-    return display_text_put(&s_display_text, &box, text != NULL ? text : "");
-}
-
-static display_text_result_t ui_text_put_line(
-    display_text_region_id_t region_id,
-    int x,
-    int y,
-    int w,
-    const char *text,
-    uint16_t color,
-    display_text_fit_t fit
-)
-{
-    return ui_text_put_box(region_id, x, y, w, UI_LINE_H, text, color, fit,
-                           DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
-}
-
-static void ui_render_status_bar(const ui_status_bar_state_t *status)
-{
-    lcd_fill_rect(0, 0, UI_LCD_W, UI_STATUS_BAR_H, UI_COLOR_BAR);
-    ui_text_put_box(DISPLAY_TEXT_REGION_STATUS_TIME, UI_LEFT_PAD, 5, 38, UI_STATUS_BAR_H - 5,
-                    (status != NULL && status->time_valid) ? status->time_hhmm : "--:--",
-                    UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE, DISPLAY_TEXT_ALIGN_LEFT,
-                    DISPLAY_TEXT_PRIORITY_HIGH);
-    if (status != NULL && status->wifi_connected) {
-        ui_text_put_box(DISPLAY_TEXT_REGION_STATUS_WIFI, 48, 5, 42, UI_STATUS_BAR_H - 5,
-                        "Wi-Fi", UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE,
-                        DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
-    }
-    char battery[8];
-    if (status != NULL && status->battery_valid) snprintf(battery, sizeof(battery), "%u%%", (unsigned)status->battery_percent);
-    else snprintf(battery, sizeof(battery), "--%%");
-    ui_text_put_box(DISPLAY_TEXT_REGION_STATUS_BATTERY, UI_LCD_W - 36, 5, 36, UI_STATUS_BAR_H - 5,
-                    battery, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE,
-                    DISPLAY_TEXT_ALIGN_RIGHT, DISPLAY_TEXT_PRIORITY_HIGH);
-}
-
-static void ui_render_title(const char *title)
-{
-    ui_text_put_line(DISPLAY_TEXT_REGION_TITLE, UI_LEFT_PAD, UI_TITLE_Y,
-                     UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, title != NULL ? title : "",
-                     UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE);
-}
-
-static void ui_render_bottom_hints(const char *hints)
-{
-    ui_text_put_box(DISPLAY_TEXT_REGION_BOTTOM_HINT, UI_LEFT_PAD, UI_LCD_H - UI_BOTTOM_HINT_H,
-                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, UI_BOTTOM_HINT_H,
-                    hints, UI_COLOR_DIM, DISPLAY_TEXT_FIT_MARQUEE,
-                    DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
-}
-
-static void ui_render_menu(const ui_runtime_t *ui, const ui_screen_def_t *screen)
-{
-    int y = UI_BODY_Y;
-    size_t row = 0;
-    size_t start = ui->nav.scroll_offset;
-    for (size_t i = start; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i, ++row) {
-        const bool selected = i == ui->nav.selected_index;
-        char line[DISPLAY_TEXT_MAX_TEXT];
-        snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
-        ui_text_put_line(ui_body_row_region(row), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
-                         line, selected ? UI_COLOR_OK : UI_COLOR_TEXT,
-                         selected ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
-        y += UI_LINE_H;
-    }
-}
-
-static void ui_render_wifi_scan_results(const ui_runtime_t *ui, const ui_wifi_flow_state_t *wifi)
-{
-    (void)ui;
-    int y = UI_BODY_Y;
-    if (wifi == NULL || wifi->scan_results.count == 0u) {
-        ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
-                         wifi != NULL && wifi->last_error[0] ? wifi->last_error : "No networks",
-                         UI_COLOR_WARN, DISPLAY_TEXT_FIT_MARQUEE);
-        return;
-    }
-    size_t visible = wifi->scan_results.count < 7u ? wifi->scan_results.count : 7u;
-    size_t first = wifi->selected_scan_index >= visible ? wifi->selected_scan_index - visible + 1u : 0u;
-    for (size_t row = 0; row < visible && first + row < wifi->scan_results.count; ++row) {
-        size_t i = first + row;
-        char line[DISPLAY_TEXT_MAX_TEXT];
-        snprintf(line, sizeof(line), "%c%s %ddBm ch%u", i == wifi->selected_scan_index ? '>' : ' ', wifi->scan_results.items[i].ssid[0] ? wifi->scan_results.items[i].ssid : "(hidden)", wifi->scan_results.items[i].rssi, (unsigned)wifi->scan_results.items[i].channel);
-        ui_text_put_line(ui_body_row_region(row), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
-                         line, i == wifi->selected_scan_index ? UI_COLOR_OK : UI_COLOR_TEXT,
-                         i == wifi->selected_scan_index ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
-        y += UI_LINE_H;
-    }
-}
-
-static void ui_render_wifi_result(const ui_wifi_flow_state_t *wifi)
-{
-    char line[DISPLAY_TEXT_MAX_TEXT];
-    int y = UI_BODY_Y;
-    snprintf(line, sizeof(line), "SSID: %s", wifi != NULL && wifi->ssid[0] ? wifi->ssid : "-");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "%s", wifi != NULL && wifi->last_error[0] ? wifi->last_error : "Connected and saved");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, wifi != NULL && wifi->web_url[0] ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_WRAP);
-    y += UI_LINE_H;
-    snprintf(line, sizeof(line), "URL: %s", wifi != NULL && wifi->web_url[0] ? wifi->web_url : "-");
-    ui_text_put_box(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
-                    UI_LCD_H - UI_BOTTOM_HINT_H - y, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_WRAP,
-                    DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
-}
-
-static void ui_render_ap_url(const ui_runtime_t *ui)
-{
-    char line[DISPLAY_TEXT_MAX_TEXT];
-    int y = UI_BODY_Y;
-    snprintf(line, sizeof(line), "SSID: %s", ui->ap.ap_name[0] ? ui->ap.ap_name : "-");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "URL: %s", ui->ap.url[0] ? ui->ap.url : "-");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Channel: %u", (unsigned)ui->ap.channel);
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Status: %s", ui->ap.started ? "started" : "not started");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, ui->ap.started ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE);
-}
-
-static void ui_render_bluetooth_status(const ui_runtime_t *ui)
-{
-    char line[DISPLAY_TEXT_MAX_TEXT];
-    int y = UI_BODY_Y;
-    snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Name: %s", ui->bluetooth.device_name);
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE);
-    if (ui->bluetooth.status_text[0] != '\0') {
-        y += UI_LINE_H;
-        snprintf(line, sizeof(line), "%s", ui->bluetooth.status_text);
-        ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP);
-    }
-}
-
-static void ui_render_automation_detail(const ui_runtime_t *ui, const ui_screen_def_t *screen)
-{
-    uint8_t index = screen->id == UI_SCREEN_AUTOMATION_2 ? 1u : 0u;
-    const ui_automation_state_t *slot = &ui->automations[index];
-    char line[DISPLAY_TEXT_MAX_TEXT];
-    int y = UI_BODY_Y;
-    snprintf(line, sizeof(line), "Enabled: %s", slot->enabled ? "on" : "off");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Trigger: %s", slot->trigger_label);
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "Action: %s", slot->action_label);
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
-    for (size_t i = 0; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i) {
-        bool selected = i == ui->nav.selected_index;
-        snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
-        ui_text_put_line(ui_body_row_region(i + 3u), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
-                         line, selected ? UI_COLOR_OK : UI_COLOR_TEXT,
-                         selected ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
-        y += UI_LINE_H;
-    }
-}
-
-static void ui_render_settings(const ui_runtime_t *ui)
-{
-    ui_render_menu(ui, ui_nav_current(&ui->nav));
-}
-
-static void ui_render_toast(const ui_toast_t *toast)
-{
-    if (toast == NULL || toast->kind == UI_TOAST_NONE || toast->text[0] == '\0') return;
-    uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    if (toast->until_tick_ms != 0u && now_ms > toast->until_tick_ms) {
-        ui_runtime_clear_toast(&s_ui);
-        return;
-    }
-    uint16_t color = toast->kind == UI_TOAST_ERROR ? UI_COLOR_ERR : (toast->kind == UI_TOAST_WARNING ? UI_COLOR_WARN : UI_COLOR_OK);
-    lcd_fill_rect(0, UI_LCD_H - 34, UI_LCD_W, 20, 0x2104);
-    ui_text_put_box(DISPLAY_TEXT_REGION_TOAST, UI_LEFT_PAD, UI_LCD_H - 31,
-                    UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, 16, toast->text, color,
-                    DISPLAY_TEXT_FIT_WRAP, DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_OVERLAY);
-}
-
-static void ui_render_screen(const ui_runtime_t *ui, const ui_screen_def_t *screen)
-{
-    ui_render_clear();
-    ui_render_status_bar(&ui->status_bar);
-    ui_render_title(screen != NULL ? screen->title : "Main");
-    if (screen == NULL) return;
-    switch (screen->id) {
-    case UI_SCREEN_CONFIG_WIFI_SCAN:
-        ui_render_wifi_scan_results(ui, &ui->config_wifi);
-        break;
-    case UI_SCREEN_CONNECT_WIFI_SCAN:
-        ui_render_wifi_scan_results(ui, &ui->connect_wifi);
-        break;
-    case UI_SCREEN_CONFIG_WIFI_CONNECT_SAVE:
-    case UI_SCREEN_CONFIG_WIFI_MANUAL_CONNECT_SAVE:
-        ui_render_wifi_result(&ui->config_wifi);
-        break;
-    case UI_SCREEN_CONNECT_WIFI_CONNECT_SAVE:
-    case UI_SCREEN_CONNECT_WIFI_MANUAL_CONNECT_SAVE:
-        ui_render_wifi_result(&ui->connect_wifi);
-        break;
-    case UI_SCREEN_CONFIG_AP_SHOW_URL:
-        ui_render_ap_url(ui);
-        break;
-    case UI_SCREEN_CONNECT_BLUETOOTH:
-        ui_render_bluetooth_status(ui);
-        break;
-    case UI_SCREEN_AUTOMATION_1:
-    case UI_SCREEN_AUTOMATION_2:
-        ui_render_automation_detail(ui, screen);
-        break;
-    case UI_SCREEN_SETTINGS:
-        ui_render_settings(ui);
-        break;
-    default:
-        ui_render_menu(ui, screen);
-        break;
-    }
-    ui_render_bottom_hints("K1 SEL K2 NEXT 2x PREV HOLD BACK");
-}
-
-static void status_ui_render_menu_lcd(const ui_runtime_t *ui)
-{
-    status_ui_update_time(&((ui_runtime_t *)ui)->status_bar);
-    status_ui_update_battery(&((ui_runtime_t *)ui)->status_bar);
-    ((ui_runtime_t *)ui)->status_bar.wifi_connected = app_wifi_is_sta_connected();
+    status_ui_update_time(&ui->status_bar);
+    status_ui_update_battery(&ui->status_bar);
+    ui->status_bar.wifi_connected = app_wifi_is_sta_connected();
     if (ui->nav.current == UI_SCREEN_CONNECT_BLUETOOTH) {
-        status_ui_bluetooth_refresh((ui_runtime_t *)ui);
+        status_ui_bluetooth_refresh(ui);
+    }
+    if (ui->toast.kind != UI_TOAST_NONE && ui->toast.until_tick_ms != 0u) {
+        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (now_ms > ui->toast.until_tick_ms) {
+            ui_runtime_clear_toast(ui);
+        }
     }
     ui_render_screen(ui, ui_nav_current(&ui->nav));
     ui_render_toast(&ui->toast);
 }
 
-
-static void status_ui_render_lcd(void)
+static void status_ui_render_lcd(void *ctx)
 {
-    uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    display_text_begin_frame(&s_display_text, now_ms);
+    (void)ctx;
     status_ui_render_menu_lcd(&s_ui);
     if (keyboard_is_active()) {
         status_ui_render_keyboard_lcd();
     }
-    display_text_end_frame(&s_display_text);
-
-    esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BOARD_LCD_H_RES, BOARD_LCD_V_RES, s_framebuffer);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "LCD draw failed: %s", esp_err_to_name(err));
-    }
 }
 
-static void status_ui_lcd_task(void *arg)
-{
-    (void)arg;
-
-    while (true) {
-        status_ui_render_lcd();
-        vTaskDelay(pdMS_TO_TICKS(STATUS_UI_LCD_REFRESH_MS));
-    }
-}
-
-static esp_err_t status_ui_lcd_init(void)
-{
-    ESP_LOGI(TAG, "LCD init start: ST7789P3 %dx%d host=%d pixel_clock=%d Hz",
-             BOARD_LCD_H_RES, BOARD_LCD_V_RES, BOARD_LCD_HOST, BOARD_LCD_PIXEL_CLOCK_HZ);
-    esp_err_t err = board_i2c_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed during shared I2C setup: %s", esp_err_to_name(err));
-        return err;
-    }
-    ESP_LOGI(TAG, "LCD init step ok: shared I2C bus ready");
-
-    err = m5pm1_enable_lcd_power(BOARD_I2C_PORT, BOARD_M5PM1_ADDR);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed during M5PM1 LCD/L3B power enable: %s", esp_err_to_name(err));
-        return err;
-    }
-    ESP_LOGI(TAG, "LCD init step ok: M5PM1 LCD/L3B power enabled");
-
-    gpio_config_t bl_conf = {
-        .pin_bit_mask = (1ULL << BOARD_LCD_BL_GPIO),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    err = gpio_config(&bl_conf);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed configuring backlight GPIO%d: %s",
-                 BOARD_LCD_BL_GPIO, esp_err_to_name(err));
-        return err;
-    }
-    gpio_set_level(BOARD_LCD_BL_GPIO, !BOARD_LCD_BL_ON_LEVEL);
-    ESP_LOGI(TAG, "LCD init step ok: backlight GPIO%d configured off_level=%d on_level=%d",
-             BOARD_LCD_BL_GPIO, !BOARD_LCD_BL_ON_LEVEL, BOARD_LCD_BL_ON_LEVEL);
-
-    spi_bus_config_t buscfg = {
-        .sclk_io_num = BOARD_LCD_SCLK_GPIO,
-        .mosi_io_num = BOARD_LCD_MOSI_GPIO,
-        .miso_io_num = -1,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(uint16_t),
-    };
-    ESP_LOGI(TAG, "LCD init step: SPI bus host=%d MOSI=GPIO%d SCLK=GPIO%d max_transfer=%u",
-             BOARD_LCD_HOST, BOARD_LCD_MOSI_GPIO, BOARD_LCD_SCLK_GPIO,
-             (unsigned)buscfg.max_transfer_sz);
-    err = spi_bus_initialize(BOARD_LCD_HOST, &buscfg, SPI_DMA_CH_AUTO);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed during SPI bus init: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    esp_lcd_panel_io_spi_config_t io_config = {
-        .dc_gpio_num = BOARD_LCD_DC_GPIO,
-        .cs_gpio_num = BOARD_LCD_CS_GPIO,
-        .pclk_hz = BOARD_LCD_PIXEL_CLOCK_HZ,
-        .lcd_cmd_bits = BOARD_LCD_CMD_BITS,
-        .lcd_param_bits = BOARD_LCD_PARAM_BITS,
-        .spi_mode = 0,
-        .trans_queue_depth = 10,
-    };
-    err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)BOARD_LCD_HOST, &io_config, &s_panel_io);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed creating panel IO: DC=GPIO%d CS=GPIO%d err=%s",
-                 BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, esp_err_to_name(err));
-        spi_bus_free(BOARD_LCD_HOST);
-        return err;
-    }
-    ESP_LOGI(TAG, "LCD init step ok: panel IO DC=GPIO%d CS=GPIO%d queue_depth=%d",
-             BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, io_config.trans_queue_depth);
-
-    esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = BOARD_LCD_RST_GPIO,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-        .bits_per_pixel = 16,
-    };
-    err = esp_lcd_new_panel_st7789(s_panel_io, &panel_config, &s_panel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed creating ST7789 panel: RST=GPIO%d err=%s",
-                 BOARD_LCD_RST_GPIO, esp_err_to_name(err));
-        esp_lcd_panel_io_del(s_panel_io);
-        s_panel_io = NULL;
-        spi_bus_free(BOARD_LCD_HOST);
-        return err;
-    }
-
-    err = esp_lcd_panel_reset(s_panel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LCD init failed resetting panel: %s", esp_err_to_name(err));
-    }
-    if (err == ESP_OK) {
-        err = esp_lcd_panel_init(s_panel);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "LCD init failed initialising panel: %s", esp_err_to_name(err));
-        }
-    }
-    if (err == ESP_OK) {
-        err = esp_lcd_panel_invert_color(s_panel, true);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "LCD init failed setting color inversion: %s", esp_err_to_name(err));
-        }
-    }
-    if (err == ESP_OK) {
-        err = esp_lcd_panel_set_gap(s_panel, BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "LCD init failed setting panel gap %d,%d: %s",
-                     BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP, esp_err_to_name(err));
-        }
-    }
-    if (err == ESP_OK) {
-        err = esp_lcd_panel_disp_on_off(s_panel, true);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "LCD init failed enabling panel display: %s", esp_err_to_name(err));
-        }
-    }
-    if (err != ESP_OK) {
-        esp_lcd_panel_del(s_panel);
-        s_panel = NULL;
-        esp_lcd_panel_io_del(s_panel_io);
-        s_panel_io = NULL;
-        spi_bus_free(BOARD_LCD_HOST);
-        return err;
-    }
-
-    ESP_LOGI(TAG, "LCD init step ok: panel configured gap=%d,%d inversion=on",
-             BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP);
-
-    s_framebuffer = heap_caps_malloc(BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    if (s_framebuffer == NULL) {
-        ESP_LOGE(TAG, "LCD init failed allocating framebuffer: %u bytes DMA/internal",
-                 (unsigned)(BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(uint16_t)));
-        esp_lcd_panel_del(s_panel);
-        s_panel = NULL;
-        esp_lcd_panel_io_del(s_panel_io);
-        s_panel_io = NULL;
-        spi_bus_free(BOARD_LCD_HOST);
-        return ESP_ERR_NO_MEM;
-    }
-
-    display_text_context_init(
-        &s_display_text,
-        BOARD_LCD_H_RES,
-        BOARD_LCD_V_RES,
-        status_ui_display_text_fill_rect,
-        NULL
-    );
-
-    BaseType_t created = xTaskCreate(status_ui_lcd_task, "status_ui_lcd",
-                                     STATUS_UI_LCD_TASK_STACK, NULL,
-                                     STATUS_UI_LCD_TASK_PRIORITY, NULL);
-    if (created != pdPASS) {
-        ESP_LOGE(TAG, "LCD init failed starting refresh task");
-        heap_caps_free(s_framebuffer);
-        s_framebuffer = NULL;
-        esp_lcd_panel_del(s_panel);
-        s_panel = NULL;
-        esp_lcd_panel_io_del(s_panel_io);
-        s_panel_io = NULL;
-        spi_bus_free(BOARD_LCD_HOST);
-        return ESP_ERR_NO_MEM;
-    }
-
-    gpio_set_level(BOARD_LCD_BL_GPIO, BOARD_LCD_BL_ON_LEVEL);
-    ESP_LOGI(TAG, "LCD init step ok: backlight enabled GPIO%d level=%d",
-             BOARD_LCD_BL_GPIO, BOARD_LCD_BL_ON_LEVEL);
-    ESP_LOGI(TAG, "LCD debug UI ready: ST7789P3 %dx%d gap=%d,%d MOSI=%d SCLK=%d DC=%d CS=%d RST=%d BL=%d",
-             BOARD_LCD_H_RES, BOARD_LCD_V_RES, BOARD_LCD_X_GAP, BOARD_LCD_Y_GAP, BOARD_LCD_MOSI_GPIO, BOARD_LCD_SCLK_GPIO,
-             BOARD_LCD_DC_GPIO, BOARD_LCD_CS_GPIO, BOARD_LCD_RST_GPIO, BOARD_LCD_BL_GPIO);
-    return ESP_OK;
-}
 #else
 bool status_ui_keyboard_read_line(const char *title, const char *initial, char *out, size_t out_len, size_t max_len, bool secret, uint32_t timeout_ms)
 {
@@ -2020,9 +1231,9 @@ bool status_ui_keyboard_read_line(const char *title, const char *initial, char *
 esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
 {
 #if CONFIG_APP_STATUS_UI_LCD
-    if (s_keyboard_queue == NULL) {
-        s_keyboard_queue = xQueueCreate(8, sizeof(status_ui_keyboard_event_t));
-        if (s_keyboard_queue == NULL) {
+    if (s_virtual_keyboard_queue == NULL) {
+        s_virtual_keyboard_queue = xQueueCreate(8, sizeof(status_ui_keyboard_event_t));
+        if (s_virtual_keyboard_queue == NULL) {
             ESP_LOGE(TAG, "failed to create virtual keyboard queue");
             status_ui_set_state(STATUS_UI_STATE_ERROR);
             return ESP_ERR_NO_MEM;
@@ -2081,7 +1292,7 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
     }
 
 #if CONFIG_APP_STATUS_UI_LCD
-    err = status_ui_lcd_init();
+    err = status_lcd_init(status_ui_render_lcd, NULL);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "LCD debug UI disabled: %s", esp_err_to_name(err));
     }
