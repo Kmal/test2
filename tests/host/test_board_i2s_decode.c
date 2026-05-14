@@ -15,6 +15,8 @@ static i2s_std_config_t s_last_rx_cfg;
 static i2s_std_config_t s_last_tx_cfg;
 static unsigned s_rx_init_count;
 static unsigned s_tx_init_count;
+static int32_t s_raw[256];
+static size_t s_raw_bytes;
 
 const board_audio_clock_profile_t *board_audio_clock_get_profile(void)
 {
@@ -47,6 +49,7 @@ esp_err_t i2s_channel_init_std_mode(i2s_chan_handle_t handle, const i2s_std_conf
     }
     return ESP_OK;
 }
+esp_err_t i2s_channel_init_std_mode(i2s_chan_handle_t handle, const i2s_std_config_t *std_cfg) { (void)handle; (void)std_cfg; return ESP_OK; }
 esp_err_t i2s_channel_enable(i2s_chan_handle_t handle) { (void)handle; return ESP_OK; }
 esp_err_t i2s_channel_disable(i2s_chan_handle_t handle) { (void)handle; return ESP_OK; }
 esp_err_t i2s_del_channel(i2s_chan_handle_t handle) { (void)handle; return ESP_OK; }
@@ -109,6 +112,21 @@ static void test_read_samples(void)
         0,
         32767,
         -32768,
+static void set_raw(const int32_t *raw, size_t words)
+{
+    memcpy(s_raw, raw, words * sizeof(raw[0]));
+    s_raw_bytes = words * sizeof(raw[0]);
+}
+
+static void test_decode_samples(void)
+{
+    ASSERT_EQ(ESP_OK, board_i2s_init_profile(BOARD_AUDIO_PROFILE_CAPTURE_ONLY));
+    int32_t raw[] = {
+        ((int32_t)1234) << 16,
+        (int32_t)((uint32_t)0xFB2E0000u),
+        0,
+        ((int32_t)32767) << 16,
+        (int32_t)((uint32_t)0x80000000u),
     };
     int16_t samples[8];
     size_t read = 0;
@@ -125,6 +143,7 @@ static void test_read_samples(void)
 static void test_partial_raw_read_handling(void)
 {
     int16_t raw[] = {42, -7};
+    int32_t raw[] = { ((int32_t)42) << 16, (int32_t)((uint32_t)0xFFF90000u) };
     int16_t samples[1];
     size_t read = 0;
     set_raw(raw, sizeof(raw) / sizeof(raw[0]));
@@ -138,6 +157,7 @@ int main(void)
     test_capture_only_pin_config();
     test_full_duplex_pin_config();
     test_read_samples();
+    test_decode_samples();
     test_partial_raw_read_handling();
     puts("board_i2s_decode tests passed");
     return 0;
