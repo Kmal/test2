@@ -260,8 +260,8 @@ Documentation must describe the current product as a custom BLE rule-event and l
 | I2S MCLK | GPIO18 | ESP32-S3 -> ES8311 | `BOARD_I2S_MCLK_IO` | Current profile uses fixed MCLK at 12.288 MHz. |
 | I2S BCLK | GPIO17 | ESP32-S3 -> ES8311 | `BOARD_I2S_BCK_IO` | Current documented target is 512 kHz for 16 kHz, 16-bit mono capture. |
 | I2S LRCLK/WS | GPIO15 | ESP32-S3 -> ES8311 | `BOARD_I2S_WS_IO` | Current profile uses 16 kHz LRCK. |
-| I2S TX / DAC data (`G14_I2S_DDAC`) | GPIO14 | ESP32-S3 -> ES8311 | `BOARD_I2S_DO_IO` | Physical DAC data pin; not driven in the default capture-only profile. |
-| I2S RX / ADC data (`G16_I2S_DADC`) | GPIO16 | ES8311 -> ESP32-S3 | `BOARD_I2S_DI_IO` | Microphone/ADC samples read by the ESP32-S3. |
+| I2S RX / codec DOUT (`G14_I2S_DOUT`) | GPIO14 | ES8311 -> ESP32-S3 | `BOARD_I2S_DI_IO` | Microphone/ADC samples read by the ESP32-S3. |
+| I2S TX / codec DIN (`G16_I2S_DIN`) | GPIO16 | ESP32-S3 -> ES8311 | `BOARD_I2S_DO_IO` | Codec DAC/input data pin; not driven in the default capture-only profile. |
 | I2C SDA | GPIO47 | Bidirectional | `BOARD_I2C_SDA_IO` | Shared ES8311/BMI270/M5PM1 control bus. |
 | I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock; M5PM1 handle remains at 100 kHz for power-up behavior. |
 | ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
@@ -276,6 +276,7 @@ Documentation must describe the current product as a custom BLE rule-event and l
 | LCD reset | GPIO21 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_RST_GPIO` | Display reset. |
 | LCD backlight | GPIO38 | ESP32-S3 -> LCD backlight | `BOARD_LCD_BL_GPIO` | Active-high backlight enable. |
 
+The capture-only audio clock profile is explicit when the sound-level path is enabled: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock-manager register-2 value `0x40`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio and sets a 32-bit slot width for the physical BCLK target while reading DMA data as 16-bit samples according to `I2S_DATA_BIT_WIDTH_16BIT`.
 The capture-only audio clock profile is explicit when the sound-level path is enabled: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock-manager register-2 value `0x40`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio.
 
 ## Development checks
@@ -311,6 +312,9 @@ ESP-IDF build/flash validation still requires an ESP-IDF environment and attache
 
 ## Sound-level trigger default
 
+Global sensor-monitoring rule: firmware must initialize and monitor a sensor only while at least one enabled automation rule uses that sensor as a trigger; if no enabled automation uses that sensor, the sensor producer must stay stopped and release its runtime RAM/task resources. GPIO and sound-level monitoring both follow this demand-driven pattern, and future sensor producers should use the same source-usage checks.
+
+Sound-level triggers are enabled in the checked-in defaults with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. This links `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`. To honor demand-driven sensor monitoring, the firmware allocates the sound service state and initializes the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` only while at least one enabled automation rule uses a `sound.*` trigger; live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts then flow through the existing automation runtime. Maintainers can still turn the Kconfig option off for audio-free builds.
 Global sensor-monitoring rule: firmware must initialize and monitor a sensor only while at least one enabled automation rule uses that sensor as a trigger; GPIO and sound-level monitoring both follow this demand-driven pattern, and future sensor producers should use the same source-usage checks.
 
 Sound-level triggers are enabled in the checked-in defaults with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. This links `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`. To honor demand-driven sensor monitoring, the firmware initializes the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` only while at least one enabled automation rule uses a `sound.*` trigger; live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts then flow through the existing automation runtime. Maintainers can still turn the Kconfig option off for audio-free builds.

@@ -18,11 +18,12 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `board_audio_clock.c` | default via sound config | yes | 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by default sound-level trigger builds. |
 | `board_audio_power.c` | default via sound config | no | M5PM1 L3B audio rail enable wrapper linked by default sound-level trigger builds while preserving LCD M5PM1 behavior. |
 | `board_i2c.c` | default | no | ESP-IDF shared I2C bus initializer used by LCD/status UI paths and available to board helpers. |
+| `board_i2s.c` | default via sound config | yes | Capture-only/full-duplex I2S driver source linked by default sound-level trigger builds; includes mono `int16_t` RX helper and pin-configuration coverage. |
 | `board_i2s.c` | default via sound config | yes | Capture-only/full-duplex I2S driver source linked by default sound-level trigger builds; includes mono `int16_t` decode helper coverage. |
 | `button_state.c` | default | yes | Active-low KEY1/KEY2 debouncing and event classification for status UI and automation facts. |
 | `capability_registry.c` | default | yes | Central capability gate for supported/disabled sources/actions and safe GPIO profile validation. |
 | `display_text.c` | default | yes | LCD text measuring, sanitizing, wrapping/marquee, collision, and glyph rendering support. |
-| `es8311.c` | helper-only | yes | Optional ES8311 codec profile driver source; not linked by the default app component. |
+| `es8311.c` | default via sound config | yes | ES8311 codec profile driver source linked by default sound-level trigger builds; capture-only setup keeps the DAC muted/down. |
 | `m5pm1.c` | default | yes | M5PM1 register helper and LCD/L3B GPIO sequence used by LCD power, with bit-preserving host tests. |
 | `main.c` | default | no | Firmware entry point wiring NVS, time, network, status UI, Wi-Fi, rule runtime, BLE transport, and default error/idle policy. |
 | `register_bus.c` | default | no | ESP-IDF I2C register-bus cache/read/write helper used by M5PM1/codec-style drivers. |
@@ -31,6 +32,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `rule_runtime.c` | default | yes | Runtime bridge from button/GPIO/BLE/Wi-Fi/sound facts to rule engine and action dispatcher; the default sound service feeds live metrics through this existing path. |
 | `rule_types.c` | default | yes | Rule defaults, validation, source/action names, safe GPIO/capability checks, and binary config serialization. |
 | `rule_web.c` | default | yes | On-demand HTTP Web UI/API implementation for config, status, time, Wi-Fi, capabilities, test actions, GPIO, and HAT probe. |
+| `sound_level_service.c` | default via sound config | yes | Demand-driven capture task/service source linked by default sound-level trigger builds; it reads microphone samples, computes metrics, and feeds sound facts only while enabled sound rules exist. |
 | `status_lcd.c` | default | no | Optional LCD bring-up/render task path behind `CONFIG_APP_STATUS_UI_LCD`; failures are non-fatal. |
 | `status_ui.c` | default | no | Status UI task, key polling, launcher/menu integration, toasts, service enablement, and automation config callbacks. |
 | `transport_ble_gatt.c` | conditional | no | Custom BLE GATT status/rule-event transport compiled when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`. |

@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -58,6 +59,7 @@ static TaskHandle_t s_rule_network_task;
 static bool s_rule_network_state_known;
 static bool s_rule_network_ready;
 #if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+static sound_level_service_t *s_sound_level_service;
 static sound_level_service_t s_sound_level_service;
 static bool s_sound_level_ready;
 static bool s_sound_level_audio_initialized;
@@ -70,6 +72,8 @@ static bool s_rule_ble_connected;
 
 #if CONFIG_APP_SOUND_LEVEL_TRIGGERS
 static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx);
+static void app_sound_level_release_audio(void);
+static void app_sound_level_release_if_stopped(void);
 static void app_sound_level_sync(const automation_config_t *config);
 #endif
 
@@ -312,6 +316,9 @@ static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx)
     if (out == NULL || out_len == 0) {
         return false;
     }
+    app_sound_level_release_if_stopped();
+    if (s_sound_level_ready) {
+        return sound_level_service_build_status_json(s_sound_level_service, out, out_len);
     if (s_sound_level_ready) {
         return sound_level_service_build_status_json(&s_sound_level_service, out, out_len);
     }
@@ -325,6 +332,40 @@ static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx)
     return sound_level_service_build_status_json(NULL, out, out_len);
 }
 
+static void app_sound_level_release_audio(void)
+{
+    if (!s_sound_level_audio_initialized) {
+        return;
+    }
+    (void)board_audio_deinit();
+    s_sound_level_audio_initialized = false;
+}
+
+static void app_sound_level_release_if_stopped(void)
+{
+    if (s_sound_level_service == NULL || s_sound_level_service->task != NULL) {
+        return;
+    }
+    free(s_sound_level_service);
+    s_sound_level_service = NULL;
+    app_sound_level_release_audio();
+    ESP_LOGI(TAG, "sound triggers: capture resources released");
+}
+
+static void app_sound_level_stop(void)
+{
+    if (s_sound_level_service == NULL) {
+        return;
+    }
+    if (s_sound_level_ready) {
+        sound_level_service_request_stop(s_sound_level_service);
+        s_sound_level_ready = false;
+        ESP_LOGI(TAG, "sound triggers: capture task stop requested (no enabled sound rules)");
+    }
+    for (int i = 0; i < 60 && s_sound_level_service->task != NULL; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    app_sound_level_release_if_stopped();
 static void app_sound_level_stop(void)
 {
     if (!s_sound_level_ready) {
@@ -387,6 +428,80 @@ static void app_sound_level_sync(const automation_config_t *config)
 
     if (!sound_level_service_start(&s_sound_level_service)) {
         ESP_LOGE(TAG, "sound triggers: service task create failed");
+        return;
+    }
+
+    s_sound_level_ready = true;
+    ESP_LOGI(TAG, "sound triggers: capture task started for enabled sound rule");
+}
+#endif
+
+/* Start microphone capture only while at least one enabled rule consumes a sound source.
+ * This keeps sensor monitoring demand-driven even though the sound feature is
+ * compiled into the default build. */
+static void app_sound_level_sync(const automation_config_t *config)
+{
+    rule_web_set_sound_status_builder(app_sound_level_status_json, NULL);
+
+    if (!automation_config_has_enabled_sound_source(config)) {
+        app_sound_level_stop();
+        return;
+    }
+
+    if (s_sound_level_ready) {
+        return;
+    }
+    app_sound_level_release_if_stopped();
+    if (s_sound_level_service != NULL && s_sound_level_service->task != NULL) {
+        ESP_LOGW(TAG, "sound triggers: capture task is still stopping; start deferred");
+        return;
+    }
+
+    if (!s_sound_level_audio_initialized) {
+        board_audio_config_t audio_config = {
+            .profile = BOARD_AUDIO_PROFILE_CAPTURE_ONLY,
+            .probe_m5pm1 = true,
+            .require_audio_power_enable = true,
+        };
+
+        esp_err_t err = board_audio_init(&audio_config);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "sound triggers: audio init failed: %s", esp_err_to_name(err));
+#if CONFIG_APP_SOUND_LEVEL_FAIL_BOOT_ON_AUDIO_ERROR
+            ESP_ERROR_CHECK(err);
+#else
+            return;
+#endif
+        }
+        s_sound_level_audio_initialized = true;
+    }
+
+    s_sound_level_service = calloc(1, sizeof(*s_sound_level_service));
+    if (s_sound_level_service == NULL) {
+        ESP_LOGE(TAG, "sound triggers: service allocation failed");
+        app_sound_level_release_audio();
+        return;
+    }
+
+    sound_level_service_config_t service_config;
+    sound_level_service_config_defaults(&service_config);
+
+    if (!sound_level_service_init(s_sound_level_service,
+                                  &s_rule_runtime,
+                                  s_rule_mutex,
+                                  &service_config)) {
+        ESP_LOGE(TAG, "sound triggers: service init failed");
+        free(s_sound_level_service);
+        s_sound_level_service = NULL;
+        app_sound_level_release_audio();
+        return;
+    }
+
+    if (!sound_level_service_start(s_sound_level_service)) {
+        ESP_LOGE(TAG, "sound triggers: service task create failed");
+        free(s_sound_level_service);
+        s_sound_level_service = NULL;
+        app_sound_level_release_audio();
         return;
     }
 

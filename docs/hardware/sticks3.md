@@ -11,10 +11,10 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 | Audio codec | ES8311 | M5Stack StickS3 documentation and schematic |
 | ES8311 I2C address | `0x18` | M5Stack StickS3 pin map |
 | ES8311 MCLK | GPIO18 | M5Stack StickS3 pin map |
-| ES8311 DOUT / DAC data | GPIO14 | M5Stack StickS3 pin map |
+| ES8311 DOUT / ESP32-S3 I2S RX data | GPIO14 | M5Stack StickS3 pin map |
 | ES8311 BCLK | GPIO17 | M5Stack StickS3 pin map |
 | ES8311 LRCK / WS | GPIO15 | M5Stack StickS3 pin map |
-| ES8311 DIN / ADC data | GPIO16 | M5Stack StickS3 pin map |
+| ES8311 DIN / ESP32-S3 I2S TX data | GPIO16 | M5Stack StickS3 pin map |
 | Shared I2C SCL | GPIO48 | M5Stack StickS3 pin map |
 | Shared I2C SDA | GPIO47 | M5Stack StickS3 pin map |
 | IMU | BMI270 | M5Stack StickS3 documentation |
@@ -40,6 +40,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
+The current default firmware is a local configuration and automation device. From the current code path it initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the on-demand Web UI server lifecycle, status UI, capture-only sound-level telemetry, and the shared ESP-IDF v6 I2C master bus when the LCD/power/audio helper needs it. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default app component links the capture-only audio sources but allocates `sound_level_service`, initializes audio, and starts the capture task only when enabled automation rules use `sound.*` triggers and audio initialization succeeds; when those rules are absent or disabled, the service task/state is stopped and released. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 The current default firmware is a local configuration and automation device. From the current code path it initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the on-demand Web UI server lifecycle, status UI, capture-only sound-level telemetry, and the shared ESP-IDF v6 I2C master bus when the LCD/power/audio helper needs it. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default app component links the capture-only audio sources and starts `sound_level_service` only when enabled automation rules use `sound.*` triggers and audio initialization succeeds; it does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
 
 ### Code-derived hardware implementation overlay
@@ -48,6 +49,9 @@ The current default firmware is a local configuration and automation device. Fro
 | --- | --- | --- |
 | LCD power and panel initialization | ✅ Implemented/wired when `CONFIG_APP_STATUS_UI_LCD=y` | `status_ui_init()` initializes the shared I2C bus, calls the M5PM1 LCD/L3B power helper, initializes the ST7789P3 panel, enables backlight GPIO38, and treats LCD failure as non-fatal. |
 | Two StickS3 keys | ✅ Implemented/wired | Only GPIO11/KEY1 and GPIO12/KEY2 are polled as user keys; they drive menu navigation and button automation facts. |
+| M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-active-low sequence exists and is used by LCD power and by demand-driven sound-level audio initialization when enabled `sound.*` rules exist. |
+| Capture-only I2S/ES8311 profile | ✅ Implemented/wired by default | `board_audio_init_with_ops()` sequences I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup because `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is set in the project defaults. |
+| Sound metrics from microphone | ✅ Implemented/default available | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build allocates the service and starts a capture-only task only while enabled automation rules use `sound.*` triggers, reads normalized I2S microphone samples, and feeds sound facts into the rule runtime. |
 | M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-high sequence exists and is used by LCD power and by demand-driven sound-level audio initialization when enabled `sound.*` rules exist. |
 | Capture-only I2S/ES8311 profile | ✅ Implemented/wired by default | `board_audio_init_with_ops()` sequences I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup because `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is set in the project defaults. |
 | Sound metrics from microphone | ✅ Implemented/default available | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build starts a capture-only task only while enabled automation rules use `sound.*` triggers, reads normalized I2S microphone samples, and feeds sound facts into the rule runtime. |
@@ -83,6 +87,11 @@ The default capture-only software profile is intentionally explicit when the sou
 - LRCK/WS: GPIO15
 - ES8311 12.288 MHz / 16 kHz clock-manager register-2 value used by the current project sequence: `0x40`
 
+For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio and sets a 32-bit slot width for the physical BCLK target while reading DMA data as 16-bit samples according to `I2S_DATA_BIT_WIDTH_16BIT`. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success. The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build calls this initializer for capture-only microphone metrics.
+
+## M5PM1 L3B audio power sequence
+
+The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The implemented helper configures M5PM1 GPIO2 as a normal output, push-pull drive, and **low** output using the same tested GPIO-helper path as LCD/L3B setup. The official M5PM1 StickS3 guidance enables L3B with `gpioSetOutput(..., false)`, after which this firmware writes `I2C_CFG=0x00` and waits for the rail before LCD reset. M5PM1 powers up in 100 kHz I2C mode, so the shared register-bus cache keeps the M5PM1 device handle at 100 kHz while other devices can use the board-default 400 kHz speed. The PMIC helper retries a first `ESP_ERR_INVALID_RESPONSE` once, because the boot log showed the LCD path failing on the first M5PM1 GPIO-function read while a later L3B access succeeded. The separate M5PM1 identity probe remains optional. In the default boot, this sequence is reached through LCD power initialization when LCD is enabled and through the sound-level trigger audio-specific rail enable before ES8311 access.
 For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio. Hardware acceptance must measure GPIO18, GPIO17, and GPIO15 before claiming physical audio success. The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build calls this initializer for capture-only microphone metrics.
 
 ## M5PM1 L3B audio power sequence
@@ -101,7 +110,7 @@ The current firmware polls the two documented keys, logs their presses, displays
 
 The onboard LCD is documented as an ST7789P3 panel with 135x240 resolution. The firmware maps MOSI=GPIO39, SCLK=GPIO40, RS/DC=GPIO45, CS=GPIO41, RST=GPIO21, and BL=GPIO38, uses SPI3_HOST at 40 MHz, and applies the source-backed ST7789 controller RAM gap X=52/Y=40. `CONFIG_APP_STATUS_UI_LCD` defaults to enabled and makes `status_ui_init()` initialize the panel, enable the backlight, and render the launcher/menu UI with Wi-Fi, BLE status, automation, and settings screens. LCD bring-up is intentionally non-fatal so Wi-Fi, BLE, and automation validation can continue if display hardware is unavailable or panel initialization fails.
 
-When validating the L3B/LCD fix on UART, the expected M5PM1 lines include `active_level=high`, `out_reg=0x11`, `out_value=0x04`, and a later GPIO output update with `value=0x04`. If the UART still reports `active_level=low` or `GPIO2 driven low`, the board is running an older application image and must be rebuilt/reflashed before judging the LCD or ES8311 result.
+When validating the L3B/LCD fix on UART, the expected M5PM1 lines include `active_level=low`, `out_reg=0x11`, `out_value=0x00`, and a later GPIO output update with `value=0x00`. If the UART still reports `active_level=high` or `GPIO2 driven high`, the board is running an older application image and must be rebuilt/reflashed before judging the LCD or ES8311 result.
 
 ## Audio output, speaker amplifier, and IR
 

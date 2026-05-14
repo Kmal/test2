@@ -52,10 +52,13 @@ static esp_err_t real_cleanup_on_failure(esp_err_t cause, void *ctx)
     (void)cause;
     /*
      * Current failure policy is diagnostic hard-fail by the caller. No source-
-     * backed L3B disable sequence exists yet, so cleanup avoids guessed power
-     * writes and only reports the cause.
+     * backed L3B disable sequence exists yet, so cleanup avoids guessed rail
+     * writes, but any codec/I2S resources already touched by the init sequence
+     * are returned to a safe idle state.
      */
     ESP_LOGE(TAG, "audio init failed before completion: %s", esp_err_to_name(cause));
+    (void)es8311_power_down(BOARD_I2C_PORT, BOARD_ES8311_ADDR);
+    (void)board_i2s_deinit();
     return ESP_OK;
 }
 
@@ -156,4 +159,19 @@ esp_err_t board_audio_init(const board_audio_config_t *config)
         .ctx = NULL,
     };
     return board_audio_init_with_ops(config, &real_ops);
+}
+
+esp_err_t board_audio_deinit(void)
+{
+    esp_err_t err = es8311_power_down(BOARD_I2C_PORT, BOARD_ES8311_ADDR);
+    esp_err_t i2s_err = board_i2s_deinit();
+    if (err == ESP_OK) {
+        err = i2s_err;
+    }
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "audio capture resources released");
+    } else {
+        ESP_LOGW(TAG, "audio capture resource release had errors: %s", esp_err_to_name(err));
+    }
+    return err;
 }

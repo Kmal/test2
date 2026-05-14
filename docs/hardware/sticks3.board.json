@@ -7,10 +7,10 @@
     "bits": "I2S_DATA_BIT_WIDTH_16BIT",
     "pins": {
       "mclk": 18,
-      "dout": 14,
+      "dout": 16,
       "bclk": 17,
       "lrck": 15,
-      "din": 16
+      "din": 14
     },
     "bclk_hz": 512000,
     "lrck_hz": 16000,
