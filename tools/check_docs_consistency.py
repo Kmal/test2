@@ -49,6 +49,13 @@ def main() -> int:
             if item not in text:
                 errors.append(f"{doc.relative_to(ROOT)} missing required fact {item!r}")
 
+    root_readme = ROOT / "README.md"
+    if not root_readme.exists():
+        for doc in DOCS:
+            text = doc.read_text(encoding="utf-8")
+            if "`README.md`" in text:
+                errors.append(f"{doc.relative_to(ROOT)} references missing root README.md; use docs/README.md")
+
     if errors:
         print("Docs consistency validation failed:", file=sys.stderr)
         for error in errors:

@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = ROOT / "main" / "board_sticks3.h"
 CLOCK = ROOT / "main" / "board_audio_clock.c"
-DOCS = [ROOT / "README.md", ROOT / "docs" / "hardware" / "sticks3.md"]
+DOCS = [ROOT / "docs" / "README.md", ROOT / "docs" / "hardware" / "sticks3.md"]
 
 EXPECTED = {
     "BOARD_I2S_SAMPLE_RATE": "16000",

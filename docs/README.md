@@ -9,7 +9,7 @@ This repository contains ESP-IDF firmware for the M5Stack StickS3. The current f
 This section is a direct status overlay from the current C implementation, not from older comments or planning text. Use the status labels below when judging what is actually wired into the default firmware:
 
 - ✅ **Implemented and wired on default boot**: executed from `app_main()` or reachable through tasks/callbacks it starts.
-- 🟡 **Implemented helper/library path, not wired by default**: compiled support exists, but default boot does not create a producer, call the initializer, or expose the whole feature path.
+- 🟡 **Implemented helper/library path, not wired by default**: source support exists and may be host-tested, but default boot does not create a producer, call the initializer, link optional audio sources, or expose the whole feature path.
 - ⛔ **Not implemented / fail-closed**: validation rejects it, the dispatcher returns unsupported, or no driver path exists.
 - 🧪 **Host/static tested only**: covered by repository checks, but still requires physical StickS3 validation before product claims.
 
@@ -23,7 +23,7 @@ On the default `esp32s3` build the app currently does the following:
 4. ✅ Loads the local automation rule configuration from NVS, or safe defaults if the stored blob is missing/invalid.
 5. ✅ Starts the rule runtime, action worker, GPIO polling, network-state polling, and BLE-state polling tasks; the Web UI HTTP server is deferred until the Web UI service is enabled from the on-device menu.
 6. ✅ Starts the custom BLE GATT status/rule-event service, publishes BLE status, and keeps the device alive in an error state if BLE startup fails.
-7. 🟡 Leaves the audio board bring-up path compiled but **not called by `app_main()`**. The current default boot path does not call `board_audio_init()`, does not enable the M5PM1 L3B audio rail from `app_main()`, does not configure I2S, and does not initialize ES8311. The capture-only code path exists for an optional audio build/initializer, but it is not wired into default boot.
+7. 🟡 Leaves the audio board bring-up path as source/host-tested helper code, but **not called by `app_main()` and not linked into the default app component**. The current default boot path does not call `board_audio_init()`, does not enable the M5PM1 L3B audio rail from `app_main()`, does not configure I2S, and does not initialize ES8311. The capture-only code path exists for a future optional audio build/initializer, but it is not wired into default boot.
 
 ### Capability matrix from code
 
@@ -41,7 +41,7 @@ On the default `esp32s3` build the app currently does the following:
 | Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
 | BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
 | GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
-| Sound-level triggers | 🟡 Helper path only | Sound metric facts and validation support exist, but default boot has no audio capture/metrics producer feeding `rule_runtime_process_metrics()`. |
+| Sound-level triggers | 🟡 Helper path only | Sound fact emission and validation support exist, and audio metric helpers are host-tested, but default boot has no audio capture/metrics producer feeding `rule_runtime_process_metrics()` and does not link optional audio sources. |
 | HTTP POST action | ✅ Implemented/wired | Dispatch uses `esp_http_client` when network readiness is true. |
 | NEC IR send action | ✅ Implemented/wired | Dispatch uses the RMT TX path on the configured IR TX GPIO. |
 | Local UI action | ✅ Implemented/wired | Dispatch sets the status UI ready state. |
@@ -49,7 +49,7 @@ On the default `esp32s3` build the app currently does the following:
 | GPIO pulse/frequency | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
 | Battery, USB-power, BMI270, ADC facts | ⛔ Not implemented | Sources are defined but not supported by the capability registry. |
 | Speaker output / AW8737 control | ⛔ Not implemented | No source-backed speaker-amplifier sequence is wired; speaker output remains blocked. |
-| Audio board init / capture-only I2S / ES8311 | 🟡 Helper path only | `board_audio_init_with_ops()` and profile drivers exist and are host-tested, but default boot does not invoke them. |
+| Audio board init / capture-only I2S / ES8311 | 🟡 Helper path only | `board_audio_init_with_ops()` and profile drivers exist as source and are host-tested, but `main/CMakeLists.txt` does not link the optional audio sources into the default app component and default boot does not invoke them. |
 | PCM streaming / sound telemetry | ⛔ Not wired in default firmware | BLE transport exposes status and rule events, not PCM or sound-level telemetry. |
 
 ### BLE rule-event service
@@ -61,7 +61,7 @@ The default transport is a custom Bluetooth LE GATT rule-event service advertise
 | `0xFFF4` | Status | `M5TS` status packet read/notify. |
 | `0xFFF5` | Rule events | `M5RE` notifications when configured automation rules fire BLE-message actions. |
 
-The default firmware does not start audio capture, PCM debug streaming, or sound-level telemetry. The launcher/menu UI is the product UI on boot. Sound trigger enums and metric helpers exist, but no default boot task feeds live microphone metrics into the rule runtime.
+The default firmware does not start audio capture, PCM debug streaming, or sound-level telemetry. The launcher/menu UI is the product UI on boot. Sound trigger enums and metric helpers exist as source/host-tested helpers, but the default app component does not link optional audio sources and no default boot task feeds live microphone metrics into the rule runtime.
 
 **Transport decision:** Classic Bluetooth HFP is rejected because StickS3 uses ESP32-S3-PICO-1-N8R8 and ESP32-S3 does not support Bluetooth Classic / BR/EDR. USB Audio and BLE Audio are deferred until official support, roles, memory, host compatibility, and product requirements are verified.
 
@@ -230,8 +230,8 @@ Before claiming end-to-end hardware validation, run these checks on a physical S
 
 The project can claim working StickS3 firmware only when these checks match the current custom BLE rule-event and local automation product:
 
-- **Static checks:** run the five validation scripts in the development-checks section below.
-- **Host checks:** run `tests/host/run_host_tests.sh`; host tests cover pure helpers, audio metrics, app mode cycling, fake-bus ES8311 sequencing, bit-preserving M5PM1 GPIO helpers, board-audio ordering, failure cleanup, BLE protocol helpers, rule validation, engine transitions/sustain/cooldown, config storage, trigger adapters, GPIO safety, web handlers, and action modules.
+- **Static checks:** run the six validation scripts in the development-checks section below.
+- **Host checks:** run `tests/host/run_host_tests.sh`; host tests cover pure helpers, display-text sanitizing/layout, audio pipeline/metric helpers, app mode cycling, fake-bus ES8311 sequencing, bit-preserving M5PM1 GPIO helpers, board-audio ordering, failure cleanup, BLE protocol helpers, rule validation, engine transitions/sustain/cooldown, config storage, trigger adapters, GPIO safety, web handlers, and action modules.
 - **ESP-IDF checks:** build the default `esp32s3` BLE rule-event/automation transport; keep legacy Classic Bluetooth HFP blocked for `esp32s3`; generate the merged factory image with `python3 tools/make_factory_image.py`.
 - **Automation checks:** verify `/api/capabilities`, `/api/config`, `/api/gpio/test`, sound/button/BLE/Wi-Fi/GPIO facts, cooldown/sustain behavior, HTTP POST actions, and NEC IR actions against the current supported feature set.
 - **Failure checks:** if shared I2C, BLE startup fails, later dependent work must not run and the app must remain alive in an error/diagnostic state instead of guessing unsafe hardware cleanup or reset-looping.
@@ -240,10 +240,11 @@ The project can claim working StickS3 firmware only when these checks match the 
 
 Keep the documentation set intentionally small:
 
-- `README.md` is the single entry point for product status, transport decision, automation status/roadmap, smoke checks, development checks, and change policy.
+- `docs/README.md` is the single entry point for product status, transport decision, automation status/roadmap, smoke checks, development checks, and change policy.
 - `docs/hardware/sticks3.md` stays separate because it is the detailed source-backed board/hardware evidence file used by documentation consistency checks.
+- `docs/implementation_inventory.md` lists every `main/*.c` implementation file one by one, with default-link status and host-test coverage checked by `tools/check_source_inventory.py`.
 
-For every hardware, transport, web, or automation change, update or explicitly confirm `README.md`, `docs/hardware/sticks3.md`, `docs/hardware/sticks3.board.json` when board facts change, touched source comments, Kconfig/default config, CMake/source layout, static validation scripts, host tests, and factory-image flow as applicable.
+For every hardware, transport, web, or automation change, update or explicitly confirm `docs/README.md`, `docs/hardware/sticks3.md`, `docs/implementation_inventory.md`, `docs/hardware/sticks3.board.json` when board facts change, touched source comments, Kconfig/default config, CMake/source layout, static validation scripts, host tests, and factory-image flow as applicable.
 
 Every new hardware write sequence must document or cite the source document or source code, device address, register address, bit mask, intended value, reset/default behavior if known, read-modify-write requirements, unrelated fields that must be preserved, and host tests proving bit preservation for shared registers. If required hardware behavior is unknown, keep it blocked or feature-gated; do not guess M5PM1 L3B polarity, M5PM1 speaker-amplifier pulses, ES8311 volatile readback, BMI270 interrupt routing, HAT protocols, ADC paths, or safe external GPIO routes.
 
@@ -287,6 +288,7 @@ python3 tools/check_transport_config.py
 python3 tools/check_docs_consistency.py
 python3 tools/check_audio_clock.py
 python3 tools/check_audio_safety.py
+python3 tools/check_source_inventory.py
 tests/host/run_host_tests.sh
 ```
 
