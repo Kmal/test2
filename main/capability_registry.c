@@ -7,6 +7,15 @@
 #ifndef CONFIG_APP_SOUND_LEVEL_TRIGGERS
 #define CONFIG_APP_SOUND_LEVEL_TRIGGERS 0
 #endif
+#ifndef CONFIG_APP_POWER_FACTS
+#define CONFIG_APP_POWER_FACTS 1
+#endif
+#ifndef CONFIG_APP_BMI270_FACTS
+#define CONFIG_APP_BMI270_FACTS 1
+#endif
+#ifndef CONFIG_APP_ADC_FACTS
+#define CONFIG_APP_ADC_FACTS 1
+#endif
 
 static void set_error(char *error, size_t error_len, const char *message)
 {
@@ -53,9 +62,9 @@ static const source_capability_t s_source_caps[] = {
     {RULE_SOURCE_KEY2_SHORT, "button.key2.short", true, true, "implemented"},
     {RULE_SOURCE_BLE_CONNECTED, "ble.connected", true, true, "implemented"},
     {RULE_SOURCE_WIFI_CONNECTED, "wifi.connected", true, true, "implemented"},
-    {RULE_SOURCE_BATTERY_PERCENT, "power.battery_percent", false, false, "planned"},
-    {RULE_SOURCE_POWER_USB_PRESENT, "power.usb_present", false, false, "planned"},
-    {RULE_SOURCE_BMI270_MOTION, "bmi270.motion", false, false, "planned"},
+    {RULE_SOURCE_BATTERY_PERCENT, "power.battery_percent", true, CONFIG_APP_POWER_FACTS, CONFIG_APP_POWER_FACTS ? "implemented" : "power_facts_disabled"},
+    {RULE_SOURCE_POWER_USB_PRESENT, "power.usb_present", true, CONFIG_APP_POWER_FACTS, CONFIG_APP_POWER_FACTS ? "implemented" : "power_facts_disabled"},
+    {RULE_SOURCE_BMI270_MOTION, "bmi270.motion", true, CONFIG_APP_BMI270_FACTS, CONFIG_APP_BMI270_FACTS ? "implemented" : "bmi270_facts_disabled"},
     {RULE_SOURCE_HAT_PIR_MOTION, "hat.pir.motion", false, false, "missing_hat_driver"},
     {RULE_SOURCE_HAT_ENV3_TEMPERATURE_C, "hat.env3.temperature_c", false, false, "missing_hat_driver"},
     {RULE_SOURCE_HAT_ENV3_HUMIDITY_RH, "hat.env3.humidity_rh", false, false, "missing_hat_driver"},
@@ -71,7 +80,7 @@ static const source_capability_t s_source_caps[] = {
     {RULE_SOURCE_GPIO_EDGE, "gpio.edge", true, true, "implemented"},
     {RULE_SOURCE_GPIO_PULSE_COUNT, "gpio.pulse_count", false, false, "missing_gpio_driver"},
     {RULE_SOURCE_GPIO_FREQUENCY_HZ, "gpio.frequency_hz", false, false, "missing_gpio_driver"},
-    {RULE_SOURCE_ADC_VOLTAGE_MV, "adc.voltage_mv", false, false, "planned"},
+    {RULE_SOURCE_ADC_VOLTAGE_MV, "adc.voltage_mv", true, CONFIG_APP_ADC_FACTS, CONFIG_APP_ADC_FACTS ? "implemented" : "adc_facts_disabled"},
 };
 
 static const action_capability_t s_action_caps[] = {

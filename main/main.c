@@ -253,6 +253,7 @@ static void app_rule_gpio_poll_task(void *ctx)
         const uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         if (s_rule_mutex != NULL && xSemaphoreTake(s_rule_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             (void)rule_runtime_poll_gpio(&s_rule_runtime, uptime_ms);
+            (void)rule_runtime_poll_hardware(&s_rule_runtime, uptime_ms);
             xSemaphoreGive(s_rule_mutex);
         }
         vTaskDelay(pdMS_TO_TICKS(20));

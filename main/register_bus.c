@@ -140,6 +140,23 @@ esp_err_t register_bus_read_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, u
     return register_bus_read_u8_impl(port, dev_addr, reg, value, true);
 }
 
+esp_err_t register_bus_read(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t *data, size_t len)
+{
+    if (data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    i2c_master_dev_handle_t dev_handle = NULL;
+    esp_err_t err = register_bus_get_device(port, dev_addr, &dev_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = i2c_master_transmit_receive(dev_handle, &reg, 1, data, len, REGISTER_BUS_TIMEOUT_MS);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C read dev 0x%02x reg 0x%02x len %u failed: %s", dev_addr, reg, (unsigned)len, esp_err_to_name(err));
+    }
+    return err;
+}
+
 esp_err_t register_bus_read_u8_quiet(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t *value)
 {
     return register_bus_read_u8_impl(port, dev_addr, reg, value, false);

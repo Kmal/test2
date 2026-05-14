@@ -87,3 +87,22 @@ esp_err_t register_bus_update_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg,
     uint8_t next = (current & (uint8_t)~mask) | (value & mask);
     return register_bus_write_u8(port, dev_addr, reg, next);
 }
+
+
+esp_err_t register_bus_read(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t *data, size_t len)
+{
+    (void)port;
+    if (data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_fail_next_read != ESP_OK) {
+        esp_err_t err = s_fail_next_read;
+        s_fail_next_read = ESP_OK;
+        return err;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        data[i] = s_regs[dev_addr & 0x7f][(uint8_t)(reg + i)];
+        record(FAKE_BUS_OP_READ, dev_addr, (uint8_t)(reg + i), data[i]);
+    }
+    return ESP_OK;
+}

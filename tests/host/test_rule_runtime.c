@@ -1,4 +1,7 @@
 #include "rule_runtime.h"
+#include "board_sticks3.h"
+#include "m5pm1.h"
+#include "fake_register_bus.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,6 +123,109 @@ static action_result_t fake_runtime_local_ui_sender(const rule_event_t *event, v
 }
 
 
+static void set_fake_reg16(uint8_t addr, uint8_t reg, uint16_t value)
+{
+    fake_register_bus_set_reg(addr, reg, (uint8_t)(value & 0xffu));
+    fake_register_bus_set_reg(addr, (uint8_t)(reg + 1), (uint8_t)(value >> 8));
+}
+
+static void set_fake_accel_raw(int16_t x, int16_t y, int16_t z)
+{
+    const uint8_t reg = 0x0c;
+    const uint16_t values[3] = {(uint16_t)x, (uint16_t)y, (uint16_t)z};
+    for (size_t i = 0; i < 3; ++i) {
+        set_fake_reg16(BOARD_BMI270_ADDR, (uint8_t)(reg + i * 2), values[i]);
+    }
+}
+
+static automation_config_t hardware_runtime_config(rule_source_t source,
+                                                   const char *source_key,
+                                                   rule_comparator_t comparator,
+                                                   rule_value_t threshold)
+{
+    automation_config_t config = runtime_config();
+    (void)snprintf(config.rules[0].name, RULE_NAME_MAX, "runtime hardware");
+    config.rules[0].when.source = source;
+    memset(config.rules[0].when.source_key, 0, sizeof(config.rules[0].when.source_key));
+    if (source_key != NULL) {
+        (void)snprintf(config.rules[0].when.source_key, RULE_SOURCE_KEY_MAX, "%s", source_key);
+    }
+    config.rules[0].when.comparator = comparator;
+    config.rules[0].when.threshold = threshold;
+    config.rules[0].when.sustain_ms = 0;
+    config.rules[0].cooldown_ms = 100;
+    return config;
+}
+
+static void prepare_runtime_power_regs(uint16_t vbat_mv, uint16_t vin_mv, uint16_t fivev_mv)
+{
+    fake_register_bus_reset();
+    set_fake_reg16(BOARD_M5PM1_ADDR, M5PM1_REG_VBAT_L, vbat_mv);
+    set_fake_reg16(BOARD_M5PM1_ADDR, M5PM1_REG_VIN_L, vin_mv);
+    set_fake_reg16(BOARD_M5PM1_ADDR, M5PM1_REG_5VINOUT_L, fivev_mv);
+}
+
+static void test_runtime_battery_hardware_fact_to_action_result(void)
+{
+    prepare_runtime_power_regs(4000, 0, 0);
+    automation_config_t config = hardware_runtime_config(RULE_SOURCE_BATTERY_PERCENT, "", RULE_COMPARATOR_GT, rule_value_i32(20));
+    rule_runtime_t runtime;
+    int calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    ASSERT_TRUE(rule_runtime_poll_hardware(&runtime, 100) > 0);
+    ASSERT_EQ(1, calls);
+}
+
+static void test_runtime_usb_hardware_fact_to_action_result(void)
+{
+    prepare_runtime_power_regs(4000, 5000, 0);
+    automation_config_t config = hardware_runtime_config(RULE_SOURCE_POWER_USB_PRESENT, "", RULE_COMPARATOR_EQ, rule_value_bool(true));
+    rule_runtime_t runtime;
+    int calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    ASSERT_TRUE(rule_runtime_poll_hardware(&runtime, 100) > 0);
+    ASSERT_EQ(1, calls);
+}
+
+static void test_runtime_bmi270_hardware_fact_to_action_result(void)
+{
+    fake_register_bus_reset();
+    fake_register_bus_set_reg(BOARD_BMI270_ADDR, 0x00, 0x24);
+    set_fake_accel_raw(0, 0, 0);
+    automation_config_t config = hardware_runtime_config(RULE_SOURCE_BMI270_MOTION, "", RULE_COMPARATOR_EQ, rule_value_bool(true));
+    rule_runtime_t runtime;
+    int calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    (void)rule_runtime_poll_hardware(&runtime, 100);
+    set_fake_accel_raw(4000, 0, 0);
+    ASSERT_TRUE(rule_runtime_poll_hardware(&runtime, 1200) > 0);
+    ASSERT_EQ(1, calls);
+}
+
+static void test_runtime_adc_source_key_matching(void)
+{
+    prepare_runtime_power_regs(4000, 0, 0);
+    automation_config_t config = hardware_runtime_config(RULE_SOURCE_ADC_VOLTAGE_MV, "grove.g9", RULE_COMPARATOR_GT, rule_value_i32(1000));
+    rule_runtime_t runtime;
+    int calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    ASSERT_TRUE(rule_runtime_poll_hardware(&runtime, 100) > 0);
+    ASSERT_EQ(1, calls);
+
+    prepare_runtime_power_regs(4000, 0, 0);
+    config = hardware_runtime_config(RULE_SOURCE_ADC_VOLTAGE_MV, "grove.g9", RULE_COMPARATOR_GT, rule_value_i32(1008));
+    calls = 0;
+    ASSERT_TRUE(rule_runtime_init(&runtime, &config));
+    rule_runtime_set_local_ui_sender(&runtime, fake_runtime_local_ui_sender, &calls);
+    ASSERT_TRUE(rule_runtime_poll_hardware(&runtime, 100) > 0);
+    ASSERT_EQ(0, calls);
+}
+
+
 static automation_config_t sound_runtime_config(rule_source_t source)
 {
     automation_config_t config = runtime_config();
@@ -235,6 +341,10 @@ int main(void)
     test_runtime_ble_connected_fact_to_action_result();
     test_runtime_wifi_connected_fact_to_action_result();
     test_runtime_local_ui_callback();
+    test_runtime_battery_hardware_fact_to_action_result();
+    test_runtime_usb_hardware_fact_to_action_result();
+    test_runtime_bmi270_hardware_fact_to_action_result();
+    test_runtime_adc_source_key_matching();
     test_runtime_sound_rms_metrics_to_local_ui_action();
     test_runtime_sound_peak_metrics_to_local_ui_action();
     test_runtime_sound_clipped_metrics_to_local_ui_action();

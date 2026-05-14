@@ -55,9 +55,10 @@ The current default firmware is a local configuration and automation device. Fro
 | I2S TX / local speaker output | ⛔ Not implemented | Full-duplex/TX is not selected by default, and AW8737/M5PM1 speaker-amplifier control remains blocked with `ESP_ERR_NOT_SUPPORTED`. |
 | IR send | ✅ Implemented/wired for actions | NEC IR actions use the RMT TX path on GPIO46 after rule validation. |
 | IR receive | ⛔ Not implemented | GPIO42 is reserved as IR RX, but no receive action/source is wired. |
-| BMI270 | ⛔ Not implemented | Address and routing are documented, but no IMU initialization or automation fact producer is wired. |
+| BMI270 | ✅ Implemented/Kconfig-gated | `bmi270.motion` uses polling-only accelerometer reads when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing through M5PM1 GPIO4 remains unused. |
 | External GPIO digital/edge | ✅ Implemented/wired with validation | GPIO rules are allowed only after conflict checks reject LCD, I2C, I2S/audio, buttons, IR, boot/USB, and internal-risk pins. |
-| GPIO pulse/frequency, ADC, battery/power automation facts, HAT devices | ⛔ Not implemented / fail-closed | Capability validation reports these sources/actions disabled until source-backed drivers and routing are added. |
+| GPIO pulse/frequency and HAT devices | ⛔ Not implemented / fail-closed | Capability validation reports these sources/actions disabled until source-backed drivers and routing are added. |
+| Battery/USB power and safe ADC facts | ✅ Implemented/Kconfig-gated | M5PM1-backed `power.battery_percent`/`power.usb_present` and ADC1-only `adc.voltage_mv` are emitted by `hardware_fact_service` when their Kconfig gates are enabled. |
 
 ## On-device UI hierarchy
 
@@ -117,7 +118,7 @@ Speaker monitoring remains disabled as a product feature until a compatible tran
 
 ## BMI270 scope
 
-BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing through M5PM1. The current firmware does not initialize or use BMI270. This is intentional: no IMU-dependent feature is currently selected. M5PM1 GPIO helpers must preserve unrelated GPIO fields so future IMU interrupt routing is not clobbered by audio-related changes.
+BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing through M5PM1. The current firmware uses BMI270 only for polling-based `bmi270.motion` facts when `CONFIG_APP_BMI270_FACTS=y`; it does not enable BMI270 interrupt mode and does not modify the M5PM1 IMU interrupt GPIO. M5PM1 GPIO helpers must preserve unrelated GPIO fields so future IMU interrupt routing is not clobbered by audio-related changes.
 
 ## Audio init failure policy
 
@@ -125,13 +126,14 @@ BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing thr
 
 ## Automation hardware scope
 
-Safe GPIO digital and edge triggers are implemented only behind conflict validation. Pins used by LCD, I2C, I2S/audio, the two StickS3 buttons, IR, boot/USB, or internal-risk functions are rejected before a rule can be saved. HAT sensors/actions, GPIO pulse/frequency, ADC, battery/power, and BMI270 facts remain disabled until their hardware behavior and routing are verified.
+Safe GPIO digital and edge triggers are implemented only behind conflict validation. Pins used by LCD, I2C, I2S/audio, the two StickS3 buttons, IR, boot/USB, or internal-risk functions are rejected before a rule can be saved. Battery/USB power, BMI270 motion, and safe ADC1 facts are implemented behind Kconfig gates. HAT sensors/actions and GPIO pulse/frequency facts remain disabled until their hardware behavior and routing are verified.
 
 ## Unknowns / deferred decisions
 
 - Physical StickS3 validation of the default sound-level capture path, including measured I2S clocks and ES8311 sample alignment; the firmware still does not expose PCM streaming.
 - Exact M5PM1 speaker amplifier command sequence.
-- Whether BMI270, ADC, battery, or HAT features are needed by a future product feature.
+- Physical StickS3 validation of the Kconfig-gated battery/USB, BMI270 polling, and ADC facts.
+- Whether HAT features are needed by a future product feature.
 
 ## Source references
 
@@ -154,3 +156,55 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 Sound-level trigger work requires an upstream/vendor reference review before changing audio code. For this implementation, the ESP-IDF programming guide was used for component/Kconfig conventions, FreeRTOS task/semaphore use, logging/error style, and the channel-based I2S API assumptions. M5Stack StickS3 product and Arduino/M5PM1 documentation, the StickS3 schematic, M5PM1, M5Unified, and M5GFX sources were cross-checked for the ESP32-S3-PICO-1-N8R8 board identity, ES8311 mono codec, MEMS microphone, AW8737 amplifier, MCLK/BCLK/LRCK/DIN/DOUT pins, shared I2C addresses, M5PM1 L3B power behavior, and LCD/L3B safety. The ES8311 datasheet was used for ADC/I2S-format expectations, MCLK/LRCK clocking, and capture-only codec setup. The BMI270 datasheet was reviewed only to avoid altering the shared I2C/interrupt behavior; sound-level trigger code does not initialize or change BMI270 state.
 
 Sound-level triggers use `BOARD_AUDIO_PROFILE_CAPTURE_ONLY`. The speaker amplifier, I2S TX/DAC path, and full-duplex speaker behavior remain disabled for this feature; only the ES8311 microphone capture path is brought up.
+
+## Hardware automation facts
+
+The firmware exposes the following StickS3 hardware facts when their Kconfig gates are enabled. These names match the rule source metadata returned by the capability registry.
+
+### Battery percent: `power.battery_percent`
+
+* Source: M5PM1 VBAT millivolt registers on the shared I2C bus (`SDA=GPIO47`, `SCL=GPIO48`, PMIC address `0x6e`).
+* Policy: VBAT samples are considered valid only in the `2500..4500 mV` range.
+* Conversion: valid VBAT values are converted through the LiPo interpolation curve used by `board_power_lipo_percent_from_mv()`.
+* Configuration: emitted only when `CONFIG_APP_POWER_FACTS=y`.
+
+### USB/external power present: `power.usb_present`
+
+* Source: M5PM1 VIN and 5V input/output millivolt reads.
+* Policy: USB/external power is present when either VIN or 5V in/out is at least `CONFIG_APP_POWER_USB_PRESENT_MV`.
+* The StickS3 documentation warns that the 5V interface can be input or output depending on EXT_5V mode; automation only reads voltage and does not change EXT_5V/L3B policy.
+* Configuration: emitted only when `CONFIG_APP_POWER_FACTS=y`.
+
+### BMI270 motion: `bmi270.motion`
+
+* Source: BMI270 accelerometer polling at I2C address `0x68`.
+* First implementation: polling-only software thresholding using `CONFIG_APP_BMI270_MOTION_DELTA_MG` and a fixed still hysteresis of `30 mg`; initialization uses the BMI270 normal-power polling register path (`PWR_CONF=0x02`, accelerometer 100 Hz normal bandwidth, ±2g range, `PWR_CTRL.acc_en`).
+* Interrupt deferral: the implementation does not enable BMI270 interrupt mode and does not modify M5PM1 GPIO4 / `PYG4_IMU_INT`.
+* Future interrupt mode must preserve existing M5PM1 GPIO state and avoid disturbing M5PM1 GPIO2 / `PYG2_L3B_EN` LCD/audio power behavior.
+* Configuration: emitted only when `CONFIG_APP_BMI270_FACTS=y`.
+
+### ADC voltage: `adc.voltage_mv`
+
+* Source: ESP-IDF ADC oneshot on ESP32-S3 ADC1 only; ADC2 is not exposed.
+* Safe source keys:
+  * `grove.g9`
+  * `grove.g10`
+  * `hat.g4`
+  * `hat.g5`
+  * `hat.g6`
+  * `hat.g7`
+  * `hat.g8`
+* Explicit exclusions:
+  * `GPIO1`, `GPIO2`, and `GPIO3` are not exposed by default because they overlap boot/power-sensitive StickS3 Hat2-Bus roles.
+  * `GPIO11` and `GPIO12` are not exposed because they are user buttons.
+  * `GPIO19` and `GPIO20` are not exposed because ESP-IDF uses them for USB-JTAG by default on ESP32-S3.
+  * `GPIO43` and `GPIO44` are not exposed as ADC because they are not ESP32-S3 ADC-capable GPIOs.
+  * LCD, I2C, audio, IR, and other internal-risk pins are not exposed.
+* Configuration: emitted only when `CONFIG_APP_ADC_FACTS=y`.
+
+### Implementation references
+
+* StickS3 product documentation and Arduino programming docs provide the shared I2C pins, BMI270/M5PM1 addresses, Grove/Hat2-Bus pin map, buttons, LCD, audio, and IR exclusions.
+* M5PM1 Arduino docs and source provide the source-verified PMIC voltage register layout used for VBAT, VIN, VREF, and 5V in/out reads; the firmware follows the upstream little-endian 16-bit voltage read helper so USB/VIN values above 4095 mV remain representable.
+* The BMI270 datasheet provides chip ID and accelerometer data register semantics for the polling driver.
+* The ESP-IDF Programming Guide provides the ADC oneshot and calibration API assumptions and ESP32-S3 ADC channel mapping.
