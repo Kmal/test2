@@ -27,7 +27,7 @@ On the default `esp32s3` build the app currently does the following:
 
 ### Capability matrix from code
 
-The code-derived capability overlay is grouped by how the rule runtime uses each item: trigger sources that can emit facts, actions that can be dispatched when rules fire, and supporting services/transports that enable configuration or status but are not rule endpoints by themselves.
+The code-derived capability overlay is grouped by how the rule runtime uses each item: trigger sources that emit comparable facts, rule actions that can be dispatched when rules fire, and supporting services/transports or deliberately disabled product capabilities that are not rule endpoints by themselves.
 
 #### Triggers and sources
 
@@ -36,28 +36,29 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
 | BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
 | GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
-| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while shared demand is active: enabled `sound.*` automation rules or Web UI telemetry. The same service computes metrics, feeds sound facts into the rule runtime, and exposes live status metrics to the Web UI. |
+| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts while enabled `sound.*` automation rules create trigger demand. The capture service computes metrics and feeds `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts into the rule runtime. |
 | HAT sources | ⛔ Not implemented / fail-closed | Capabilities report HAT sources disabled and the HAT probe returns unsupported. |
 | GPIO pulse/frequency sources | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
 | Battery, USB-power, BMI270, ADC facts | ✅ Implemented/Kconfig-gated | `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` are implemented when their `CONFIG_APP_*_FACTS` gates are enabled; ADC exposure is limited to the source-backed safe ADC1 allowlist. |
-| PCM streaming / sound telemetry | 🟡 Sound telemetry only | BLE transport exposes status and rule events, not PCM streaming; sound-level telemetry is produced by the single local capture service for automation and Web UI status when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. |
 
-#### Actions and outputs
+#### Rule actions
 
-| Action/output | Current status | Code-derived note |
+| Rule action | Current status | Code-derived note |
 | --- | --- | --- |
 | BLE rule-event notifications | ✅ Implemented/wired | `ble_message` actions dispatch through `transport_ble_send_rule_event()` when the BLE transport is built. |
 | HTTP POST action | ✅ Implemented/wired | Dispatch uses `esp_http_client` when network readiness is true. |
 | NEC IR send action | ✅ Implemented/wired | Dispatch uses the RMT TX path on the configured IR TX GPIO. |
 | Local UI action | ✅ Implemented/wired | Dispatch sets the status UI ready state. |
 | HAT actions | ⛔ Not implemented / fail-closed | Capabilities report HAT actions disabled and HAT actions are rejected/unsupported by the dispatcher. |
-| Speaker output / AW8737 control | ⛔ Not implemented | No source-backed speaker-amplifier sequence is wired; speaker output remains blocked. |
 
-#### Supporting services and transports
+#### Supporting services, transports, and disabled product capabilities
 
-| Service/transport | Current status | Code-derived note |
+| Capability | Current status | Code-derived note |
 | --- | --- | --- |
-| BLE GATT status | ✅ Implemented/wired | Default transport starts the custom BLE GATT service when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`. |
+| BLE GATT status | ✅ Implemented/wired | Default transport starts the custom BLE GATT service when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`; despite the historical Kconfig symbol suffix, this service exposes status and rule-event notifications only. |
+| Web UI sound telemetry | ✅ Implemented/default available | Web UI status reads the same sound-level service last-metrics path used by sound triggers; telemetry demand can keep capture active without creating a second I2S reader. |
+| PCM streaming endpoint | ⛔ Not implemented / not exposed | No BLE, Wi-Fi, USB, or debug endpoint streams raw microphone PCM. Raw PCM streaming would be a transport/service capability, not a trigger source or rule action. |
+| Onboard speaker hardware / AW8737 firmware control | ✅ Hardware present / ⛔ firmware output disabled | StickS3 has onboard speaker hardware, but this firmware has no source-backed M5PM1/AW8737 enable sequence and no speaker-output rule action; speaker output remains blocked until that path is implemented and tested. |
 | Classic Bluetooth HFP | ⛔ Not implemented for StickS3 | The Kconfig option depends on `!IDF_TARGET_ESP32S3`, and `main.c` errors if it is enabled for ESP32-S3. |
 | USB Audio / BLE Audio class device | ⛔ Not implemented | No default class-device transport path is wired. |
 | Wi-Fi station/setup AP | ✅ Implemented/wired | Boot starts Wi-Fi support; station/AP mode, scan/connect/forget/AP/mode APIs are implemented. |
@@ -192,7 +193,7 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 3. Add authenticated or local-only deployment guidance for the web UI before treating it as a user-facing network service.
 4. Implement and validate more external sources only after hardware routes are verified: GPIO pulse/frequency and selected M5Stack HAT sensors. Battery/USB power, BMI270 motion, and safe ADC1 paths are implemented behind Kconfig gates but still require physical StickS3 validation before release claims.
 5. Implement HAT actions only with source-backed protocols and tests.
-6. Keep speaker output disabled until the AW8737/M5PM1 speaker-amplifier sequence is documented, implemented, and tested; current speaker-amplifier control stays blocked and returns `ESP_ERR_NOT_SUPPORTED`.
+6. Treat the onboard speaker as present hardware but keep firmware speaker output disabled until the AW8737/M5PM1 speaker-amplifier sequence is documented, implemented, and tested; current speaker-amplifier control stays blocked and returns `ESP_ERR_NOT_SUPPORTED`.
 7. Revisit whether the product needs a standard USB Audio or BLE Audio class; until then, this firmware should be described as a custom BLE rule-event and local automation device, not an OS-native microphone.
 
 ## Automation implementation status
@@ -265,34 +266,9 @@ Every new hardware write sequence must document or cite the source document or s
 
 Documentation must describe the current product as a custom BLE rule-event and local automation device, must not call it a Classic Bluetooth HFP or OS-native microphone, and must clearly label each capability as implemented, debug-only, planned, or deliberately disabled.
 
-## Hardware and pin mapping
+## Hardware reference
 
-`main/board_sticks3.h` is the authoritative source for board-specific pins and hardware constants, and `docs/hardware/sticks3.md` records the source-backed hardware facts.
-
-| Signal/function | ESP32-S3 GPIO/address | Direction | Firmware constant | Notes |
-| --- | ---: | --- | --- | --- |
-| SoC/module | ESP32-S3-PICO-1-N8R8 | N/A | N/A | ESP32-S3 does not support Bluetooth Classic / BR/EDR. |
-| I2S MCLK | GPIO18 | ESP32-S3 -> ES8311 | `BOARD_I2S_MCLK_IO` | Current profile uses fixed MCLK at 12.288 MHz. |
-| I2S BCLK | GPIO17 | ESP32-S3 -> ES8311 | `BOARD_I2S_BCK_IO` | Current documented target is 512 kHz for 16 kHz, 16-bit mono capture. |
-| I2S LRCLK/WS | GPIO15 | ESP32-S3 -> ES8311 | `BOARD_I2S_WS_IO` | Current profile uses 16 kHz LRCK. |
-| I2S RX / codec DOUT (`G14_I2S_DOUT`) | GPIO14 | ES8311 -> ESP32-S3 | `BOARD_I2S_DI_IO` | Microphone/ADC samples read by the ESP32-S3. |
-| I2S TX / codec DIN (`G16_I2S_DIN`) | GPIO16 | ESP32-S3 -> ES8311 | `BOARD_I2S_DO_IO` | Codec DAC/input data pin; not driven in the default capture-only profile. |
-| I2C SDA | GPIO47 | Bidirectional | `BOARD_I2C_SDA_IO` | Shared ES8311/BMI270/M5PM1 control bus. |
-| I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock; M5PM1 handle remains at 100 kHz for power-up behavior. |
-| ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
-| BMI270 I2C address | `0x68` | N/A | `BOARD_BMI270_ADDR` | Used by the polling-only `bmi270.motion` hardware fact service when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing remains unused. |
-| M5PM1 I2C address | `0x6e` | N/A | `BOARD_M5PM1_ADDR` | Used for source-backed L3B audio rail and LCD power sequence. |
-| User key 1 | GPIO11 | Input | `BOARD_BUTTON_KEY1_GPIO` | Official StickS3 `KEY1`, active-low with pull-up; cycles display pages and emits automation facts. |
-| User key 2 | GPIO12 | Input | `BOARD_BUTTON_KEY2_GPIO` | Official StickS3 `KEY2`, active-low with pull-up; cycles app modes and emits automation facts. |
-| LCD MOSI | GPIO39 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_MOSI_GPIO` | Must not be configured as a status button or user GPIO. |
-| LCD SCLK | GPIO40 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_SCLK_GPIO` | SPI clock for the onboard 135x240 LCD. |
-| LCD RS/DC | GPIO45 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_DC_GPIO` | Display data/command select. |
-| LCD CS | GPIO41 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_CS_GPIO` | Display chip select. |
-| LCD reset | GPIO21 | ESP32-S3 -> ST7789P3 | `BOARD_LCD_RST_GPIO` | Display reset. |
-| LCD backlight | GPIO38 | ESP32-S3 -> LCD backlight | `BOARD_LCD_BL_GPIO` | Active-high backlight enable. |
-
-The capture-only audio clock profile is explicit when the sound-level path is enabled: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock-manager register-2 value `0x40`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio and sets a 32-bit slot width for the physical BCLK target while reading DMA data as 16-bit samples according to `I2S_DATA_BIT_WIDTH_16BIT`.
-The capture-only audio clock profile is explicit when the sound-level path is enabled: 16 kHz mono PCM, 16-bit samples, fixed MCLK at 12.288 MHz, documented BCLK target 512 kHz, and ES8311 clock-manager register-2 value `0x40`. For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MCLK multiple to generate the 12.288 MHz ES8311 master clock for 16 kHz audio.
+Keep detailed board pins, electrical constraints, source-backed hardware facts, and hardware acceptance notes in `docs/hardware/sticks3.md`. This README stays focused on product behavior, user-facing firmware functions, validation flow, and change policy.
 
 ## Development checks
 

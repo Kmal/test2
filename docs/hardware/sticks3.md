@@ -1,6 +1,6 @@
 # M5Stack StickS3 hardware facts
 
-This document records the StickS3 hardware facts that the firmware is allowed to rely on. Keep this file, `docs/hardware/sticks3.board.json`, `main/board_sticks3.h`, and `docs/README.md` synchronized.
+This document records the StickS3 hardware facts that the firmware is allowed to rely on. Keep this file, `docs/hardware/sticks3.board.json`, and `main/board_sticks3.h` synchronized for board facts. Keep product behavior and user-facing firmware instructions in `docs/README.md`.
 
 ## Evidence map
 
@@ -40,7 +40,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
-The current default firmware is a local configuration and automation device. From the current code path it initializes NVS/network services, Wi-Fi station/setup-AP support, the rule runtime, the on-demand Web UI server lifecycle, status UI, capture-only sound-level telemetry, and the shared ESP-IDF v6 I2C master bus when the LCD/power/audio helper needs it. It starts an onboard ST7789P3 135x240 launcher/menu UI when `CONFIG_APP_STATUS_UI_LCD` is enabled, advertises as `M5StickS3-Control`, exposes custom BLE service UUID `0xFFF0`, exposes status on characteristic UUID `0xFFF4`, and emits `M5RE` automation rule events on characteristic UUID `0xFFF5`. The default app component links the capture-only audio sources but allocates `sound_level_service`, initializes audio, and starts the capture task only while shared sound-capture demand is active: enabled `sound.*` automation rules or Web UI telemetry. When neither demand source is active, the service task/state is stopped and released. It does not enable I2S TX, does not unmute the ES8311 DAC, and does not pulse or enable the speaker amplifier.
+For product behavior, user-facing firmware functions, and transport/API status, use `docs/README.md`. This hardware file records the board-level implications of the current default firmware: the onboard ST7789P3 135x240 LCD path is optional and non-fatal, the shared ESP-IDF v6 I2C master bus owns ES8311/BMI270/M5PM1 access, and the ES8311/I2S path is initialized only in a capture-only profile. The firmware does not drive I2S TX, unmute the ES8311 DAC, or pulse/enable the AW8737 speaker amplifier.
 
 ### Code-derived hardware implementation overlay
 
@@ -48,27 +48,16 @@ The current default firmware is a local configuration and automation device. Fro
 | --- | --- | --- |
 | LCD power and panel initialization | ✅ Implemented/wired when `CONFIG_APP_STATUS_UI_LCD=y` | `status_ui_init()` initializes the shared I2C bus, calls the M5PM1 LCD/L3B power helper, initializes the ST7789P3 panel, enables backlight GPIO38, and treats LCD failure as non-fatal. |
 | Two StickS3 keys | ✅ Implemented/wired | Only GPIO11/KEY1 and GPIO12/KEY2 are polled as user keys; they drive menu navigation and button automation facts. |
-| M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-active-low sequence exists and is used by LCD power and by demand-driven sound-level audio initialization when enabled `sound.*` rules or Web UI telemetry demand exist. |
+| M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-active-low sequence exists and is used by LCD power and by demand-driven ES8311 capture initialization. |
 | Capture-only I2S/ES8311 profile | ✅ Implemented/wired by default | `board_audio_init_with_ops()` sequences I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup because `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is set in the project defaults. |
-| Sound metrics from microphone | ✅ Implemented/default available | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build allocates the service and starts a capture-only task only while enabled automation rules use `sound.*` triggers or Web UI telemetry demand is active, reads normalized I2S microphone samples, feeds sound facts into the rule runtime, and serves Web UI last-metrics status from the same task. |
-| I2S TX / local speaker output | ⛔ Not implemented | Full-duplex/TX is not selected by default, and AW8737/M5PM1 speaker-amplifier control remains blocked with `ESP_ERR_NOT_SUPPORTED`. |
+| ES8311 microphone capture path | ✅ Implemented/wired by default | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build initializes the ES8311/I2S path only while firmware demand requires microphone metrics, reads normalized I2S microphone samples, and keeps the path capture-only. |
+| I2S TX / onboard speaker output | ✅ Hardware present / ⛔ firmware output disabled | StickS3 has an AW8737-backed speaker path, but full-duplex/TX is not selected by default and M5PM1/AW8737 speaker-amplifier control remains blocked with `ESP_ERR_NOT_SUPPORTED`. |
 | IR send | ✅ Implemented/wired for actions | NEC IR actions use the RMT TX path on GPIO46 after rule validation. |
 | IR receive | ⛔ Not implemented | GPIO42 is reserved as IR RX, but no receive action/source is wired. |
 | BMI270 | ✅ Implemented/Kconfig-gated | `bmi270.motion` uses polling-only accelerometer reads when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing through M5PM1 GPIO4 remains unused. |
 | External GPIO digital/edge | ✅ Implemented/wired with validation | GPIO rules are allowed only after conflict checks reject LCD, I2C, I2S/audio, buttons, IR, boot/USB, and internal-risk pins. |
 | GPIO pulse/frequency and HAT devices | ⛔ Not implemented / fail-closed | Capability validation reports these sources/actions disabled until source-backed drivers and routing are added. |
 | Battery/USB power and safe ADC facts | ✅ Implemented/Kconfig-gated | M5PM1-backed `power.battery_percent`/`power.usb_present` and ADC1-only `adc.voltage_mv` are emitted by `hardware_fact_service` when their Kconfig gates are enabled. |
-
-## On-device UI hierarchy
-
-The onboard UI exposes:
-- Web UI
-- Connect to Wi-Fi
-- Connect to Bluetooth
-- All automations
-- Settings
-
-The menu status bar shows 24-hour time on the left and battery percentage on the right when available. Text entry uses a bottom 9-key input overlay.
 
 ## Shared I2C bus
 
@@ -108,7 +97,7 @@ When validating the L3B/LCD fix on UART, the expected M5PM1 lines include `activ
 
 The StickS3 includes an AW8737 speaker amplifier and M5PM1 speaker-control function (`PYG3_SPK_Pulse`). The exact M5PM1 command/register sequence for enabling and disabling the amplifier is not implemented here because it must be verified from official M5PM1 protocol documentation or source before driver code is written.
 
-Speaker monitoring remains disabled as a product feature until a compatible transport requires local output and the M5PM1 speaker-control protocol is implemented. The StickS3 documentation notes that IR reception requires the speaker amplifier to be off.
+Speaker output remains disabled as a product feature until a compatible transport requires local output and the M5PM1 speaker-control protocol is implemented. The StickS3 documentation notes that IR reception requires the speaker amplifier to be off.
 
 ## BMI270 scope
 
