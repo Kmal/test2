@@ -1182,6 +1182,21 @@ static void lcd_draw_text(int x, int y, const char *text, uint16_t color, uint8_
     }
 }
 
+static int lcd_text_visible_width(const char *text, uint8_t scale)
+{
+    if (text == NULL || text[0] == '\0') {
+        return 0;
+    }
+    return (int)(strlen(text) * 6u * scale) - scale;
+}
+
+static void lcd_draw_text_right_aligned(int right_x, int y, const char *text, uint16_t color, uint8_t scale)
+{
+    if (text == NULL) {
+        return;
+    }
+    lcd_draw_text(right_x - lcd_text_visible_width(text, scale), y, text, color, scale);
+}
 
 static const ui_key_def_t s_9key_defs[UI_KEYBOARD_KEY_COUNT] = {
     { UI_KEY_KIND_CHAR, "1", "1", "1", '1' },
@@ -1634,7 +1649,7 @@ static void ui_render_status_bar(const ui_status_bar_state_t *status)
     char battery[8];
     if (status != NULL && status->battery_valid) snprintf(battery, sizeof(battery), "%u%%", (unsigned)status->battery_percent);
     else snprintf(battery, sizeof(battery), "--%%");
-    lcd_draw_text(UI_LCD_W - 28, 5, battery, UI_COLOR_TEXT, 1);
+    lcd_draw_text_right_aligned(UI_LCD_W, 5, battery, UI_COLOR_TEXT, 1);
 }
 
 static void ui_render_title(const char *title)

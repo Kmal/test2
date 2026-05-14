@@ -13,6 +13,33 @@ static const char *TAG = "M5PM1";
 #define M5PM1_RETRY_DELAY_MS 5
 #define M5PM1_L3B_SETTLE_MS 100
 
+static esp_err_t m5pm1_read_u8_retry(i2c_port_t port, uint8_t addr, uint8_t reg, uint8_t *value)
+{
+    bool retried = false;
+    esp_err_t err = register_bus_read_u8(port, addr, reg, value);
+    if (err == ESP_ERR_INVALID_RESPONSE) {
+        /*
+         * The PMIC can NACK the first access after boot or after its I2C
+         * auto-sleep window. Battery/status reads happen periodically from the
+         * LCD task, so they need the same local wake retry used by register
+         * updates; otherwise every first VBAT read can fail and the UI falls
+         * back to the unavailable "--%" indicator forever.
+         */
+        ESP_LOGI(TAG, "M5PM1 reg 0x%02x read got invalid response; retrying after %u ms",
+                 reg, M5PM1_RETRY_DELAY_MS);
+        vTaskDelay(pdMS_TO_TICKS(M5PM1_RETRY_DELAY_MS));
+        retried = true;
+        err = register_bus_read_u8(port, addr, reg, value);
+    }
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "M5PM1 reg 0x%02x read failed: err=%s retried=%s",
+                 reg, esp_err_to_name(err), retried ? "yes" : "no");
+    }
+    (void)retried;
+    return err;
+}
+
 static esp_err_t m5pm1_update_u8_once(i2c_port_t port, uint8_t addr, uint8_t reg,
                                       uint8_t mask, uint8_t value,
                                       uint8_t *current_out, uint8_t *next_out)
@@ -85,11 +112,11 @@ esp_err_t m5pm1_read_vbat_mv(i2c_port_t port, uint8_t addr, uint16_t *out_mv)
     }
     uint8_t lo = 0;
     uint8_t hi = 0;
-    esp_err_t err = register_bus_read_u8(port, addr, M5PM1_REG_VBAT_L, &lo);
+    esp_err_t err = m5pm1_read_u8_retry(port, addr, M5PM1_REG_VBAT_L, &lo);
     if (err != ESP_OK) {
         return err;
     }
-    err = register_bus_read_u8(port, addr, M5PM1_REG_VBAT_H, &hi);
+    err = m5pm1_read_u8_retry(port, addr, M5PM1_REG_VBAT_H, &hi);
     if (err != ESP_OK) {
         return err;
     }
