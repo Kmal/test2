@@ -71,6 +71,12 @@ esp_err_t register_bus_read_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, u
     return ESP_OK;
 }
 
+
+esp_err_t register_bus_read_u8_quiet(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t *value)
+{
+    return register_bus_read_u8(port, dev_addr, reg, value);
+}
+
 esp_err_t register_bus_update_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint8_t mask, uint8_t value)
 {
     uint8_t current = 0;
