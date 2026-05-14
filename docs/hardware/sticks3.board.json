@@ -14,7 +14,7 @@
     },
     "bclk_hz": 512000,
     "lrck_hz": 16000,
-    "profile": "control firmware default; audio capture is opt-in",
+    "profile": "default sound-level capture-only; no TX/speaker output",
     "mclk_multiple": 768
   },
   "i2c": {

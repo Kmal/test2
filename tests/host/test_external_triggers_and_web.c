@@ -149,7 +149,7 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "sound.rms_dbfs") != NULL);
     ASSERT_TRUE(strstr(json, "schema_supported") != NULL);
     ASSERT_TRUE(strstr(json, "runtime_available") != NULL);
-    ASSERT_TRUE(strstr(json, "audio_capture_disabled") != NULL);
+    ASSERT_TRUE(strstr(json, "\"runtime_available\":true") != NULL);
     ASSERT_TRUE(strstr(json, "hat.thermal.avg_c") != NULL);
     ASSERT_TRUE(strstr(json, "pulse_count") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/config", NULL, json, sizeof(json)));

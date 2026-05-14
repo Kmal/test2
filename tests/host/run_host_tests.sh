@@ -54,6 +54,8 @@ compile test_rule_types -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_rule_types.c"
 compile test_capability_sound_enabled -DCONFIG_APP_SOUND_LEVEL_TRIGGERS=1 -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_sound_enabled.c"
+compile test_capability_sound_disabled -DCONFIG_APP_SOUND_LEVEL_TRIGGERS=0 -I"${FAKE_INC}" -I"${ROOT}/main" \
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_sound_disabled.c"
 compile test_rule_engine -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/tests/host/test_rule_engine.c"
 compile test_trigger_sources -I"${ROOT}/main" \
@@ -85,6 +87,7 @@ compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
 "${BUILD_DIR}/test_sound_level_service"
 "${BUILD_DIR}/test_rule_types"
 "${BUILD_DIR}/test_capability_sound_enabled"
+"${BUILD_DIR}/test_capability_sound_disabled"
 "${BUILD_DIR}/test_rule_engine"
 "${BUILD_DIR}/test_trigger_sources"
 "${BUILD_DIR}/test_action_dispatcher"

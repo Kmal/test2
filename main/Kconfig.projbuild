@@ -155,7 +155,7 @@ menu "StickS3 sound-level triggers"
 
 config APP_SOUND_LEVEL_TRIGGERS
     bool "Enable sound-level trigger capture"
-    default n
+    default y
 
 config APP_SOUND_LEVEL_SAMPLE_RATE_HZ
     int "Sound trigger sample rate"
