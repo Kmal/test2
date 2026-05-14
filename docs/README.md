@@ -27,10 +27,37 @@ On the default `esp32s3` build the app currently does the following:
 
 ### Capability matrix from code
 
-| Area | Current status | Code-derived note |
+The code-derived capability overlay is grouped by how the rule runtime uses each item: trigger sources that can emit facts, actions that can be dispatched when rules fire, and supporting services/transports that enable configuration or status but are not rule endpoints by themselves.
+
+#### Triggers and sources
+
+| Trigger/source | Current status | Code-derived note |
+| --- | --- | --- |
+| Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
+| BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
+| GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
+| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while at least one enabled automation rule uses a `sound.*` trigger, then computes metrics and feeds existing sound facts into the rule runtime. |
+| HAT sources | ⛔ Not implemented / fail-closed | Capabilities report HAT sources disabled and the HAT probe returns unsupported. |
+| GPIO pulse/frequency sources | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
+| Battery, USB-power, BMI270, ADC facts | ⛔ Not implemented | Sources are defined but not supported by the capability registry. |
+| PCM streaming / sound telemetry | 🟡 Sound telemetry only | BLE transport exposes status and rule events, not PCM streaming; sound-level telemetry is produced locally for automation when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. |
+
+#### Actions and outputs
+
+| Action/output | Current status | Code-derived note |
+| --- | --- | --- |
+| BLE rule-event notifications | ✅ Implemented/wired | `ble_message` actions dispatch through `transport_ble_send_rule_event()` when the BLE transport is built. |
+| HTTP POST action | ✅ Implemented/wired | Dispatch uses `esp_http_client` when network readiness is true. |
+| NEC IR send action | ✅ Implemented/wired | Dispatch uses the RMT TX path on the configured IR TX GPIO. |
+| Local UI action | ✅ Implemented/wired | Dispatch sets the status UI ready state. |
+| HAT actions | ⛔ Not implemented / fail-closed | Capabilities report HAT actions disabled and HAT actions are rejected/unsupported by the dispatcher. |
+| Speaker output / AW8737 control | ⛔ Not implemented | No source-backed speaker-amplifier sequence is wired; speaker output remains blocked. |
+
+#### Supporting services and transports
+
+| Service/transport | Current status | Code-derived note |
 | --- | --- | --- |
 | BLE GATT status | ✅ Implemented/wired | Default transport starts the custom BLE GATT service when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`. |
-| BLE rule-event notifications | ✅ Implemented/wired | `ble_message` actions dispatch through `transport_ble_send_rule_event()` when the BLE transport is built. |
 | Classic Bluetooth HFP | ⛔ Not implemented for StickS3 | The Kconfig option depends on `!IDF_TARGET_ESP32S3`, and `main.c` errors if it is enabled for ESP32-S3. |
 | USB Audio / BLE Audio class device | ⛔ Not implemented | No default class-device transport path is wired. |
 | Wi-Fi station/setup AP | ✅ Implemented/wired | Boot starts Wi-Fi support; station/AP mode, scan/connect/forget/AP/mode APIs are implemented. |
@@ -38,19 +65,7 @@ On the default `esp32s3` build the app currently does the following:
 | Web time endpoint | ✅ Implemented | `/api/time` GET/POST is registered and handled. |
 | Rule config storage | ✅ Implemented/wired | Config loads from NVS, falls back to defaults, and `/api/config` can save/replace the running config. |
 | Rule engine | ✅ Implemented/wired | Source matching, comparators, false-to-true transitions, sustain, cooldown, and action fan-out are active through the runtime. |
-| Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
-| BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
-| GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
-| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while at least one enabled automation rule uses a `sound.*` trigger, then computes metrics and feeds existing sound facts into the rule runtime. |
-| HTTP POST action | ✅ Implemented/wired | Dispatch uses `esp_http_client` when network readiness is true. |
-| NEC IR send action | ✅ Implemented/wired | Dispatch uses the RMT TX path on the configured IR TX GPIO. |
-| Local UI action | ✅ Implemented/wired | Dispatch sets the status UI ready state. |
-| HAT sources/actions | ⛔ Not implemented / fail-closed | Capabilities report them disabled; HAT probe returns unsupported and HAT actions are rejected/unsupported. |
-| GPIO pulse/frequency | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
-| Battery, USB-power, BMI270, ADC facts | ⛔ Not implemented | Sources are defined but not supported by the capability registry. |
-| Speaker output / AW8737 control | ⛔ Not implemented | No source-backed speaker-amplifier sequence is wired; speaker output remains blocked. |
 | Audio board init / capture-only I2S / ES8311 | ✅ Implemented/wired by default | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` links the audio sources and invokes the capture-only initializer; Kconfig can still disable it. |
-| PCM streaming / sound telemetry | 🟡 Sound telemetry only | BLE transport exposes status and rule events, not PCM streaming; sound-level telemetry is produced locally for automation when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. |
 
 ### BLE rule-event service
 
