@@ -91,6 +91,18 @@ static void test_read_vbat_combines_low_and_high_nibble(void)
     ASSERT_EQ(0x0e34, mv);
 }
 
+static void test_read_vbat_retries_first_invalid_response(void)
+{
+    fake_register_bus_reset();
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_VBAT_L, 0x34);
+    fake_register_bus_set_reg(0x6e, M5PM1_REG_VBAT_H, 0x0e);
+    fake_register_bus_fail_next_read(ESP_ERR_INVALID_RESPONSE);
+    uint16_t mv = 0;
+
+    ASSERT_EQ(ESP_OK, m5pm1_read_vbat_mv(I2C_NUM_0, 0x6e, &mv));
+    ASSERT_EQ(0x0e34, mv);
+}
+
 static void test_board_battery_percent_uses_vbat_curve(void)
 {
     fake_register_bus_reset();
@@ -112,6 +124,7 @@ int main(void)
     test_lcd_power_sequence_matches_source_backed_order();
     test_lcd_power_sequence_retries_first_invalid_response();
     test_read_vbat_combines_low_and_high_nibble();
+    test_read_vbat_retries_first_invalid_response();
     test_board_battery_percent_uses_vbat_curve();
     puts("m5pm1_gpio tests passed");
     return 0;
