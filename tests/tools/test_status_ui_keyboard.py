@@ -6,10 +6,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STATUS_UI = ROOT / "main" / "status_ui.c"
+DISPLAY_TEXT = ROOT / "main" / "display_text.c"
 
 
 def read_status_ui() -> str:
     return STATUS_UI.read_text(encoding="utf-8")
+
+
+def read_display_text() -> str:
+    return DISPLAY_TEXT.read_text(encoding="utf-8")
 
 
 def extract_key_cycles(source: str) -> dict[str, str]:
@@ -35,8 +40,8 @@ def test_phone_keys_cycle_digit_lowercase_then_uppercase() -> None:
 
 
 def test_lcd_text_renderer_preserves_lowercase_glyphs() -> None:
-    source = read_status_ui()
-    glyph_rows = source[source.index("static const uint8_t *glyph_rows") : source.index("static void lcd_fill_rect")]
+    source = read_display_text()
+    glyph_rows = source[source.index("static const uint8_t *glyph_rows") : source.index("static bool display_text_is_supported_ascii")]
     assert "toupper" not in glyph_rows
     for ch in "abcdefghijklmnopqrstuvwxyz":
         assert f"case '{ch}': return glyph_lower_{ch};" in glyph_rows
