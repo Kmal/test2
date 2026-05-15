@@ -69,9 +69,9 @@ compile test_rule_types -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_rule_types.c"
 compile test_capability_sound_enabled -DCONFIG_APP_SOUND_LEVEL_TRIGGERS=1 -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_sound_enabled.c"
-compile test_capability_hardware_enabled -DCONFIG_APP_POWER_FACTS=1 -DCONFIG_APP_BMI270_FACTS=1 -DCONFIG_APP_ADC_FACTS=1 -I"${FAKE_INC}" -I"${ROOT}/main" \
+compile test_capability_hardware_enabled -DCONFIG_APP_BATTERY_FACTS=1 -DCONFIG_APP_USB_POWER_FACTS=1 -DCONFIG_APP_BMI270_FACTS=1 -DCONFIG_APP_ADC_FACTS=1 -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_hardware.c"
-compile test_capability_hardware_disabled -DCONFIG_APP_POWER_FACTS=0 -DCONFIG_APP_BMI270_FACTS=0 -DCONFIG_APP_ADC_FACTS=0 -I"${FAKE_INC}" -I"${ROOT}/main" \
+compile test_capability_hardware_disabled -DCONFIG_APP_BATTERY_FACTS=0 -DCONFIG_APP_USB_POWER_FACTS=0 -DCONFIG_APP_BMI270_FACTS=0 -DCONFIG_APP_ADC_FACTS=0 -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_hardware.c"
 compile test_capability_sound_disabled -DCONFIG_APP_SOUND_LEVEL_TRIGGERS=0 -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/tests/host/test_capability_sound_disabled.c"

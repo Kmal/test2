@@ -35,7 +35,7 @@ set(APP_SRCS
 )
 set(APP_REQUIRES esp_system nvs_flash esp_netif esp_event esp_lcd bt esp_driver_i2c esp_driver_gpio esp_driver_spi esp_http_client esp_http_server esp_wifi esp_driver_rmt esp_driver_i2s esp_adc)
 
-if(CONFIG_APP_TRANSPORT_BLE_GATT_PCM)
+if(CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS)
     list(APPEND APP_SRCS "transport_ble_gatt.c")
 endif()
 

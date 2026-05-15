@@ -124,6 +124,75 @@ static void test_usb_change_and_poll_interval(void)
     assert(has_bool_fact(RULE_SOURCE_POWER_USB_PRESENT, false));
 }
 
+static void test_battery_and_usb_gates_are_independent(void)
+{
+    prepare_hardware_registers(4000, 5000, 0);
+    reset_collector();
+    trigger_adapter_t adapter;
+    trigger_adapter_init(&adapter, collect_fact, NULL);
+    hardware_fact_service_t service;
+    hardware_fact_service_config_t cfg = test_config();
+    cfg.enable_battery = false;
+    cfg.enable_usb_power = true;
+    cfg.enable_bmi270 = false;
+    cfg.enable_adc = false;
+
+    assert(hardware_fact_service_init(&service, &adapter, &cfg) == ESP_OK);
+    assert(hardware_fact_service_poll(&service, 100) > 0);
+    assert(!has_i32_fact(RULE_SOURCE_BATTERY_PERCENT, "", 0));
+    assert(has_bool_fact(RULE_SOURCE_POWER_USB_PRESENT, true));
+
+    reset_collector();
+    cfg = test_config();
+    cfg.enable_battery = true;
+    cfg.enable_usb_power = false;
+    cfg.enable_bmi270 = false;
+    cfg.enable_adc = false;
+    assert(hardware_fact_service_init(&service, &adapter, &cfg) == ESP_OK);
+    assert(hardware_fact_service_poll(&service, 250) > 0);
+    assert(has_i32_fact(RULE_SOURCE_BATTERY_PERCENT, "", 70));
+    assert(!has_bool_fact(RULE_SOURCE_POWER_USB_PRESENT, true));
+}
+
+static void test_usb_gate_survives_vbat_read_failure(void)
+{
+    prepare_hardware_registers(4000, 5000, 0);
+    fake_register_bus_fail_next_read(ESP_FAIL);
+    reset_collector();
+    trigger_adapter_t adapter;
+    trigger_adapter_init(&adapter, collect_fact, NULL);
+    hardware_fact_service_t service;
+    hardware_fact_service_config_t cfg = test_config();
+    cfg.enable_battery = false;
+    cfg.enable_usb_power = true;
+    cfg.enable_bmi270 = false;
+    cfg.enable_adc = false;
+
+    assert(hardware_fact_service_init(&service, &adapter, &cfg) == ESP_OK);
+    assert(hardware_fact_service_poll(&service, 100) > 0);
+    assert(!has_i32_fact(RULE_SOURCE_BATTERY_PERCENT, "", 0));
+    assert(has_bool_fact(RULE_SOURCE_POWER_USB_PRESENT, true));
+}
+
+static void test_usb_fact_not_emitted_when_absence_is_unknown(void)
+{
+    prepare_hardware_registers(4000, 1000, 0);
+    fake_register_bus_fail_reg_read_once(BOARD_M5PM1_ADDR, M5PM1_REG_5VINOUT_L, ESP_FAIL);
+    reset_collector();
+    trigger_adapter_t adapter;
+    trigger_adapter_init(&adapter, collect_fact, NULL);
+    hardware_fact_service_t service;
+    hardware_fact_service_config_t cfg = test_config();
+    cfg.enable_battery = false;
+    cfg.enable_usb_power = true;
+    cfg.enable_bmi270 = false;
+    cfg.enable_adc = false;
+
+    assert(hardware_fact_service_init(&service, &adapter, &cfg) == ESP_OK);
+    assert(hardware_fact_service_poll(&service, 100) == 0);
+    assert(!has_bool_fact(RULE_SOURCE_POWER_USB_PRESENT, false));
+}
+
 static void test_motion_true_and_false_transition(void)
 {
     prepare_hardware_registers(4000, 0, 0);
@@ -167,7 +236,8 @@ static void test_disabled_features_are_tolerated(void)
     trigger_adapter_init(&adapter, collect_fact, NULL);
     hardware_fact_service_t service;
     hardware_fact_service_config_t cfg = test_config();
-    cfg.enable_power = false;
+    cfg.enable_battery = false;
+    cfg.enable_usb_power = false;
     cfg.enable_bmi270 = false;
     cfg.enable_adc = false;
     assert(hardware_fact_service_init(&service, &adapter, &cfg) == ESP_OK);
@@ -178,6 +248,9 @@ int main(void)
 {
     test_emits_power_and_adc_facts();
     test_usb_change_and_poll_interval();
+    test_battery_and_usb_gates_are_independent();
+    test_usb_gate_survives_vbat_read_failure();
+    test_usb_fact_not_emitted_when_absence_is_unknown();
     test_motion_true_and_false_transition();
     test_invalid_battery_still_emits_usb();
     test_disabled_features_are_tolerated();

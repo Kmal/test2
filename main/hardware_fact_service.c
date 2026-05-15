@@ -4,6 +4,21 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
+#ifndef CONFIG_APP_BATTERY_FACTS
+#ifdef CONFIG_APP_POWER_FACTS
+#define CONFIG_APP_BATTERY_FACTS CONFIG_APP_POWER_FACTS
+#else
+#define CONFIG_APP_BATTERY_FACTS 1
+#endif
+#endif
+#ifndef CONFIG_APP_USB_POWER_FACTS
+#ifdef CONFIG_APP_POWER_FACTS
+#define CONFIG_APP_USB_POWER_FACTS CONFIG_APP_POWER_FACTS
+#else
+#define CONFIG_APP_USB_POWER_FACTS 1
+#endif
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -46,7 +61,8 @@ static bool emit_bool_fact(trigger_adapter_t *adapter,
 hardware_fact_service_config_t hardware_fact_service_default_config(void)
 {
     return (hardware_fact_service_config_t) {
-        .enable_power = CONFIG_APP_POWER_FACTS,
+        .enable_battery = CONFIG_APP_BATTERY_FACTS,
+        .enable_usb_power = CONFIG_APP_USB_POWER_FACTS,
         .enable_bmi270 = CONFIG_APP_BMI270_FACTS,
         .enable_adc = CONFIG_APP_ADC_FACTS,
         .poll_interval_ms = CONFIG_APP_HARDWARE_FACT_POLL_INTERVAL_MS,
@@ -74,8 +90,10 @@ esp_err_t hardware_fact_service_init(hardware_fact_service_t *service,
     memset(service, 0, sizeof(*service));
     service->config = cfg;
     service->adapter = adapter;
-    if (service->config.enable_power && board_power_init(&service->config.power) != ESP_OK) {
-        service->config.enable_power = false;
+    if ((service->config.enable_battery || service->config.enable_usb_power) &&
+        board_power_init(&service->config.power) != ESP_OK) {
+        service->config.enable_battery = false;
+        service->config.enable_usb_power = false;
     }
     if (service->config.enable_bmi270) {
         if (bmi270_motion_state_init(&service->motion_state, &service->config.motion) != ESP_OK ||
@@ -106,25 +124,33 @@ size_t hardware_fact_service_poll(hardware_fact_service_t *service,
     service->last_poll_ms = uptime_ms;
 
     size_t emitted = 0;
-    if (service->config.enable_power) {
+    if (service->config.enable_battery || service->config.enable_usb_power) {
         board_power_status_t status;
         if (board_power_read_status(&status) == ESP_OK) {
-            if (status.valid) {
-                if (emit_i32_fact(service->adapter, RULE_SOURCE_BATTERY_PERCENT, "", status.battery_percent, uptime_ms)) {
-                    ++emitted;
-                }
-                service->last_battery_valid = true;
-                service->last_battery_percent = status.battery_percent;
-            } else {
-                service->last_battery_valid = false;
-            }
-            if (!service->last_usb_valid || service->last_usb_present != status.usb_present) {
-                if (emit_bool_fact(service->adapter, RULE_SOURCE_POWER_USB_PRESENT, "", status.usb_present, uptime_ms)) {
-                    ++emitted;
+            if (service->config.enable_battery) {
+                if (status.valid) {
+                    if (emit_i32_fact(service->adapter, RULE_SOURCE_BATTERY_PERCENT, "", status.battery_percent, uptime_ms)) {
+                        ++emitted;
+                    }
+                    service->last_battery_valid = true;
+                    service->last_battery_percent = status.battery_percent;
+                } else {
+                    service->last_battery_valid = false;
                 }
             }
-            service->last_usb_valid = true;
-            service->last_usb_present = status.usb_present;
+            if (service->config.enable_usb_power) {
+                if (status.usb_valid) {
+                    if (!service->last_usb_valid || service->last_usb_present != status.usb_present) {
+                        if (emit_bool_fact(service->adapter, RULE_SOURCE_POWER_USB_PRESENT, "", status.usb_present, uptime_ms)) {
+                            ++emitted;
+                        }
+                    }
+                    service->last_usb_valid = true;
+                    service->last_usb_present = status.usb_present;
+                } else {
+                    service->last_usb_valid = false;
+                }
+            }
         }
     }
     if (service->config.enable_bmi270) {

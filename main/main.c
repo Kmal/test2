@@ -39,14 +39,14 @@
 #include "status_ui.h"
 
 #if CONFIG_APP_TRANSPORT_HFP_LEGACY && defined(CONFIG_IDF_TARGET_ESP32S3)
-#error "ESP32-S3 does not support Bluetooth Classic / BR/EDR; legacy HFP is not available on StickS3"
+#error "ESP32-S3 does not support Bluetooth Classic / BR/EDR; HFP is not available on StickS3"
 #endif
 
 #if CONFIG_APP_TRANSPORT_HFP_LEGACY
 #include "transport_hfp_legacy.h"
 #endif
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 #include "transport_ble_gatt.h"
 #endif
 
@@ -68,7 +68,7 @@ static bool s_sound_level_ready;
 static bool s_sound_level_audio_initialized;
 static app_sound_level_demand_t s_sound_level_demand;
 #endif
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 static TaskHandle_t s_rule_ble_task;
 static bool s_rule_ble_state_known;
 static bool s_rule_ble_connected;
@@ -190,7 +190,7 @@ static action_result_t app_send_local_ui_rule_action(const rule_event_t *event, 
     return result;
 }
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 static action_result_t app_send_ble_rule_action(const rule_event_t *event, void *ctx)
 {
     (void)ctx;
@@ -243,7 +243,7 @@ static void app_rule_network_state_task(void *ctx)
     }
 }
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 static void app_emit_ble_connected_rule_fact(bool connected, uint32_t uptime_ms)
 {
     trigger_fact_t fact;
@@ -321,7 +321,7 @@ static void app_rule_runtime_init(void)
 #if CONFIG_APP_SPEAKER_ACTION
     rule_runtime_set_speaker_sender(&s_rule_runtime, app_send_speaker_rule_action, NULL);
 #endif
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     rule_runtime_set_ble_sender(&s_rule_runtime, app_send_ble_rule_action, NULL);
 #endif
     ESP_LOGI(TAG, "rule runtime init: web server deferred until Web UI is enabled");
@@ -336,7 +336,7 @@ static void app_rule_runtime_init(void)
         BaseType_t created = xTaskCreate(app_rule_network_state_task, "rule_net_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_network_task);
         ESP_LOGI(TAG, "rule runtime init: network state task %s", created == pdPASS ? "created" : "create failed");
     }
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     if (s_rule_ble_task == NULL) {
         BaseType_t created = xTaskCreate(app_rule_ble_state_task, "rule_ble_state", 3072, NULL, tskIDLE_PRIORITY + 1, &s_rule_ble_task);
         ESP_LOGI(TAG, "rule runtime init: BLE state task %s", created == pdPASS ? "created" : "create failed");
@@ -491,7 +491,7 @@ static void app_sound_level_sync(const automation_config_t *config)
 
 static void app_publish_ble_status(void)
 {
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     transport_ble_status_snapshot_t status = {
         .app_mode = s_runtime_state.app_mode,
     };
@@ -658,7 +658,7 @@ void app_main(void)
     }
     app_rule_runtime_init();
 
-#if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
+#if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     ESP_LOGI(TAG, "app_main: BLE GATT rule-event init start");
     ret = transport_ble_gatt_start();
     if (ret != ESP_OK) {

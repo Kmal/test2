@@ -1,10 +1,10 @@
 /*
- * Lightweight fixed-point audio resampling helpers for HFP voice audio.
+ * Lightweight fixed-point audio resampling helpers.
  *
- * The ES8311 codec runs at 16 kHz, 16-bit, mono PCM.  Narrow-band HFP
- * CVSD audio is 8 kHz, so microphone samples must be low-pass filtered
- * before 2:1 decimation and incoming monitoring audio must be expanded
- * back to 16 kHz before it is written to the codec stream.
+ * This helper is retained for host-tested, helper-only 16 kHz <-> 8 kHz mono
+ * PCM conversion. It is not linked by the default StickS3 firmware and is not
+ * evidence of Classic Bluetooth HFP, BLE Audio, USB Audio, or PCM streaming
+ * support.
  */
 
 #pragma once
@@ -20,7 +20,7 @@
 #define AUDIO_RESAMPLE_FILTER_LENGTH      4
 
 #if AUDIO_RESAMPLE_INPUT_RATE_HZ != (AUDIO_RESAMPLE_OUTPUT_RATE_HZ * AUDIO_RESAMPLE_DECIMATION_FACTOR)
-#error "The current HFP resampler only supports exact 2:1 decimation"
+#error "The current audio resampler only supports exact 2:1 decimation"
 #endif
 
 /**
@@ -28,7 +28,7 @@
  *
  * The filter is a 4-tap fixed-point FIR with coefficients [1 3 3 1] / 8.
  * It needs only the last three samples plus a decimation phase bit, keeping
- * CPU and memory use low enough for the Bluetooth HFP data callback.
+ * CPU and memory use low for small helper-only audio conversions.
  */
 typedef struct {
     int16_t history[AUDIO_RESAMPLE_FILTER_LENGTH - 1];
@@ -36,7 +36,7 @@ typedef struct {
 } audio_resample_decimator_t;
 
 /**
- * @brief Persistent state for the 2:1 narrow-band monitoring expander.
+ * @brief Persistent state for the 2:1 mono PCM expander.
  *
  * The expander inserts one linearly interpolated sample between each pair of
  * adjacent 8 kHz samples so the stream can be written to the 16 kHz codec.

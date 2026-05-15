@@ -11,6 +11,7 @@ void fake_register_bus_reset(void);
 void fake_register_bus_set_reg(uint8_t addr, uint8_t reg, uint8_t value);
 void fake_register_bus_fail_next_read(esp_err_t err);
 void fake_register_bus_fail_next_write(esp_err_t err);
+void fake_register_bus_fail_reg_read_once(uint8_t addr, uint8_t reg, esp_err_t err);
 size_t fake_register_bus_op_count(void);
 const fake_bus_op_t *fake_register_bus_op(size_t index);
 int fake_register_bus_has_write(uint8_t addr, uint8_t reg, uint8_t value);

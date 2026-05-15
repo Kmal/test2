@@ -7,8 +7,19 @@
 #ifndef CONFIG_APP_SOUND_LEVEL_TRIGGERS
 #define CONFIG_APP_SOUND_LEVEL_TRIGGERS 0
 #endif
-#ifndef CONFIG_APP_POWER_FACTS
-#define CONFIG_APP_POWER_FACTS 1
+#ifndef CONFIG_APP_BATTERY_FACTS
+#ifdef CONFIG_APP_POWER_FACTS
+#define CONFIG_APP_BATTERY_FACTS CONFIG_APP_POWER_FACTS
+#else
+#define CONFIG_APP_BATTERY_FACTS 1
+#endif
+#endif
+#ifndef CONFIG_APP_USB_POWER_FACTS
+#ifdef CONFIG_APP_POWER_FACTS
+#define CONFIG_APP_USB_POWER_FACTS CONFIG_APP_POWER_FACTS
+#else
+#define CONFIG_APP_USB_POWER_FACTS 1
+#endif
 #endif
 #ifndef CONFIG_APP_BMI270_FACTS
 #define CONFIG_APP_BMI270_FACTS 1
@@ -65,8 +76,8 @@ static const source_capability_t s_source_caps[] = {
     {RULE_SOURCE_KEY2_SHORT, "button.key2.short", true, true, "implemented"},
     {RULE_SOURCE_BLE_CONNECTED, "ble.connected", true, true, "implemented"},
     {RULE_SOURCE_WIFI_CONNECTED, "wifi.connected", true, true, "implemented"},
-    {RULE_SOURCE_BATTERY_PERCENT, "power.battery_percent", true, CONFIG_APP_POWER_FACTS, CONFIG_APP_POWER_FACTS ? "implemented" : "power_facts_disabled"},
-    {RULE_SOURCE_POWER_USB_PRESENT, "power.usb_present", true, CONFIG_APP_POWER_FACTS, CONFIG_APP_POWER_FACTS ? "implemented" : "power_facts_disabled"},
+    {RULE_SOURCE_BATTERY_PERCENT, "power.battery_percent", true, CONFIG_APP_BATTERY_FACTS, CONFIG_APP_BATTERY_FACTS ? "implemented" : "battery_facts_disabled"},
+    {RULE_SOURCE_POWER_USB_PRESENT, "power.usb_present", true, CONFIG_APP_USB_POWER_FACTS, CONFIG_APP_USB_POWER_FACTS ? "implemented" : "usb_power_facts_disabled"},
     {RULE_SOURCE_BMI270_MOTION, "bmi270.motion", true, CONFIG_APP_BMI270_FACTS, CONFIG_APP_BMI270_FACTS ? "implemented" : "bmi270_facts_disabled"},
     {RULE_SOURCE_HAT_PIR_MOTION, "hat.pir.motion", false, false, "missing_hat_driver"},
     {RULE_SOURCE_HAT_ENV3_TEMPERATURE_C, "hat.env3.temperature_c", false, false, "missing_hat_driver"},

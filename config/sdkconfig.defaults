@@ -5,7 +5,7 @@
 ## not enabled in the StickS3 defaults. The default transport is a custom
 ## Bluetooth Low Energy GATT status and rule-event service.
 
-CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y
+CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y
 CONFIG_APP_BLE_GATT_DEVICE_NAME="M5StickS3-Control"
 CONFIG_APP_WIFI_ENABLE=y
 CONFIG_APP_WIFI_AP_SSID="M5StickS3-Setup"

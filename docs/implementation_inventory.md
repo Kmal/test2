@@ -18,7 +18,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `audio_resample.c` | helper-only | yes | Audio resampling helper source; not linked by the default app component. |
 | `bmi270.c` | default | yes | BMI270 polling-only accelerometer driver and deterministic software motion thresholding used by hardware automation facts. |
 | `board_adc.c` | default | yes | ESP-IDF ADC1 oneshot allowlist for safe Grove/Hat voltage rule facts with divider scaling. |
-| `board_power.c` | default | yes | Board-level M5PM1 power policy, battery percent interpolation, USB-present thresholding, and status UI battery helper. |
+| `board_power.c` | default | yes | Board-level M5PM1 power policy, battery percent interpolation, USB/external-power-present thresholding, independent degraded VBAT/VIN/5V voltage reads with explicit USB-valid status, and status UI battery helper. |
 | `board_audio.c` | default via sound/speaker config | yes | Capture-only and playback-only audio initializer linked by sound-level trigger or speaker-action builds; `app_main()` uses capture-only for sound rules and `action_speaker.c` uses playback-only for tones. |
 | `board_audio_clock.c` | default via sound/speaker config | yes | 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by sound-level trigger or speaker-action builds. |
 | `board_audio_power.c` | default via sound/speaker config | yes | M5PM1 L3B audio rail enable wrapper and PYG3 speaker-amplifier control linked by audio trigger or speaker-action builds while preserving LCD M5PM1 behavior. |
@@ -28,7 +28,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `capability_registry.c` | default | yes | Central capability gate for supported/disabled sources/actions and safe GPIO profile validation. |
 | `display_text.c` | default | yes | LCD text measuring, sanitizing, wrapping/marquee, collision, and glyph rendering support. |
 | `es8311.c` | default via sound/speaker config | yes | ES8311 codec profile driver source linked by sound-level trigger or speaker-action builds; capture-only setup keeps the DAC muted/down while playback-only setup enables DAC output for bounded tones. |
-| `hardware_fact_service.c` | default | yes | Unified hardware fact polling service that emits battery, USB-present, BMI270 motion, and safe ADC voltage facts through the trigger adapter. |
+| `hardware_fact_service.c` | default | yes | Unified hardware fact polling service that emits independently gated battery-percent, USB/external-power-present, BMI270 motion, and safe ADC voltage facts through the trigger adapter. |
 | `m5pm1.c` | default | yes | M5PM1 register helper and LCD/L3B GPIO sequence used by LCD power, with bit-preserving host tests. |
 | `main.c` | default | no | Firmware entry point wiring NVS, time, network, status UI, Wi-Fi, rule runtime, BLE transport, and default error/idle policy. |
 | `register_bus.c` | default | no | ESP-IDF I2C register-bus cache/read/write helper used by M5PM1/codec-style drivers. |
@@ -40,8 +40,8 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `sound_level_service.c` | default via sound config | yes | Demand-driven capture task/service source linked by default sound-level trigger builds; it reads microphone samples, computes metrics, and feeds sound facts while enabled sound rules or Web UI telemetry demand exist. |
 | `status_lcd.c` | default | no | Optional LCD bring-up/render task path behind `CONFIG_APP_STATUS_UI_LCD`; failures are non-fatal. |
 | `status_ui.c` | default | no | Status UI task, key polling, launcher/menu integration, toasts, service enablement, and automation config callbacks. |
-| `transport_ble_gatt.c` | conditional | no | Custom BLE GATT status/rule-event transport compiled when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`. |
-| `transport_hfp_legacy.c` | conditional | no | Quarantined legacy Classic HFP placeholder compiled only for non-ESP32-S3 legacy selection and rejected for StickS3. |
+| `transport_ble_gatt.c` | conditional | no | Custom BLE GATT status/rule-event transport compiled when `CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y`. |
+| `transport_hfp_legacy.c` | conditional | no | Classic HFP compatibility placeholder compiled only for non-ESP32-S3 selection and rejected for StickS3. |
 | `trigger_gpio.c` | default | yes | Safe GPIO digital/edge trigger initialization and polling with debounce and source-key generation. |
 | `trigger_hat.c` | default | yes | HAT source probe path deliberately returns unsupported. |
 | `trigger_sources.c` | default | yes | Emits normalized sound, button, and direct facts into a runtime sink. |
@@ -55,7 +55,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 
 Implemented when the matching Kconfig option is enabled:
 
-* `power.battery_percent` — implemented when `CONFIG_APP_POWER_FACTS=y`.
-* `power.usb_present` — implemented when `CONFIG_APP_POWER_FACTS=y`.
+* `power.battery_percent` — implemented when `CONFIG_APP_BATTERY_FACTS=y`.
+* `power.usb_present` — implemented when `CONFIG_APP_USB_POWER_FACTS=y`.
 * `bmi270.motion` — implemented when `CONFIG_APP_BMI270_FACTS=y`.
 * `adc.voltage_mv` — implemented when `CONFIG_APP_ADC_FACTS=y`.

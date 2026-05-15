@@ -207,7 +207,7 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
  * The sequence below is the project's current minimal ES8311 programming
  * sequence for StickS3. It supports an ADC-only profile for default capture boot,
  * a DAC-only profile for speaker actions, and a full-duplex compatibility
- * profile for quarantined legacy code. Future
+ * profile for explicit compatibility callers. Future
  * changes must classify ES8311 registers as exact-readback-safe, masked,
  * volatile, or write-only before adding stricter hardware verification.
  */
