@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that every main C implementation file has an explicit build status."""
+"""Validate that every src C implementation file has an explicit build status."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN_DIR = ROOT / "main"
-CMAKE = MAIN_DIR / "CMakeLists.txt"
+SRC_DIR = ROOT / "src"
+CMAKE = SRC_DIR / "CMakeLists.txt"
 HOST_RUNNER = ROOT / "tests" / "host" / "run_host_tests.sh"
 SDKCONFIG_DEFAULTS = ROOT / "config" / "sdkconfig.defaults"
 DOCS = ROOT / "docs" / "README.md"
@@ -69,25 +69,25 @@ def inventory_rows(text: str) -> dict[str, tuple[str, str]]:
 
 def main() -> int:
     errors: list[str] = []
-    all_main = {path.name for path in MAIN_DIR.glob("*.c")}
+    all_src = {path.name for path in SRC_DIR.rglob("*.c")}
     cmake_text = CMAKE.read_text(encoding="utf-8")
     default_sources = cmake_default_sources(cmake_text)
     conditional_sources = quoted_sources(cmake_text) - default_sources
-    host_sources = quoted_sources(HOST_RUNNER.read_text(encoding="utf-8")) & all_main
+    host_sources = quoted_sources(HOST_RUNNER.read_text(encoding="utf-8")) & all_src
     sdkconfig_defaults = SDKCONFIG_DEFAULTS.read_text(encoding="utf-8")
     sound_enabled_by_default = "CONFIG_APP_SOUND_LEVEL_TRIGGERS=y" in sdkconfig_defaults
     speaker_enabled_by_default = "CONFIG_APP_SPEAKER_ACTION=y" in sdkconfig_defaults
     docs_text = DOCS.read_text(encoding="utf-8")
     inventory = inventory_rows(INVENTORY_DOC.read_text(encoding="utf-8"))
 
-    missing_doc_rows = all_main - set(inventory)
+    missing_doc_rows = all_src - set(inventory)
     if missing_doc_rows:
         errors.append(f"docs/implementation_inventory.md missing source rows: {sorted(missing_doc_rows)}")
-    extra_doc_rows = set(inventory) - all_main
+    extra_doc_rows = set(inventory) - all_src
     if extra_doc_rows:
         errors.append(f"docs/implementation_inventory.md references unknown sources: {sorted(extra_doc_rows)}")
 
-    for source in sorted(all_main & set(inventory)):
+    for source in sorted(all_src & set(inventory)):
         if source in default_sources:
             expected_status = "default"
         elif source in SHARED_AUDIO_SRCS and source in conditional_sources and (sound_enabled_by_default or speaker_enabled_by_default):
@@ -109,15 +109,15 @@ def main() -> int:
                 f"docs/implementation_inventory.md host coverage mismatch for {source}: expected {expected_host}, found {actual_host}"
             )
 
-    unknown_default = default_sources - all_main
+    unknown_default = default_sources - all_src
     if unknown_default:
-        errors.append(f"main/CMakeLists.txt references missing sources: {sorted(unknown_default)}")
+        errors.append(f"src/CMakeLists.txt references missing sources: {sorted(unknown_default)}")
 
-    missing_from_inventory = all_main - default_sources - conditional_sources - EXPECTED_NON_DEFAULT_SRCS
+    missing_from_inventory = all_src - default_sources - conditional_sources - EXPECTED_NON_DEFAULT_SRCS
     if missing_from_inventory:
-        errors.append(f"main sources lack explicit build status: {sorted(missing_from_inventory)}")
+        errors.append(f"src sources lack explicit build status: {sorted(missing_from_inventory)}")
 
-    unexpected_non_default = (all_main - default_sources - conditional_sources) - EXPECTED_NON_DEFAULT_SRCS
+    unexpected_non_default = (all_src - default_sources - conditional_sources) - EXPECTED_NON_DEFAULT_SRCS
     if unexpected_non_default:
         errors.append(f"unexpected non-default sources: {sorted(unexpected_non_default)}")
 

@@ -1,6 +1,6 @@
 # Current C implementation inventory
 
-This inventory is generated from direct source inspection of `main/*.c`, `main/CMakeLists.txt`, and `tests/host/run_host_tests.sh`. It is intentionally one row per C implementation file so default firmware wiring, conditional transports, helper-only code, and host coverage cannot be inferred from stale comments.
+This inventory is generated from direct source inspection of `src/**/*.c`, `src/CMakeLists.txt`, and `tests/host/run_host_tests.sh`. It is intentionally one row per C implementation file so default firmware wiring, conditional transports, helper-only code, and host coverage cannot be inferred from stale comments.
 
 | Source | Default app link | Host test | Code-derived status |
 | --- | --- | --- | --- |

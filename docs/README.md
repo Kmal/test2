@@ -270,10 +270,10 @@ The project can claim working StickS3 firmware only when these checks match the 
 Keep the documentation set intentionally small:
 
 - `docs/README.md` is the single entry point for product status, transport decision, automation status/roadmap, smoke checks, development checks, and change policy.
-- `docs/hardware/sticks3.md` stays separate because it is the detailed source-backed board/hardware evidence file used by documentation consistency checks.
-- `docs/implementation_inventory.md` lists every `main/*.c` implementation file one by one, with default-link status and host-test coverage checked by `tools/check_source_inventory.py`.
+- `docs/hardware/sticks3/sticks3.md` is the main StickS3 hardware entry point, with detailed source-backed topic files in `docs/hardware/sticks3/`.
+- `docs/implementation_inventory.md` lists every `src/**/*.c` implementation file one by one, with default-link status and host-test coverage checked by `tools/check_source_inventory.py`.
 
-For every hardware, transport, web, or automation change, update or explicitly confirm `docs/README.md`, `docs/hardware/sticks3.md`, `docs/implementation_inventory.md`, `docs/hardware/sticks3.board.json` when board facts change, touched source comments, Kconfig/default config, CMake/source layout, static validation scripts, host tests, and factory-image flow as applicable.
+For every hardware, transport, web, or automation change, update or explicitly confirm `docs/README.md`, `docs/hardware/sticks3/sticks3.md`, `docs/hardware/sticks3/`, `docs/implementation_inventory.md`, `docs/hardware/sticks3/sticks3.board.json` when board facts change, touched source comments, Kconfig/default config, CMake/source layout, static validation scripts, host tests, and factory-image flow as applicable.
 
 Every new hardware write sequence must document or cite the source document or source code, device address, register address, bit mask, intended value, reset/default behavior if known, read-modify-write requirements, unrelated fields that must be preserved, and host tests proving bit preservation for shared registers. If required hardware behavior is unknown, keep it blocked or feature-gated; do not guess M5PM1 L3B polarity, M5PM1 speaker-amplifier pulses, ES8311 volatile readback, BMI270 interrupt routing, HAT protocols, ADC paths, or safe external GPIO routes.
 
@@ -281,7 +281,7 @@ Documentation must describe the current product as a custom BLE rule-event and l
 
 ## Hardware reference
 
-Keep detailed board pins, electrical constraints, source-backed hardware facts, and hardware acceptance notes in `docs/hardware/sticks3.md`. This README stays focused on product behavior, user-facing firmware functions, validation flow, and change policy.
+Keep detailed board pins, electrical constraints, source-backed hardware facts, and hardware acceptance notes under `docs/hardware/sticks3/`, with `docs/hardware/sticks3/sticks3.md` as the main entry point. This README stays focused on product behavior, user-facing firmware functions, validation flow, and change policy.
 
 ## Development checks
 
@@ -303,17 +303,27 @@ ESP-IDF build/flash validation still requires an ESP-IDF environment and attache
 
 ## Reference documents
 
-- ESP-IDF Programming Guide for ESP32: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/index.html
-- M5Stack StickS3 product documentation: https://docs.m5stack.com/en/core/StickS3
+- M5Stack StickS3 documentation and pin map: https://docs.m5stack.com/en/core/StickS3
 - M5Stack StickS3 Arduino programming documentation: https://docs.m5stack.com/en/arduino/m5sticks3/program
+- M5Stack StickS3 Battery Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/battery
+- M5Stack StickS3 Button Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/button
+- M5Stack StickS3 Display Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/display
+- M5Stack StickS3 IMU Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/imu
+- M5Stack StickS3 IR NEC Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec
+- M5Stack StickS3 Microphone Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/mic
+- M5Stack StickS3 Speaker Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/speaker
+- M5Stack StickS3 Wakeup Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/wakeup
 - M5Stack StickS3 M5PM1 Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/m5pm1
 - M5Stack M5PM1 source repository: https://github.com/m5stack/M5PM1
 - M5Stack M5Unified source repository: https://github.com/m5stack/M5Unified
 - M5Stack M5GFX source repository: https://github.com/m5stack/M5GFX
-- M5Stack StickS3 schematic/project PDF: https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1207/K150_Stick_S3_PRJ_V0.6_20251111_2025_11_17_16_10_24.pdf
-- ES8311 audio codec datasheet PDF: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/products/atom/Atomic%20Echo%20Base/ES8311.pdf
-- BMI270 IMU datasheet PDF: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/core/K128%20CoreS3/BMI270.PDF
-- Repository hardware notes: `docs/hardware/sticks3.md`
+- M5Stack M5GFX StickS3 initialization source: https://github.com/m5stack/M5GFX/blob/master/src/M5GFX.cpp
+- StickS3 schematic PDF: https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1207/K150_Stick_S3_PRJ_V0.6_20251111_2025_11_17_16_10_24.pdf
+- ES8311 datasheet: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/products/atom/Atomic%20Echo%20Base/ES8311.pdf
+- BMI270 datasheet: https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/core/K128%20CoreS3/BMI270.PDF
+- ESP32-S3 technical reference manual: https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/477/esp32-s3_technical_reference_manual_cn.pdf
+- Espressif Bluetooth architecture documentation: https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/bt-architecture/overview.html
+- Repository hardware notes: `docs/hardware/sticks3/sticks3.md`
 
 
 ## Sound-level trigger default

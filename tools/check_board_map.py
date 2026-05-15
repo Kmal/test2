@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADER = ROOT / "main" / "board_sticks3.h"
-MANIFEST = ROOT / "docs" / "hardware" / "sticks3.board.json"
+HEADER = ROOT / "src" / "board" / "board_sticks3.h"
+MANIFEST = ROOT / "docs" / "hardware" / "sticks3" / "sticks3.board.json"
 
 DEFINE_RE = re.compile(r"^\s*#define\s+(BOARD_[A-Z0-9_]+)\s+([^\s/]+)")
 GPIO_NUM_RE = re.compile(r"GPIO_NUM_(\d+)$")

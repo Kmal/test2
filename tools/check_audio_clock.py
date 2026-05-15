@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADER = ROOT / "main" / "board_sticks3.h"
-CLOCK = ROOT / "main" / "board_audio_clock.c"
-DOCS = [ROOT / "docs" / "README.md", ROOT / "docs" / "hardware" / "sticks3.md"]
+HEADER = ROOT / "src" / "board" / "board_sticks3.h"
+CLOCK = ROOT / "src" / "audio" / "board_audio_clock.c"
+DOCS = [ROOT / "docs" / "README.md", ROOT / "docs" / "hardware" / "sticks3" / "sticks3_mic.md"]
 
 EXPECTED = {
     "BOARD_I2S_SAMPLE_RATE": "16000",

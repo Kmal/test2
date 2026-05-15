@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN = ROOT / "main" / "main.c"
-BOARD_I2S = ROOT / "main" / "board_i2s.c"
-ES8311 = ROOT / "main" / "es8311.c"
-ES8311_HEADER = ROOT / "main" / "es8311.h"
-ACTION_SPEAKER = ROOT / "main" / "action_speaker.h"
-BOARD_AUDIO_POWER = ROOT / "main" / "board_audio_power.c"
-CMAKE = ROOT / "main" / "CMakeLists.txt"
+MAIN = ROOT / "src" / "app" / "main.c"
+BOARD_I2S = ROOT / "src" / "audio" / "board_i2s.c"
+ES8311 = ROOT / "src" / "audio" / "es8311.c"
+ES8311_HEADER = ROOT / "src" / "audio" / "es8311.h"
+ACTION_SPEAKER = ROOT / "src" / "actions" / "action_speaker.h"
+BOARD_AUDIO_POWER = ROOT / "src" / "audio" / "board_audio_power.c"
+CMAKE = ROOT / "src" / "CMakeLists.txt"
 COMMON_AUDIO_APP_SRCS = (
     "board_audio.c",
     "board_audio_clock.c",
@@ -39,36 +39,40 @@ def strip_c_comments(source: str) -> str:
     return re.sub(r"//.*", "", source)
 
 
+
+def cmake_block_has_source(block: str, source: str) -> bool:
+    return any(Path(match).name == source for match in re.findall(r'"([^"\n]+\.c)"', block))
+
 def main() -> int:
     errors: list[str] = []
     main_text = strip_c_comments(MAIN.read_text(encoding="utf-8"))
     sound_gate = "if (!app_sound_level_capture_needed(config))"
     audio_init = "board_audio_init(&audio_config)"
     if audio_init not in main_text:
-        errors.append("main.c must wire board_audio_init for demand-driven sound triggers")
+        errors.append("src/app/main.c must wire board_audio_init for demand-driven sound triggers")
     elif sound_gate not in main_text or main_text.index(sound_gate) > main_text.index(audio_init):
-        errors.append("main.c must gate board_audio_init behind shared sound-capture demand")
+        errors.append("src/app/main.c must gate board_audio_init behind shared sound-capture demand")
     if "BOARD_AUDIO_PROFILE_CAPTURE_ONLY" not in main_text:
-        errors.append("main.c must request the capture-only profile for sound triggers")
+        errors.append("src/app/main.c must request the capture-only profile for sound triggers")
     if "board_audio_deinit" not in main_text:
-        errors.append("main.c must release audio resources after sound trigger service stops")
+        errors.append("src/app/main.c must release audio resources after sound trigger service stops")
     if "ESP_ERROR_CHECK(board_audio_init" in main_text:
         errors.append("audio init failures must not reboot-loop the board unless explicitly configured")
     if "rule_runtime_process_metrics" in main_text:
-        errors.append("main.c must leave sound metric production inside sound_level_service")
+        errors.append("src/app/main.c must leave sound metric production inside sound_level_service")
     if "app_sound_level_demand_set_telemetry" not in main_text or "s_sound_level_demand" not in main_text:
-        errors.append("main.c must track Web UI telemetry sound-capture demand separately from trigger demand")
+        errors.append("src/app/main.c must track Web UI telemetry sound-capture demand separately from trigger demand")
     if "no_enabled_sound_rule" in main_text and "if (!app_sound_level_capture_needed(&s_rule_config))" not in main_text:
         errors.append("sound status must report no_enabled_sound_rule only when shared capture demand is inactive")
     if "sound_level_service_start(s_sound_level_service)" not in main_text:
-        errors.append("main.c must centralize sound_level_service_start in app_sound_level_sync")
+        errors.append("src/app/main.c must centralize sound_level_service_start in app_sound_level_sync")
     if main_text.count("sound_level_service_start(") != 1:
-        errors.append("main.c must have exactly one sound_level_service_start call for the shared capture service")
+        errors.append("src/app/main.c must have exactly one sound_level_service_start call for the shared capture service")
     ready_guard = "if (s_sound_level_ready) {\n        return;\n    }"
     if ready_guard not in main_text:
-        errors.append("main.c must return early when the shared sound capture service is already ready")
+        errors.append("src/app/main.c must return early when the shared sound capture service is already ready")
     elif main_text.index(ready_guard) > main_text.index("sound_level_service_start(s_sound_level_service)"):
-        errors.append("main.c must check s_sound_level_ready before starting the shared sound capture service")
+        errors.append("src/app/main.c must check s_sound_level_ready before starting the shared sound capture service")
 
     cmake_text = CMAKE.read_text(encoding="utf-8")
     common_audio_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION\)(.*?)endif\(\)", cmake_text, flags=re.S)
@@ -78,7 +82,7 @@ def main() -> int:
     else:
         common_audio_block = common_audio_block_match.group(1)
     for source in COMMON_AUDIO_APP_SRCS:
-        if f'"{source}"' not in common_audio_block:
+        if not cmake_block_has_source(common_audio_block, source):
             errors.append(f"shared audio config must link required source {source}")
 
     sound_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS\)(.*?)endif\(\)", cmake_text, flags=re.S)
@@ -88,7 +92,7 @@ def main() -> int:
     else:
         sound_block = sound_block_match.group(1)
     for source in SOUND_LEVEL_ONLY_APP_SRCS:
-        if f'"{source}"' not in sound_block:
+        if not cmake_block_has_source(sound_block, source):
             errors.append(f"sound-level config must link required source {source}")
 
     cmake_without_audio_blocks = cmake_text
@@ -96,10 +100,10 @@ def main() -> int:
         if match:
             cmake_without_audio_blocks = cmake_without_audio_blocks.replace(match.group(0), "")
     for source in SOUND_LEVEL_APP_SRCS + FORBIDDEN_DEFAULT_AUDIO_APP_SRCS:
-        if f'"{source}"' in cmake_without_audio_blocks:
+        if cmake_block_has_source(cmake_without_audio_blocks, source):
             errors.append(f"app component must not link audio source outside audio config {source}")
     for source in FORBIDDEN_DEFAULT_AUDIO_APP_SRCS:
-        if f'"{source}"' in common_audio_block or f'"{source}"' in sound_block:
+        if cmake_block_has_source(common_audio_block, source) or cmake_block_has_source(sound_block, source):
             errors.append(f"audio config must not link unsupported audio source {source}")
 
     i2s_text = BOARD_I2S.read_text(encoding="utf-8")
@@ -124,7 +128,7 @@ def main() -> int:
         errors.append("ADC-only codec profile must keep DAC powered down/muted")
 
     speaker_text = ACTION_SPEAKER.read_text(encoding="utf-8")
-    rule_types_text = (ROOT / "main" / "rule_types.h").read_text(encoding="utf-8")
+    rule_types_text = (ROOT / "src" / "rules" / "rule_types.h").read_text(encoding="utf-8")
     if "RULE_SPEAKER_MAX_VOLUME_PERCENT" not in speaker_text:
         errors.append("action_speaker.h must share the rule-level below-75% speaker volume cap")
     if "RULE_SPEAKER_MAX_VOLUME_PERCENT 74u" not in rule_types_text:

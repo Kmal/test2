@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PARTITIONS = ROOT / "partitions.csv"
-MANIFEST = ROOT / "docs" / "hardware" / "sticks3.board.json"
+MANIFEST = ROOT / "docs" / "hardware" / "sticks3" / "sticks3.board.json"
 
 APP_OFFSET_ALIGNMENT = 0x10000
 APP_SIZE_ALIGNMENT = 0x1000
@@ -71,7 +71,7 @@ def main() -> int:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     flash_bytes = int(manifest.get("flash_bytes", 0))
     if flash_bytes != 8 * 1024 * 1024:
-        errors.append("docs/hardware/sticks3.board.json must record the official 8 MB StickS3 flash size")
+        errors.append("docs/hardware/sticks3/sticks3.board.json must record the official 8 MB StickS3 flash size")
 
     try:
         partitions = load_partitions()
