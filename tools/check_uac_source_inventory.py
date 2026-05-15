@@ -29,9 +29,12 @@ def main() -> int:
             if term not in text:
                 errors.append(f"{rel} missing {term!r}")
     defaults = (ROOT / "config/sdkconfig.defaults").read_text(encoding="utf-8")
-    for symbol in ["CONFIG_APP_USB_UAC_DEVICE=n", "CONFIG_APP_USB_UAC_MIC=n", "CONFIG_APP_USB_UAC_SPEAKER=n"]:
-        if symbol not in defaults:
-            errors.append(f"default config missing {symbol}")
+    if "CONFIG_APP_USB_UAC_DEVICE=n" not in defaults:
+        errors.append("default config missing CONFIG_APP_USB_UAC_DEVICE=n")
+    kconfig = (ROOT / "src/Kconfig.projbuild").read_text(encoding="utf-8")
+    for symbol in ["config APP_USB_UAC_MIC", "config APP_USB_UAC_SPEAKER"]:
+        if symbol not in kconfig:
+            errors.append(f"Kconfig missing {symbol}")
     if errors:
         print("UAC source inventory validation failed:", file=sys.stderr)
         for error in errors:
