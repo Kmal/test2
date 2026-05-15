@@ -202,7 +202,7 @@ static void ui_render_bluetooth_status(const ui_runtime_t *ui)
     int y = UI_BODY_Y;
     snprintf(line, sizeof(line), "Type: BLE GATT only");
     ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "No Classic/BR-EDR");
+    snprintf(line, sizeof(line), "Rule events only");
     ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no");
     ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;

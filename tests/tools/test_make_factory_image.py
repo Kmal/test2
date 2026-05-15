@@ -61,11 +61,11 @@ def test_json_plan_rejects_app_at_zero() -> None:
         )
 
 
-def test_legacy_flash_args_rejects_unidentified_zero_image() -> None:
+def test_flash_args_rejects_unidentified_zero_image() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         build = Path(tmp)
-        (build / "m5sticks3_bluetooth_mic_app.bin").write_bytes(esp_image([(0x3FCE2820, b"app")]))
-        (build / "flash_args").write_text("0x0 m5sticks3_bluetooth_mic_app.bin\n", encoding="utf-8")
+        (build / "m5sticks3_local_automation_app.bin").write_bytes(esp_image([(0x3FCE2820, b"app")]))
+        (build / "flash_args").write_text("0x0 m5sticks3_local_automation_app.bin\n", encoding="utf-8")
         plan = factory.load_flash_plan(build)
         expect_value_error(
             lambda: factory.validate_flash_plan(plan, "esp32s3", build / "factory.bin"),
@@ -159,7 +159,7 @@ def test_esptool_command_uses_json_settings_and_sorted_entries() -> None:
 
 if __name__ == "__main__":
     test_json_plan_rejects_app_at_zero()
-    test_legacy_flash_args_rejects_unidentified_zero_image()
+    test_flash_args_rejects_unidentified_zero_image()
     test_corrupt_boot_segment_table_is_rejected()
     test_json_plan_includes_role_entries_missing_from_flash_files()
     test_json_plan_rejects_missing_app_entry()

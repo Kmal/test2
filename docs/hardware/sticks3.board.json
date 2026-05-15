@@ -60,5 +60,6 @@
     "l3b_enable_sequence_verified": true,
     "speaker_pyg3_enable_sequence_verified": true,
     "speaker_pulse_sequence_verified": false
-  }
+  },
+  "flash_bytes": 8388608
 }

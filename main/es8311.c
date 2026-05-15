@@ -205,10 +205,9 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
 
 /*
  * The sequence below is the project's current minimal ES8311 programming
- * sequence for StickS3. It supports an ADC-only profile for default capture boot,
- * a DAC-only profile for speaker actions, and a full-duplex compatibility
- * profile for explicit compatibility callers. Future
- * changes must classify ES8311 registers as exact-readback-safe, masked,
+ * sequence for StickS3. It supports an ADC-only profile for default capture boot
+ * and a DAC-only profile for speaker actions. Future changes must classify
+ * ES8311 registers as exact-readback-safe, masked,
  * volatile, or write-only before adding stricter hardware verification.
  */
 esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port,
@@ -217,8 +216,7 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
     (void)i2s_port; // The codec is configured over I2C; I2S is configured by the caller.
 
     if (profile != ES8311_PROFILE_ADC_ONLY &&
-        profile != ES8311_PROFILE_DAC_ONLY &&
-        profile != ES8311_PROFILE_FULL_DUPLEX) {
+        profile != ES8311_PROFILE_DAC_ONLY) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -229,8 +227,7 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
 
     const bool adc_enabled = profile != ES8311_PROFILE_DAC_ONLY;
     const bool dac_enabled = profile != ES8311_PROFILE_ADC_ONLY;
-    const char *profile_name = profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" :
-                               (profile == ES8311_PROFILE_DAC_ONLY ? "dac-only" : "full-duplex");
+    const char *profile_name = profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" : "dac-only";
     (void)profile_name;
 
     ESP_LOGI(TAG_CODEC, "Initialising ES8311 at I2C 0x%02x (sample_rate=%d, profile=%s)",
@@ -296,10 +293,6 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
     return ret;
 }
 
-esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port, int sample_rate)
-{
-    return es8311_init_profile(i2c_num, i2c_addr, i2s_port, ES8311_PROFILE_FULL_DUPLEX, sample_rate);
-}
 
 esp_err_t es8311_set_mic_gain(i2c_port_t i2c_num, uint8_t i2c_addr, es8311_mic_gain_t gain)
 {

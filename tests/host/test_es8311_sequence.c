@@ -20,7 +20,7 @@ static void assert_write(size_t index, uint8_t addr, uint8_t reg, uint8_t value)
 static void test_baseline_init_writes_to_codec(void)
 {
     fake_register_bus_reset();
-    ASSERT_EQ(ESP_OK, es8311_init(I2C_NUM_0, 0x18, I2S_NUM_0, 16000));
+    ASSERT_EQ(ESP_OK, es8311_init_profile(I2C_NUM_0, 0x18, I2S_NUM_0, ES8311_PROFILE_ADC_ONLY, 16000));
     assert_write(0, 0x18, 0x00, 0x1f);
     assert_write(1, 0x18, 0x00, 0x80);
 }
@@ -28,7 +28,7 @@ static void test_baseline_init_writes_to_codec(void)
 static void test_unsupported_rate_emits_no_writes(void)
 {
     fake_register_bus_reset();
-    ASSERT_EQ(ESP_ERR_NOT_SUPPORTED, es8311_init(I2C_NUM_0, 0x18, I2S_NUM_0, 44100));
+    ASSERT_EQ(ESP_ERR_NOT_SUPPORTED, es8311_init_profile(I2C_NUM_0, 0x18, I2S_NUM_0, ES8311_PROFILE_ADC_ONLY, 44100));
     ASSERT_EQ(0, fake_register_bus_op_count());
 }
 
@@ -36,7 +36,7 @@ static void test_reset_write_failure_returns_error(void)
 {
     fake_register_bus_reset();
     fake_register_bus_fail_next_write(ESP_FAIL);
-    ASSERT_EQ(ESP_FAIL, es8311_init(I2C_NUM_0, 0x18, I2S_NUM_0, 16000));
+    ASSERT_EQ(ESP_FAIL, es8311_init_profile(I2C_NUM_0, 0x18, I2S_NUM_0, ES8311_PROFILE_ADC_ONLY, 16000));
 }
 
 static void test_adc_only_configures_capture_path_without_unmuting_dac(void)

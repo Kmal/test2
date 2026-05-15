@@ -1,9 +1,8 @@
 ## Default SDK configuration for the StickS3 board-support project
 ##
-## The StickS3 uses ESP32-S3-PICO-1-N8R8. ESP32-S3 does not support
-## Bluetooth Classic / BR/EDR, so Classic Bluetooth HFP and SCO-over-HCI are
-## not enabled in the StickS3 defaults. The default transport is a custom
-## Bluetooth Low Energy GATT status and rule-event service.
+## The StickS3 uses ESP32-S3-PICO-1-N8R8. ESP32-S3 supports Bluetooth LE
+## and does not support Bluetooth Classic / BR/EDR. The default transport is
+## a custom Bluetooth Low Energy GATT status and rule-event service.
 
 CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y
 CONFIG_APP_BLE_GATT_DEVICE_NAME="M5StickS3-Control"

@@ -19,18 +19,8 @@ config APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     help
         Start a custom Bluetooth Low Energy GATT service for status reads and
         local automation rule-event notifications. This transport does not
-        expose microphone, PCM, sound-level, or display-mode compatibility
+        expose microphone, PCM, sound-level, or display-mode
         characteristics.
-
-config APP_TRANSPORT_HFP_LEGACY
-    bool "Legacy Classic Bluetooth HFP transport (not StickS3/ESP32-S3)"
-    depends on !IDF_TARGET_ESP32S3
-    select BT_ENABLED
-    select BT_HFP_CLIENT_ENABLE
-    help
-        Historical code path for non-ESP32-S3 targets that support Bluetooth
-        Classic. It is quarantined and intentionally errors until refreshed;
-        do not enable this for M5Stack StickS3.
 
 endchoice
 

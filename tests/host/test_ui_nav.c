@@ -25,7 +25,7 @@ static void test_main_setup_hierarchy(void)
     ASSERT_TRUE(strcmp(main->title, "Main") == 0);
     ASSERT_TRUE(find_item(main, "Web UI") >= 0);
     ASSERT_TRUE(find_item(main, "Connect to Wi-Fi") >= 0);
-    ASSERT_TRUE(find_item(main, "BLE (no Classic)") >= 0);
+    ASSERT_TRUE(find_item(main, "BLE Status") >= 0);
 
     ASSERT_TRUE(ui_nav_enter(&nav, UI_SCREEN_CONFIG_WEB_UI));
     const ui_screen_def_t *config = ui_nav_current(&nav);

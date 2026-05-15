@@ -23,7 +23,7 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `board_audio_clock.c` | default via sound/speaker config | yes | 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by sound-level trigger or speaker-action builds. |
 | `board_audio_power.c` | default via sound/speaker config | yes | M5PM1 L3B audio rail enable wrapper and PYG3 speaker-amplifier control linked by audio trigger or speaker-action builds while preserving LCD M5PM1 behavior. |
 | `board_i2c.c` | default | no | ESP-IDF shared I2C bus initializer used by LCD/status UI paths and available to board helpers. |
-| `board_i2s.c` | default via sound/speaker config | yes | Capture-only/playback-only/full-duplex I2S driver source linked by sound-level trigger or speaker-action builds; includes 32-bit-slot mono `int16_t` decode helper and pin-configuration coverage. |
+| `board_i2s.c` | default via sound/speaker config | yes | Capture-only/playback-only I2S driver source linked by sound-level trigger or speaker-action builds; includes 32-bit-slot mono `int16_t` decode helper and pin-configuration coverage. |
 | `button_state.c` | default | yes | Active-low KEY1/KEY2 debouncing and event classification for status UI and automation facts. |
 | `capability_registry.c` | default | yes | Central capability gate for supported/disabled sources/actions and safe GPIO profile validation. |
 | `display_text.c` | default | yes | LCD text measuring, sanitizing, wrapping/marquee, collision, and glyph rendering support. |
@@ -41,7 +41,6 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `status_lcd.c` | default | no | Optional LCD bring-up/render task path behind `CONFIG_APP_STATUS_UI_LCD`; failures are non-fatal. |
 | `status_ui.c` | default | no | Status UI task, key polling, launcher/menu integration, toasts, service enablement, and automation config callbacks. |
 | `transport_ble_gatt.c` | conditional | no | Custom BLE GATT status/rule-event transport compiled when `CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y`. |
-| `transport_hfp_legacy.c` | conditional | no | Classic HFP compatibility placeholder compiled only for non-ESP32-S3 selection and rejected for StickS3. |
 | `trigger_gpio.c` | default | yes | Safe GPIO digital/edge trigger initialization and polling with debounce and source-key generation. |
 | `trigger_hat.c` | default | yes | HAT source probe path deliberately returns unsupported. |
 | `trigger_sources.c` | default | yes | Emits normalized sound, button, and direct facts into a runtime sink. |

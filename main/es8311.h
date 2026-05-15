@@ -4,9 +4,8 @@
  * analog microphone PGA, digital volume controls, mute controls and
  * power-management registers. This driver intentionally implements only the
  * project-tested StickS3 subset: fixed 12.288 MHz MCLK, 16-bit I2S slave
- * mode, ADC-only capture profile, DAC-only playback profile, and a
- * full-duplex compatibility profile. Configuration is performed over I2C while
- * audio data is exchanged via the I2S bus.
+ * mode, ADC-only capture profile, and DAC-only playback profile. Configuration
+ * is performed over I2C while audio data is exchanged via the I2S bus.
  */
 
 #pragma once
@@ -41,30 +40,17 @@ typedef enum {
  * path can be brought up without enabling the DAC/speaker path. DAC-only is
  * used by the StickS3 speaker action so microphone capture and speaker output
  * are not active at the same time, matching the official M5Unified examples.
- * Full-duplex remains available only as an explicit compatibility profile;
- * default StickS3 paths should use ADC-only or DAC-only.
  */
 typedef enum {
     ES8311_PROFILE_ADC_ONLY = 0,
     ES8311_PROFILE_DAC_ONLY,
-    ES8311_PROFILE_FULL_DUPLEX,
 } es8311_profile_t;
 
 /**
- * @brief Initialise the ES8311 codec.
+ * @brief Initialise the ES8311 codec with an explicit single-direction profile.
  *
- * Compatibility wrapper for explicit full-duplex initialization. New StickS3
- * code should call es8311_init_profile() so default boot can select the
- * ADC-only profile and keep DAC/speaker output disabled.
- *
- * @param i2c_num      I2C port used to communicate with the codec
- * @param i2c_addr     7-bit I2C address of the codec (M5StickS3: 0x18)
- * @param i2s_port     I2S port number used for audio data
- * @param sample_rate  Audio sample rate in Hz (supported by this firmware: 16000)
- *
- * @return ESP_OK on success, or an error code on failure
+ * @param sample_rate Audio sample rate in Hz (supported by this firmware: 16000)
  */
-esp_err_t es8311_init(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port, int sample_rate);
 esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port,
                               es8311_profile_t profile, int sample_rate);
 
@@ -97,6 +83,6 @@ esp_err_t es8311_power_down(i2c_port_t i2c_num, uint8_t i2c_addr);
  * @brief Restore the codec from the low-power standby state.
  *
  * This restores power-related registers but does not reprogram the full
- * sample-rate clock tree; call es8311_init() after a complete reset.
+ * sample-rate clock tree; call es8311_init_profile() after a complete reset.
  */
 esp_err_t es8311_power_up(i2c_port_t i2c_num, uint8_t i2c_addr);

@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUILD_DIR = ROOT / "build"
-DEFAULT_OUTPUT_NAME = "m5sticks3_bluetooth_mic.bin"
+DEFAULT_OUTPUT_NAME = "m5sticks3_local_automation.bin"
 ESP_IMAGE_MAGIC = 0xE9
 MAX_SEGMENTS = 16
 MAX_SEGMENT_LENGTH = 16 * 1024 * 1024
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Output image path (default: <build-dir>/m5sticks3_bluetooth_mic.bin)",
+        help="Output image path (default: <build-dir>/m5sticks3_local_automation.bin)",
     )
     parser.add_argument(
         "--chip",

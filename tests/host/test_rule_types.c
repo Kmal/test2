@@ -166,7 +166,7 @@ static void test_speaker_action_validation(void)
     ASSERT_FALSE(automation_config_validate(&config, error, sizeof(error)));
 }
 
-static void test_comparator_value_compatibility(void)
+static void test_comparator_value_type_support(void)
 {
     char error[RULE_ERROR_MAX];
     automation_config_t config = valid_config();
@@ -180,7 +180,7 @@ static void test_comparator_value_compatibility(void)
     ASSERT_TRUE(automation_config_validate(&config, error, sizeof(error)));
 }
 
-static void test_gpio_profile_compatibility_direct(void)
+static void test_gpio_profile_support_direct(void)
 {
     char error[RULE_ERROR_MAX];
     rule_gpio_config_t gpio = {
@@ -256,8 +256,8 @@ int main(void)
     test_http_url_validation();
     test_ir_action_validation();
     test_speaker_action_validation();
-    test_comparator_value_compatibility();
-    test_gpio_profile_compatibility_direct();
+    test_comparator_value_type_support();
+    test_gpio_profile_support_direct();
     test_capability_json_excludes_disabled_actions();
     test_enabled_sound_source_detection();
     test_names_and_value_equality();

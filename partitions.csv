@@ -1,7 +1,8 @@
 # Name,   Type, SubType, Offset,   Size,     Flags
-# Keep the app slot larger than ESP-IDF's default 1 MiB factory partition; the
-# StickS3 sound-meter build includes BLE, Wi-Fi/web setup, LCD UI, and rule
-# automation and is currently larger than 1 MiB.
+# Use the remainder of the 8 MB flash for the factory app slot after the
+# bootloader, partition table, NVS, and PHY data regions.  The generated
+# factory image is currently much smaller than this, but the larger slot lets
+# maintainers compile additional StickS3 modules without repartitioning.
 nvs,      data, nvs,     0x9000,   0x6000,
 phy_init, data, phy,     0xf000,   0x1000,
-factory,  app,  factory, 0x10000,  0x300000,
+factory,  app,  factory, 0x10000,  0x7F0000,

@@ -34,11 +34,17 @@ jobs:
       - name: Validate factory image tool
         run: python3 tests/tools/test_make_factory_image.py
 
+      - name: Validate partition table
+        run: python3 tools/check_partition_table.py
+
       - name: Validate LCD keyboard casing
         run: python3 tests/tools/test_status_ui_keyboard.py
 
       - name: Validate docs consistency
         run: python3 tools/check_docs_consistency.py
+
+      - name: Validate naming consistency
+        run: python3 tools/check_naming_consistency.py
 
   host-unit-tests:
     name: Host unit tests
@@ -51,7 +57,7 @@ jobs:
         run: tests/host/run_host_tests.sh
 
   esp-idf-build:
-    name: Build StickS3 BLE GATT PCM firmware
+    name: Build StickS3 local automation firmware
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -66,24 +72,24 @@ jobs:
             idf.py set-target esp32s3
             idf.py build
             python3 tools/make_factory_image.py
-            test -s build/m5sticks3_bluetooth_mic.bin
-            test -s build/m5sticks3_bluetooth_mic_app.bin
-            sha256sum build/m5sticks3_bluetooth_mic.bin > build/m5sticks3_bluetooth_mic.bin.sha256
-            sha256sum build/m5sticks3_bluetooth_mic_app.bin > build/m5sticks3_bluetooth_mic_app.bin.sha256
+            test -s build/m5sticks3_local_automation.bin
+            test -s build/m5sticks3_local_automation_app.bin
+            sha256sum build/m5sticks3_local_automation.bin > build/m5sticks3_local_automation.bin.sha256
+            sha256sum build/m5sticks3_local_automation_app.bin > build/m5sticks3_local_automation_app.bin.sha256
             cat > build/FLASH_THIS_FACTORY_IMAGE.txt <<'EOF'
-            Flash m5sticks3_bluetooth_mic.bin at offset 0x0.
+            Flash m5sticks3_local_automation.bin at offset 0x0.
 
             Example:
               esptool.py --chip esp32s3 --port <PORT> erase_flash
-              esptool.py --chip esp32s3 --port <PORT> write_flash 0x0 m5sticks3_bluetooth_mic.bin
+              esptool.py --chip esp32s3 --port <PORT> write_flash 0x0 m5sticks3_local_automation.bin
 
-            m5sticks3_bluetooth_mic_app.bin is included for diagnostics/advanced ESP-IDF workflows only.
+            m5sticks3_local_automation_app.bin is included for diagnostics/advanced ESP-IDF workflows only.
             Do not flash any *_app.bin file at 0x0; that is an application-partition image only.
             EOF
             python3 - <<'PY'
             from pathlib import Path
-            factory = Path("build/m5sticks3_bluetooth_mic.bin")
-            app = Path("build/m5sticks3_bluetooth_mic_app.bin")
+            factory = Path("build/m5sticks3_local_automation.bin")
+            app = Path("build/m5sticks3_local_automation_app.bin")
             if factory.stat().st_size <= app.stat().st_size:
                 raise SystemExit(
                     f"factory image {factory} ({factory.stat().st_size} bytes) "
@@ -97,12 +103,12 @@ jobs:
         uses: actions/upload-artifact@v7
         if: success()
         with:
-          name: sticks3-ble-gatt-pcm-build
+          name: sticks3-local-automation-build
           path: |
-            build/m5sticks3_bluetooth_mic.bin
-            build/m5sticks3_bluetooth_mic.bin.sha256
-            build/m5sticks3_bluetooth_mic_app.bin
-            build/m5sticks3_bluetooth_mic_app.bin.sha256
+            build/m5sticks3_local_automation.bin
+            build/m5sticks3_local_automation.bin.sha256
+            build/m5sticks3_local_automation_app.bin
+            build/m5sticks3_local_automation_app.bin.sha256
             build/FLASH_THIS_FACTORY_IMAGE.txt
             build/*.elf
             build/*.map
