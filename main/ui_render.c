@@ -194,14 +194,18 @@ static void ui_render_bluetooth_status(const ui_runtime_t *ui)
 {
     char line[DISPLAY_TEXT_MAX_TEXT];
     int y = UI_BODY_Y;
+    snprintf(line, sizeof(line), "Type: BLE GATT only");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "No Classic/BR-EDR");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Connected: %s", ui->bluetooth.ble_connected ? "yes" : "no");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Name: %s", ui->bluetooth.device_name);
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE);
     if (ui->bluetooth.status_text[0] != '\0') {
         y += UI_LINE_H;
         snprintf(line, sizeof(line), "%s", ui->bluetooth.status_text);
-        ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP);
+        ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_4, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP);
     }
 }
 
