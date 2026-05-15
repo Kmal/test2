@@ -115,8 +115,10 @@ def load_json_plan(build_dir: Path, path: Path) -> FlashPlan:
         role_entry = entry_from_json_role(data, role)
         if role_entry is not None:
             offset, file_name = role_entry
-            roles_by_file[file_name] = role
-            roles_by_offset[offset] = role
+            normalized_role = "partition-table" if role == "partition_table" else role
+            roles_by_file[file_name] = normalized_role
+            roles_by_offset[offset] = normalized_role
+            entries_by_offset[offset] = FlashEntry(offset, build_dir / file_name, normalized_role)
 
     if isinstance(raw_files, dict):
         iterable = raw_files.items()
@@ -130,9 +132,15 @@ def load_json_plan(build_dir: Path, path: Path) -> FlashPlan:
             raise ValueError(f"{path} contains a flash_files entry without offset and file")
         offset = normalize_offset(raw_offset)
         role = roles_by_offset.get(offset) or roles_by_file.get(raw_file) or infer_role_from_path(raw_file)
-        if offset in entries_by_offset:
-            raise ValueError(f"duplicate flash offset 0x{offset:x} in {path}")
-        entries_by_offset[offset] = FlashEntry(offset, build_dir / raw_file, role)
+        entry = FlashEntry(offset, build_dir / raw_file, role)
+        existing = entries_by_offset.get(offset)
+        if existing is not None:
+            if existing.path != entry.path:
+                raise ValueError(f"duplicate flash offset 0x{offset:x} in {path}")
+            if existing.role is None and entry.role is not None:
+                entries_by_offset[offset] = entry
+            continue
+        entries_by_offset[offset] = entry
 
     settings: dict[str, str] = {}
     raw_settings = data.get("flash_settings")
@@ -225,6 +233,10 @@ def validate_flash_plan(plan: FlashPlan, chip: str, output: Path) -> None:
     for entry in plan.entries:
         if entry.path.resolve() == output_resolved:
             raise ValueError(f"output image {output} would overwrite input flash artifact {entry.path}")
+
+    app_entries = [entry for entry in plan.entries if entry.role == "app"]
+    if not app_entries:
+        raise ValueError(f"{plan.source} has no application image entry; refusing to create a bootloader-only image")
 
     offset_zero = [entry for entry in plan.entries if entry.offset == 0]
     if chip == "esp32s3" and not offset_zero:

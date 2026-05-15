@@ -80,6 +80,48 @@ def test_corrupt_boot_segment_table_is_rejected() -> None:
         corrupt[1] = 2
         corrupt.extend(struct.pack("<II", 0x6C252820, 0x25202975))
         (build / "bootloader.bin").write_bytes(corrupt)
+        (build / "app.bin").write_bytes(esp_image([(0x3C000020, b"app")]))
+        write_plan(
+            build,
+            {"0x0": "bootloader.bin", "0x10000": "app.bin"},
+            bootloader={"offset": "0x0", "file": "bootloader.bin"},
+            app={"offset": "0x10000", "file": "app.bin"},
+        )
+        plan = factory.load_flash_plan(build)
+        expect_value_error(
+            lambda: factory.validate_flash_plan(plan, "esp32s3", build / "factory.bin"),
+            "implausible length 0x25202975",
+        )
+
+
+def test_json_plan_includes_role_entries_missing_from_flash_files() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        build = Path(tmp)
+        (build / "bootloader.bin").write_bytes(esp_image([(0x3FCE2820, b"boot")]))
+        (build / "app.bin").write_bytes(esp_image([(0x3C000020, b"app")]))
+        (build / "partition.bin").write_bytes(b"partition-data")
+        write_plan(
+            build,
+            {"0x0": "bootloader.bin", "0x8000": "partition.bin"},
+            bootloader={"offset": "0x0", "file": "bootloader.bin"},
+            app={"offset": "0x10000", "file": "app.bin"},
+            **{"partition-table": {"offset": "0x8000", "file": "partition.bin"}},
+        )
+
+        plan = factory.load_flash_plan(build)
+
+        assert [(entry.offset, entry.path.name, entry.role) for entry in plan.entries] == [
+            (0x0, "bootloader.bin", "bootloader"),
+            (0x8000, "partition.bin", "partition-table"),
+            (0x10000, "app.bin", "app"),
+        ]
+        factory.validate_flash_plan(plan, "esp32s3", build / "factory.bin")
+
+
+def test_json_plan_rejects_missing_app_entry() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        build = Path(tmp)
+        (build / "bootloader.bin").write_bytes(esp_image([(0x3FCE2820, b"boot")]))
         write_plan(
             build,
             {"0x0": "bootloader.bin"},
@@ -88,7 +130,7 @@ def test_corrupt_boot_segment_table_is_rejected() -> None:
         plan = factory.load_flash_plan(build)
         expect_value_error(
             lambda: factory.validate_flash_plan(plan, "esp32s3", build / "factory.bin"),
-            "implausible length 0x25202975",
+            "no application image entry",
         )
 
 
@@ -119,5 +161,7 @@ if __name__ == "__main__":
     test_json_plan_rejects_app_at_zero()
     test_legacy_flash_args_rejects_unidentified_zero_image()
     test_corrupt_boot_segment_table_is_rejected()
+    test_json_plan_includes_role_entries_missing_from_flash_files()
+    test_json_plan_rejects_missing_app_entry()
     test_esptool_command_uses_json_settings_and_sorted_entries()
     print("make_factory_image tests passed")
