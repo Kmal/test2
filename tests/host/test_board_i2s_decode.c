@@ -103,6 +103,24 @@ static void test_playback_only_pin_config(void)
 }
 
 
+static void test_simultaneous_mic_speaker_pin_config(void)
+{
+    ASSERT_EQ(ESP_OK, board_i2s_deinit());
+    memset(&s_last_rx_cfg, 0, sizeof(s_last_rx_cfg));
+    memset(&s_last_tx_cfg, 0, sizeof(s_last_tx_cfg));
+    s_rx_init_count = 0;
+    s_tx_init_count = 0;
+    ASSERT_EQ(ESP_OK, board_i2s_init_profile(BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER));
+    ASSERT_EQ(1, s_rx_init_count);
+    ASSERT_EQ(1, s_tx_init_count);
+    ASSERT_EQ(16, s_last_rx_cfg.gpio_cfg.din);
+    ASSERT_EQ(14, s_last_tx_cfg.gpio_cfg.dout);
+    ASSERT_EQ(17, s_last_rx_cfg.gpio_cfg.bclk);
+    ASSERT_EQ(17, s_last_tx_cfg.gpio_cfg.bclk);
+    ASSERT_EQ(15, s_last_rx_cfg.gpio_cfg.ws);
+    ASSERT_EQ(15, s_last_tx_cfg.gpio_cfg.ws);
+}
+
 static void test_decode_samples(void)
 {
     ASSERT_EQ(ESP_OK, board_i2s_deinit());
@@ -141,6 +159,7 @@ int main(void)
 {
     test_capture_only_pin_config();
     test_playback_only_pin_config();
+    test_simultaneous_mic_speaker_pin_config();
     test_decode_samples();
     test_partial_raw_read_handling();
     puts("board_i2s_decode tests passed");

@@ -91,6 +91,22 @@ compile test_action_modules -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/a
   "${ROOT}/src/rules/rule_types.c" "${ROOT}/src/rules/capability_registry.c" "${ROOT}/src/actions/action_http.c" "${ROOT}/src/actions/action_ir.c" "${ROOT}/src/actions/action_speaker.c" "${ROOT}/src/actions/action_hat.c" "${ROOT}/tests/host/test_action_modules.c"
 compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
   "${ROOT}/src/rules/rule_types.c" "${ROOT}/src/rules/capability_registry.c" "${ROOT}/src/rules/rule_engine.c" "${ROOT}/src/triggers/trigger_sources.c" "${ROOT}/src/actions/action_dispatcher.c" "${ROOT}/src/board/m5pm1.c" "${ROOT}/src/board/board_power.c" "${ROOT}/src/board/bmi270.c" "${ROOT}/src/board/board_adc.c" "${ROOT}/src/board/hardware_fact_service.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/src/rules/rule_runtime.c" "${ROOT}/src/rules/rule_config_store.c" "${ROOT}/src/actions/action_http.c" "${ROOT}/src/app/app_wifi.c" "${ROOT}/src/app/app_time.c" "${ROOT}/src/rules/rule_web.c" "${ROOT}/src/triggers/trigger_gpio.c" "${ROOT}/src/triggers/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
+
+compile test_uac_audio_buffer -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/usb_audio" \
+  "${ROOT}/src/usb_audio/uac_audio_buffer.c" "${ROOT}/tests/host/test_uac_audio_buffer.c"
+compile test_uac_config -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/usb_audio" \
+  "${ROOT}/src/usb_audio/uac_config.c" "${ROOT}/tests/host/test_uac_config.c"
+compile test_uac_device_adapter -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/usb_audio" \
+  "${ROOT}/src/usb_audio/uac_audio_buffer.c" "${ROOT}/src/usb_audio/uac_config.c" "${ROOT}/src/usb_audio/uac_device_adapter.c" "${ROOT}/tests/host/test_uac_device_adapter.c"
+compile test_uac_sources -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/usb_audio" \
+  "${ROOT}/src/usb_audio/uac_config.c" "${ROOT}/src/usb_audio/uac_mic_source.c" "${ROOT}/src/usb_audio/uac_speaker_sink.c" "${ROOT}/tests/host/fakes/fake_uac_board_deps.c" "${ROOT}/tests/host/test_uac_sources.c"
+compile test_uac_service -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/usb_audio" \
+  "${ROOT}/src/usb_audio/uac_service.c" "${ROOT}/tests/host/test_uac_service.c"
+"${BUILD_DIR}/test_uac_audio_buffer"
+"${BUILD_DIR}/test_uac_config"
+"${BUILD_DIR}/test_uac_device_adapter"
+"${BUILD_DIR}/test_uac_sources"
+"${BUILD_DIR}/test_uac_service"
 "${BUILD_DIR}/test_button_state"
 "${BUILD_DIR}/test_audio_resample"
 "${BUILD_DIR}/test_audio_pipeline"

@@ -32,6 +32,9 @@ static const char *profile_i2s_step(board_audio_profile_t profile)
     if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
         return "i2s-tx>";
     }
+    if (profile == BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER) {
+        return "i2s-rx-tx>";
+    }
     return "i2s-invalid>";
 }
 
@@ -42,6 +45,9 @@ static const char *profile_codec_step(board_audio_profile_t profile)
     }
     if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
         return "codec-dac>";
+    }
+    if (profile == BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER) {
+        return "codec-adc-dac>";
     }
     return "codec-invalid>";
 }
@@ -91,6 +97,15 @@ static void test_playback_only_power_gate_order_when_required(void)
 }
 
 
+static void test_simultaneous_mic_speaker_requires_power_and_uses_combined_profile(void)
+{
+    fake_audio_t fake = {0};
+    board_audio_ops_t o = ops(&fake);
+    board_audio_config_t cfg = {.profile = BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER, .probe_m5pm1 = true, .require_audio_power_enable = true};
+    ASSERT_EQ(ESP_OK, board_audio_init_with_ops(&cfg, &o));
+    ASSERT_TRUE(strcmp(fake.log, "i2c>probe>power>i2s-rx-tx>codec-adc-dac>") == 0);
+}
+
 static void test_failure_aborts_later_steps_and_cleans_up(void)
 {
     fake_audio_t fake = {.fail_probe = ESP_FAIL};
@@ -105,6 +120,7 @@ int main(void)
     test_capture_only_order();
     test_capture_only_skips_optional_m5pm1_probe();
     test_playback_only_power_gate_order_when_required();
+    test_simultaneous_mic_speaker_requires_power_and_uses_combined_profile();
     test_failure_aborts_later_steps_and_cleans_up();
     puts("board_audio tests passed");
     return 0;

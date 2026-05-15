@@ -10,6 +10,7 @@ extern "C" {
 typedef enum {
     BOARD_AUDIO_PROFILE_CAPTURE_ONLY = 0,
     BOARD_AUDIO_PROFILE_PLAYBACK_ONLY,
+    BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER,
 } board_audio_profile_t;
 
 typedef struct {

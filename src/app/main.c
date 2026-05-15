@@ -37,6 +37,9 @@
 #include "rule_runtime.h"
 #include "rule_web.h"
 #include "status_ui.h"
+#if CONFIG_APP_USB_UAC_DEVICE
+#include "uac_service.h"
+#endif
 
 
 #if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
@@ -647,6 +650,16 @@ void app_main(void)
         ESP_LOGW(TAG, "app_main: Wi-Fi/web UI network startup unavailable");
     }
     app_rule_runtime_init();
+
+#if CONFIG_APP_USB_UAC_DEVICE
+    ESP_LOGI(TAG, "app_main: USB Audio Class init start");
+    ret = uac_service_start_from_kconfig();
+    if (ret != ESP_OK) {
+        status_ui_set_state(STATUS_UI_STATE_ERROR);
+        ESP_LOGE(TAG, "USB Audio Class service failed to start: %s; staying alive", esp_err_to_name(ret));
+        app_idle_forever();
+    }
+#endif
 
 #if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     ESP_LOGI(TAG, "app_main: BLE GATT rule-event init start");

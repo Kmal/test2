@@ -8,6 +8,7 @@ set(APP_INCLUDE_DIRS
     "transport"
     "triggers"
     "ui"
+    "usb_audio"
 )
 
 set(APP_SRCS
@@ -56,7 +57,7 @@ if(CONFIG_APP_SPEAKER_ACTION)
     list(APPEND APP_SRCS "actions/action_speaker.c")
 endif()
 
-if(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION)
+if(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION OR CONFIG_APP_USB_UAC_DEVICE)
     list(APPEND APP_SRCS
         "audio/board_audio.c"
         "audio/board_audio_clock.c"
@@ -64,6 +65,20 @@ if(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION)
         "audio/board_i2s.c"
         "audio/es8311.c"
     )
+endif()
+
+
+if(CONFIG_APP_USB_UAC_DEVICE)
+    list(APPEND APP_SRCS
+        "usb_audio/uac_audio_buffer.c"
+        "usb_audio/uac_config.c"
+        "usb_audio/uac_device_adapter.c"
+        "usb_audio/uac_esp_device.c"
+        "usb_audio/uac_mic_source.c"
+        "usb_audio/uac_speaker_sink.c"
+        "usb_audio/uac_service.c"
+    )
+    list(APPEND APP_REQUIRES usb_device_uac)
 endif()
 
 if(CONFIG_APP_SOUND_LEVEL_TRIGGERS)

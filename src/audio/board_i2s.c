@@ -61,7 +61,8 @@ static esp_err_t board_i2s_enable_channel(i2s_chan_handle_t handle, const char *
 esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
 {
     if (profile != BOARD_AUDIO_PROFILE_CAPTURE_ONLY &&
-        profile != BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
+        profile != BOARD_AUDIO_PROFILE_PLAYBACK_ONLY &&
+        profile != BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER) {
         return ESP_ERR_INVALID_ARG;
     }
     if (s_i2s_ready) {
@@ -145,7 +146,8 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
     s_active_profile = profile;
     s_i2s_ready = true;
     ESP_LOGI(TAG, "I2S standard %s profile ready: Fs=%d MCLK=%d BCLK=%d LRCK=%d bits=%d channels=%d slot_bits=%d",
-             profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" : "capture-only",
+             profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" :
+             (profile == BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER ? "simultaneous-mic-speaker" : "capture-only"),
              clock->sample_rate_hz, clock->mclk_hz, clock->bclk_hz, clock->lrck_hz,
              clock->bits_per_sample, clock->channels, (int)std_cfg.slot_cfg.slot_bit_width);
     if (profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) {
@@ -154,6 +156,9 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
     } else if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
         ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=unused DOUT=GPIO%d",
                  BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DO_IO);
+    } else {
+        ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=GPIO%d",
+                 BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO, BOARD_I2S_DO_IO);
     }
     return ESP_OK;
 }
