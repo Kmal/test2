@@ -34,6 +34,8 @@ compile test_ui_nav -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/boa
   "${ROOT}/src/ui/ui_nav.c" "${ROOT}/tests/host/test_ui_nav.c"
 compile test_ui_keyboard -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
   "${ROOT}/src/ui/ui_keyboard.c" "${ROOT}/tests/host/test_ui_keyboard.c"
+compile test_status_ui_input_map -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
+  "${ROOT}/src/ui/status_ui_input_map.c" "${ROOT}/tests/host/test_status_ui_input_map.c"
 compile test_display_text -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
   "${ROOT}/src/ui/display_text.c" "${ROOT}/tests/host/test_display_text.c"
 compile test_ble_rule_protocol -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
@@ -96,6 +98,7 @@ compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${
 "${BUILD_DIR}/test_app_mode"
 "${BUILD_DIR}/test_ui_nav"
 "${BUILD_DIR}/test_ui_keyboard"
+"${BUILD_DIR}/test_status_ui_input_map"
 "${BUILD_DIR}/test_display_text"
 "${BUILD_DIR}/test_ble_rule_protocol"
 "${BUILD_DIR}/test_es8311_sequence"

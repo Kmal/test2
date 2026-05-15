@@ -67,6 +67,13 @@ void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t now_ms
     }
 }
 
+void ui_keyboard_cancel(ui_keyboard_state_t *kb)
+{
+    if (kb == NULL) return;
+    ui_keyboard_commit_pending(kb);
+    kb->result = UI_KEYBOARD_RESULT_CANCEL;
+}
+
 static void ui_keyboard_backspace(ui_keyboard_state_t *kb)
 {
     size_t len = strlen(kb->text);

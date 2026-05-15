@@ -283,6 +283,10 @@ Documentation must describe the current product as a custom BLE rule-event and l
 
 Keep detailed board pins, electrical constraints, source-backed hardware facts, and hardware acceptance notes under `docs/hardware/sticks3/`, with `docs/hardware/sticks3/sticks3.md` as the main entry point. This README stays focused on product behavior, user-facing firmware functions, validation flow, and change policy.
 
+## Status UI input review
+
+The focused status UI button/input architecture review is recorded in `docs/status_ui_input_review.md`. It documents the StickS3 hardware conformance check, global input routing checklist, host-test coverage, and ESP-IDF validation limitation for the refactor.
+
 ## Development checks
 
 Run these checks after changes when the local environment supports them:

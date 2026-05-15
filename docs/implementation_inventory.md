@@ -39,12 +39,13 @@ This inventory is generated from direct source inspection of `src/**/*.c`, `src/
 | `rule_web.c` | default | yes | On-demand HTTP Web UI/API implementation for config, status, time, Wi-Fi, capabilities, test actions, GPIO, and HAT probe. |
 | `sound_level_service.c` | default via sound config | yes | Demand-driven capture task/service source linked by default sound-level trigger builds; it reads microphone samples, computes metrics, and feeds sound facts while enabled sound rules or Web UI telemetry demand exist. |
 | `status_lcd.c` | default | no | Optional LCD bring-up/render task path behind `CONFIG_APP_STATUS_UI_LCD`; failures are non-fatal. |
-| `status_ui.c` | default | no | Status UI task, key polling, launcher/menu integration, toasts, service enablement, and automation config callbacks. |
+| `status_ui.c` | default | no | Status UI task, active-low KEY1/KEY2 polling, global input queueing, focused keyboard/scan/menu/idle dispatch, launcher/menu integration, toasts, service enablement, and automation config callbacks. |
+| `status_ui_input_map.c` | default | yes | Pure helper mapping physical KEY1/KEY2 gestures to global `STATUS_UI_INPUT_*` values; KEY1 long remains outside this map to preserve the idle menu-open exception. |
 | `transport_ble_gatt.c` | conditional | no | Custom BLE GATT status/rule-event transport compiled when `CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y`. |
 | `trigger_gpio.c` | default | yes | Safe GPIO digital/edge trigger initialization and polling with debounce and source-key generation. |
 | `trigger_hat.c` | default | yes | HAT source probe path deliberately returns unsupported. |
 | `trigger_sources.c` | default | yes | Emits normalized sound, button, and direct facts into a runtime sink. |
-| `ui_keyboard.c` | default | yes | 9-key overlay input model for SSID/password/AP/time fields with static keyboard coverage. |
+| `ui_keyboard.c` | default | yes | 9-key overlay input model for SSID/password/AP/time fields, including explicit cancel result support and menu-edit cancel metadata coverage. |
 | `ui_model.c` | default | no | Menu/application model for Wi-Fi, AP, Bluetooth, automation editing, Web UI service state, and time settings. |
 | `ui_nav.c` | default | yes | Menu graph/navigation state machine for the status UI. |
 | `ui_render.c` | default | no | LCD rendering of status bar, menus, Wi-Fi/AP/BLE/automation/settings screens, toasts, and keyboard overlay. |

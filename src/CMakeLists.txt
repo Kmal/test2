@@ -25,6 +25,7 @@ set(APP_SRCS
     "board/board_adc.c"
     "board/hardware_fact_service.c"
     "ui/status_ui.c"
+    "ui/status_ui_input_map.c"
     "ui/status_lcd.c"
     "ui/ui_keyboard.c"
     "ui/ui_render.c"
