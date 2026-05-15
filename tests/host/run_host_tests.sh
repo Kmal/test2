@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${ROOT}/build/host-tests"
-FAKE_INC="${ROOT}/tests/host/fakes/esp_compat"
+FAKE_INC="${ROOT}/tests/host/fakes/esp_idf_stubs"
 CC_BIN="${CC:-cc}"
 EXTRA_CFLAGS=()
 EXTRA_LDFLAGS=()

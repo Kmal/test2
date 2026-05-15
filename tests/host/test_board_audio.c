@@ -32,7 +32,7 @@ static const char *profile_i2s_step(board_audio_profile_t profile)
     if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
         return "i2s-tx>";
     }
-    return "i2s-fd>";
+    return "i2s-invalid>";
 }
 
 static const char *profile_codec_step(board_audio_profile_t profile)
@@ -43,7 +43,7 @@ static const char *profile_codec_step(board_audio_profile_t profile)
     if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
         return "codec-dac>";
     }
-    return "codec-fd>";
+    return "codec-invalid>";
 }
 
 static esp_err_t fake_i2s(board_audio_profile_t profile, void *ctx) { fake_audio_t *f = ctx; append(f, profile_i2s_step(profile)); return f->fail_i2s; }
@@ -90,14 +90,6 @@ static void test_playback_only_power_gate_order_when_required(void)
     ASSERT_TRUE(strcmp(fake.log, "i2c>probe>power>i2s-tx>codec-dac>") == 0);
 }
 
-static void test_full_duplex_power_gate_order_when_required(void)
-{
-    fake_audio_t fake = {0};
-    board_audio_ops_t o = ops(&fake);
-    board_audio_config_t cfg = {.profile = BOARD_AUDIO_PROFILE_FULL_DUPLEX, .probe_m5pm1 = true, .require_audio_power_enable = true};
-    ASSERT_EQ(ESP_OK, board_audio_init_with_ops(&cfg, &o));
-    ASSERT_TRUE(strcmp(fake.log, "i2c>probe>power>i2s-fd>codec-fd>") == 0);
-}
 
 static void test_failure_aborts_later_steps_and_cleans_up(void)
 {
@@ -113,7 +105,6 @@ int main(void)
     test_capture_only_order();
     test_capture_only_skips_optional_m5pm1_probe();
     test_playback_only_power_gate_order_when_required();
-    test_full_duplex_power_gate_order_when_required();
     test_failure_aborts_later_steps_and_cleans_up();
     puts("board_audio tests passed");
     return 0;

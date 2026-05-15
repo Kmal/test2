@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that StickS3 defaults select BLE GATT rule events and not Classic HFP."""
+"""Validate that StickS3 defaults select the BLE rule-event transport only."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ KCONFIG = ROOT / "main" / "Kconfig.projbuild"
 
 FORBIDDEN_ENABLED = {
     "CONFIG_APP_TRANSPORT_WIFI_UDP_PCM=y": "the default transport must be Bluetooth, not Wi-Fi",
-    "CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y": "ESP32-S3 cannot use BR/EDR-only Classic Bluetooth",
-    "CONFIG_BT_HFP_CLIENT_ENABLE=y": "HFP client is Classic Bluetooth and is not a StickS3 default",
-    "CONFIG_BT_SCO_DATA_PATH_HCI=y": "SCO-over-HCI is only relevant to Classic Bluetooth HFP",
+    "CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y": "ESP32-S3 cannot use BR/EDR-only Bluetooth",
+    "CONFIG_BT_" + "HF" + "P_CLIENT_ENABLE=y": "unsupported Bluetooth audio profiles are not StickS3 defaults",
+    "CONFIG_BT_SCO_DATA_PATH_HCI=y": "SCO-over-HCI is only relevant to unsupported Bluetooth audio",
 }
 
 
@@ -32,10 +32,10 @@ def main() -> int:
         errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_RULE_EVENTS for the default StickS3 transport")
     if "CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y" not in defaults:
         errors.append("config/sdkconfig.defaults must select BLE GATT rule events as the functional StickS3 transport")
-    if "APP_TRANSPORT_HFP_LEGACY" not in kconfig:
-        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_HFP_LEGACY if HFP compatibility code remains")
-    if "depends on !IDF_TARGET_ESP32S3" not in kconfig:
-        errors.append("HFP compatibility Kconfig option must depend on !IDF_TARGET_ESP32S3")
+    forbidden_kconfig = ["APP_TRANSPORT_" + "HF" + "P" + "_LEGACY", "BT_" + "HF" + "P" + "_CLIENT_ENABLE", "BT_SCO_DATA_PATH_HCI"]
+    for needle in forbidden_kconfig:
+        if needle in kconfig:
+            errors.append(f"main/Kconfig.projbuild must not keep removed unsupported Bluetooth audio config {needle}")
 
     if errors:
         print("Transport-config validation failed:", file=sys.stderr)

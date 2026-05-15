@@ -38,13 +38,6 @@
 #include "rule_web.h"
 #include "status_ui.h"
 
-#if CONFIG_APP_TRANSPORT_HFP_LEGACY && defined(CONFIG_IDF_TARGET_ESP32S3)
-#error "ESP32-S3 does not support Bluetooth Classic / BR/EDR; HFP is not available on StickS3"
-#endif
-
-#if CONFIG_APP_TRANSPORT_HFP_LEGACY
-#include "transport_hfp_legacy.h"
-#endif
 
 #if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 #include "transport_ble_gatt.h"
@@ -619,9 +612,6 @@ static void app_idle_forever(void)
 
 void app_main(void)
 {
-#if CONFIG_APP_TRANSPORT_HFP_LEGACY
-    transport_hfp_legacy_run();
-#else
     ESP_LOGI(TAG, "app_main: starting, reset_reason=%d, free_heap=%lu",
              (int)esp_reset_reason(), (unsigned long)esp_get_free_heap_size());
     app_runtime_state_init(&s_runtime_state);
@@ -675,5 +665,4 @@ void app_main(void)
 #endif
 
     app_idle_forever();
-#endif
 }

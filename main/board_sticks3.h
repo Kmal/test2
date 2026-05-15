@@ -3,8 +3,8 @@
  *
  * Verified against the official M5Stack StickS3 documentation, schematic, and
  * pin map. The StickS3 controller is ESP32-S3-PICO-1-N8R8, which does not
- * support Bluetooth Classic / BR/EDR; Classic Bluetooth HFP code must not be
- * enabled for this board.
+ * support Bluetooth Classic / BR/EDR; unsupported Bluetooth audio transport code must not be
+ * added for this board.
  *
  * Audio codec pins (reserved for optional audio builds; the default sound
  * trigger uses the capture-only path):

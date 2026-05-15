@@ -39,10 +39,6 @@ if(CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS)
     list(APPEND APP_SRCS "transport_ble_gatt.c")
 endif()
 
-if(CONFIG_APP_TRANSPORT_HFP_LEGACY)
-    list(APPEND APP_SRCS "transport_hfp_legacy.c")
-endif()
-
 if(CONFIG_APP_SPEAKER_ACTION)
     list(APPEND APP_SRCS "action_speaker.c")
 endif()

@@ -3,7 +3,7 @@
  *
  * This helper is retained for host-tested, helper-only 16 kHz <-> 8 kHz mono
  * PCM conversion. It is not linked by the default StickS3 firmware and is not
- * evidence of Classic Bluetooth HFP, BLE Audio, USB Audio, or PCM streaming
+ * evidence of Classic Bluetooth audio, BLE Audio, USB Audio, or PCM streaming
  * support.
  */
 
