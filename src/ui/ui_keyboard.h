@@ -17,13 +17,6 @@ extern "C" {
 #define UI_KEYBOARD_MULTI_TAP_TIMEOUT_MS 2000
 
 typedef enum {
-    STATUS_UI_KEYBOARD_EVENT_SELECT = 0,
-    STATUS_UI_KEYBOARD_EVENT_NEXT,
-    STATUS_UI_KEYBOARD_EVENT_PREV,
-    STATUS_UI_KEYBOARD_EVENT_OK,
-} status_ui_keyboard_event_t;
-
-typedef enum {
     UI_KEYBOARD_MODE_TEXT = 0,
     UI_KEYBOARD_MODE_PASSWORD,
     UI_KEYBOARD_MODE_NUMERIC,
@@ -71,6 +64,10 @@ typedef struct {
 typedef struct {
     bool active;
     ui_menu_item_t item;
+    bool back_on_cancel;
+    bool has_cancel_target;
+    ui_screen_id_t cancel_target;
+    ui_screen_id_t opened_screen;
 } ui_keyboard_menu_edit_t;
 
 extern const ui_key_def_t ui_keyboard_9key_defs[UI_KEYBOARD_KEY_COUNT];
@@ -86,6 +83,7 @@ void ui_keyboard_handle_prev(ui_keyboard_state_t *kb);
 void ui_keyboard_handle_select(ui_keyboard_state_t *kb, uint32_t now_ms);
 void ui_keyboard_commit_pending(ui_keyboard_state_t *kb);
 void ui_keyboard_commit_expired_pending(ui_keyboard_state_t *kb, uint32_t now_ms);
+void ui_keyboard_cancel(ui_keyboard_state_t *kb);
 
 #ifdef __cplusplus
 }

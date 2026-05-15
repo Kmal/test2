@@ -10,6 +10,7 @@
 #include "status_lcd.h"
 #include "ui_keyboard.h"
 #include "ui_render.h"
+#include "status_ui_input_map.h"
 #if CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 #include "transport_ble_gatt.h"
 #endif
@@ -60,20 +61,42 @@ static uint32_t s_key2_press_count = 0;
 static ui_runtime_t s_ui;
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
+typedef struct {
+    bool consumed;
+    bool activate_selected_item;
+    bool select_scan;
+    ui_flow_id_t select_scan_flow;
+    bool disable_web_ui_service;
+    bool call_idle_key1;
+    bool call_idle_key2;
+} status_ui_input_effects_t;
+
+static bool status_ui_idle_consume_input_to_effects(status_ui_input_t input, status_ui_input_effects_t *effects);
+static void status_ui_apply_input_effects(const status_ui_input_effects_t *effects);
+
 #if CONFIG_APP_STATUS_UI_LCD
 static QueueHandle_t s_virtual_keyboard_queue;
 static QueueHandle_t s_input_queue;
-static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret);
-static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event);
+typedef struct {
+    bool back_on_cancel;
+    bool has_cancel_target;
+    ui_screen_id_t cancel_target;
+} status_ui_keyboard_cancel_policy_t;
+
+static bool status_ui_keyboard_open_menu_edit_ex(ui_runtime_t *ui, const ui_menu_item_t *item, const char *title, const char *initial, size_t max_len, ui_keyboard_mode_t mode, bool secret, status_ui_keyboard_cancel_policy_t cancel_policy);
 static void status_ui_render_lcd(void *ctx);
 #endif
 
 #if CONFIG_APP_STATUS_UI_LCD
 static bool keyboard_is_active(void);
-static void keyboard_queue_event(status_ui_keyboard_event_t event);
-static bool status_ui_keyboard_active_locked(void);
-static void status_ui_route_button_to_keyboard(status_ui_input_t input);
-static void status_ui_route_button_to_menu(status_ui_input_t input);
+static void keyboard_queue_input(status_ui_input_t input);
+static void status_ui_queue_global_input(status_ui_input_t input);
+static void status_ui_handle_key1_long(void);
+static void status_ui_dispatch_focused_input(status_ui_input_t input, status_ui_input_effects_t *effects);
+static bool status_ui_keyboard_consume_input(status_ui_input_t input, status_ui_input_effects_t *effects);
+static bool status_ui_keyboard_handle_menu_global_input(status_ui_input_t input, status_ui_input_effects_t *effects);
+static bool status_ui_scan_consume_input(status_ui_input_t input, status_ui_input_effects_t *effects);
+static bool status_ui_menu_consume_input(status_ui_input_t input, status_ui_input_effects_t *effects);
 static void status_ui_input_task(void *arg);
 #endif
 
@@ -258,7 +281,7 @@ static bool status_ui_begin_wifi_password_edit(ui_runtime_t *ui, ui_flow_id_t fl
         .flags = manual ? 1u : 0u,
     };
     (void)ui_nav_enter(&ui->nav, status_ui_wifi_password_screen(flow, manual));
-    return status_ui_keyboard_open_menu_edit(ui, &password_item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
+    return status_ui_keyboard_open_menu_edit_ex(ui, &password_item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true, (status_ui_keyboard_cancel_policy_t){ .back_on_cancel = true });
 }
 
 static bool status_ui_wifi_connect_with_password(ui_runtime_t *ui, ui_wifi_flow_state_t *wifi, const char *password, bool persist)
@@ -414,14 +437,14 @@ static bool status_ui_action_wifi_enter_ssid(ui_runtime_t *ui, const ui_menu_ite
 {
     ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(ui, item);
     if (wifi == NULL) return false;
-    return status_ui_keyboard_open_menu_edit(ui, item, "Enter SSID", wifi->ssid, UI_TEXT_SSID_MAX, UI_KEYBOARD_MODE_TEXT, false);
+    return status_ui_keyboard_open_menu_edit_ex(ui, item, "Enter SSID", wifi->ssid, UI_TEXT_SSID_MAX, UI_KEYBOARD_MODE_TEXT, false, (status_ui_keyboard_cancel_policy_t){ .has_cancel_target = true, .cancel_target = ui->nav.current });
 }
 
 static bool status_ui_action_wifi_enter_password(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
     ui_wifi_flow_state_t *wifi = status_ui_get_wifi_state_for_item(ui, item);
     if (wifi == NULL) return false;
-    return status_ui_keyboard_open_menu_edit(ui, item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
+    return status_ui_keyboard_open_menu_edit_ex(ui, item, "Enter Password", wifi->password, UI_TEXT_WIFI_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true, (status_ui_keyboard_cancel_policy_t){ .back_on_cancel = true });
 }
 
 static bool status_ui_action_wifi_connect_and_save(ui_runtime_t *ui, const ui_menu_item_t *item)
@@ -432,13 +455,13 @@ static bool status_ui_action_wifi_connect_and_save(ui_runtime_t *ui, const ui_me
 static bool status_ui_action_ap_enter_name(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
     if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
-    return status_ui_keyboard_open_menu_edit(ui, item, "Set AP Name", ui->ap.ap_name, UI_TEXT_AP_NAME_MAX, UI_KEYBOARD_MODE_TEXT, false);
+    return status_ui_keyboard_open_menu_edit_ex(ui, item, "Set AP Name", ui->ap.ap_name, UI_TEXT_AP_NAME_MAX, UI_KEYBOARD_MODE_TEXT, false, (status_ui_keyboard_cancel_policy_t){ .has_cancel_target = true, .cancel_target = UI_SCREEN_CONFIG_AP_MODE });
 }
 
 static bool status_ui_action_ap_enter_password(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
     if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
-    return status_ui_keyboard_open_menu_edit(ui, item, "Set AP Password", ui->ap.ap_password, UI_TEXT_AP_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true);
+    return status_ui_keyboard_open_menu_edit_ex(ui, item, "Set AP Password", ui->ap.ap_password, UI_TEXT_AP_PASSWORD_MAX, UI_KEYBOARD_MODE_PASSWORD, true, (status_ui_keyboard_cancel_policy_t){ .has_cancel_target = true, .cancel_target = UI_SCREEN_CONFIG_AP_MODE });
 }
 
 static bool status_ui_action_ap_enter_channel(ui_runtime_t *ui, const ui_menu_item_t *item)
@@ -446,7 +469,7 @@ static bool status_ui_action_ap_enter_channel(ui_runtime_t *ui, const ui_menu_it
     if (!ui->ap.loaded_from_config) (void)status_ui_ap_load_config(ui);
     char channel[4];
     snprintf(channel, sizeof(channel), "%u", (unsigned)ui->ap.channel);
-    return status_ui_keyboard_open_menu_edit(ui, item, "Set Channel", channel, 2, UI_KEYBOARD_MODE_NUMERIC, false);
+    return status_ui_keyboard_open_menu_edit_ex(ui, item, "Set Channel", channel, 2, UI_KEYBOARD_MODE_NUMERIC, false, (status_ui_keyboard_cancel_policy_t){ .has_cancel_target = true, .cancel_target = UI_SCREEN_CONFIG_AP_MODE });
 }
 
 static bool status_ui_action_ap_start_mode(ui_runtime_t *ui, const ui_menu_item_t *item)
@@ -591,85 +614,94 @@ static bool status_ui_is_wifi_done_screen(ui_screen_id_t screen)
            screen == UI_SCREEN_CONNECT_WIFI_MANUAL_CONNECT_SAVE;
 }
 
-void status_ui_handle_input(status_ui_input_t input)
+static void status_ui_apply_input_effects(const status_ui_input_effects_t *effects)
 {
-#if CONFIG_APP_STATUS_UI_LCD
-    portENTER_CRITICAL(&s_state_mux);
-    bool keyboard_active = status_ui_keyboard_active_locked();
-    portEXIT_CRITICAL(&s_state_mux);
-    if (keyboard_active) {
-        status_ui_route_button_to_keyboard(input);
+    if (effects == NULL) {
         return;
+    }
+
+#if CONFIG_APP_STATUS_UI_LCD
+    if (effects->disable_web_ui_service) {
+        status_ui_set_service_enabled(false);
+    }
+
+    if (effects->select_scan) {
+        (void)status_ui_select_current_scan(&s_ui, effects->select_scan_flow);
+    } else if (effects->activate_selected_item) {
+        status_ui_activate_selected_item();
     }
 #endif
 
-    bool activate = false;
-    bool select_scan = false;
-    bool disable_web_ui_service = false;
-    ui_flow_id_t select_scan_flow = UI_FLOW_NONE;
-    portENTER_CRITICAL(&s_state_mux);
-    if (!s_ui.menu_active && input != STATUS_UI_INPUT_BACK) {
-        s_ui.menu_active = true;
-        ui_nav_init(&s_ui.nav);
-        s_ui.dirty = true;
-        portEXIT_CRITICAL(&s_state_mux);
+    if (effects->call_idle_key1 && s_handlers.key1_pressed != NULL) {
+        s_handlers.key1_pressed(s_handlers.ctx);
+    }
+
+    if (effects->call_idle_key2 && s_handlers.key2_pressed != NULL) {
+        s_handlers.key2_pressed(s_handlers.ctx);
+    }
+}
+
+#if CONFIG_APP_STATUS_UI_LCD
+static void status_ui_dispatch_focused_input(status_ui_input_t input,
+                                             status_ui_input_effects_t *effects)
+{
+    if (status_ui_keyboard_consume_input(input, effects)) {
         return;
     }
 
-    const ui_screen_def_t *screen = ui_nav_current(&s_ui.nav);
-    ui_wifi_flow_state_t *scan_wifi = NULL;
-    if (screen != NULL && (s_ui.nav.current == UI_SCREEN_CONFIG_WIFI_SCAN || s_ui.nav.current == UI_SCREEN_CONNECT_WIFI_SCAN)) {
-        scan_wifi = ui_runtime_wifi_flow(&s_ui, screen->flow);
+    if (status_ui_scan_consume_input(input, effects)) {
+        return;
+    }
+
+    if (status_ui_menu_consume_input(input, effects)) {
+        return;
+    }
+
+    (void)status_ui_idle_consume_input_to_effects(input, effects);
+}
+#endif
+
+void status_ui_handle_input(status_ui_input_t input)
+{
+    status_ui_input_effects_t effects = {0};
+
+#if CONFIG_APP_STATUS_UI_LCD
+    status_ui_dispatch_focused_input(input, &effects);
+#else
+    (void)status_ui_idle_consume_input_to_effects(input, &effects);
+#endif
+
+    status_ui_apply_input_effects(&effects);
+}
+
+
+static bool status_ui_idle_consume_input_to_effects(status_ui_input_t input,
+                                                    status_ui_input_effects_t *effects)
+{
+    if (effects == NULL) {
+        return false;
+    }
+
+    portENTER_CRITICAL(&s_state_mux);
+    bool menu_active = s_ui.menu_active;
+    portEXIT_CRITICAL(&s_state_mux);
+    if (menu_active) {
+        return false;
     }
 
     switch (input) {
     case STATUS_UI_INPUT_SELECT:
-        if (scan_wifi != NULL) {
-            select_scan = true;
-            select_scan_flow = screen->flow;
-        } else {
-            activate = true;
-        }
-        break;
+        effects->call_idle_key1 = true;
+        effects->consumed = true;
+        return true;
     case STATUS_UI_INPUT_NEXT:
-        if (scan_wifi != NULL && scan_wifi->scan_results.count > 0u) {
-            scan_wifi->selected_scan_index = (scan_wifi->selected_scan_index + 1u) % scan_wifi->scan_results.count;
-        } else {
-            (void)ui_nav_next(&s_ui.nav);
-        }
-        s_ui.dirty = true;
-        break;
+        effects->call_idle_key2 = true;
+        effects->consumed = true;
+        return true;
     case STATUS_UI_INPUT_PREV:
-        if (scan_wifi != NULL && scan_wifi->scan_results.count > 0u) {
-            scan_wifi->selected_scan_index = scan_wifi->selected_scan_index == 0u ? scan_wifi->scan_results.count - 1u : scan_wifi->selected_scan_index - 1u;
-        } else {
-            (void)ui_nav_prev(&s_ui.nav);
-        }
-        s_ui.dirty = true;
-        break;
     case STATUS_UI_INPUT_BACK:
-        if (s_ui.menu_active && s_ui.nav.current == UI_SCREEN_MAIN) {
-            s_ui.menu_active = true;
-        } else if (s_ui.menu_active && status_ui_is_wifi_done_screen(s_ui.nav.current)) {
-            disable_web_ui_service = true;
-            ui_nav_init(&s_ui.nav);
-        } else if (s_ui.menu_active) {
-            (void)ui_nav_back(&s_ui.nav);
-        }
-        s_ui.dirty = true;
-        break;
     default:
-        break;
-    }
-    portEXIT_CRITICAL(&s_state_mux);
-
-    if (disable_web_ui_service) {
-        status_ui_set_service_enabled(false);
-    }
-    if (select_scan) {
-        (void)status_ui_select_current_scan(&s_ui, select_scan_flow);
-    } else if (activate) {
-        status_ui_activate_selected_item();
+        return false;
     }
 }
 
@@ -700,49 +732,232 @@ static bool keyboard_is_active(void)
     return active;
 }
 
-static void keyboard_queue_event(status_ui_keyboard_event_t event)
+static void keyboard_queue_input(status_ui_input_t input)
 {
     if (s_virtual_keyboard_queue != NULL) {
-        (void)xQueueSend(s_virtual_keyboard_queue, &event, 0);
+        (void)xQueueSend(s_virtual_keyboard_queue, &input, 0);
     }
 }
 
-static bool status_ui_keyboard_active_locked(void)
-{
-    return ui_keyboard_session_state()->active;
-}
-
-static void status_ui_route_button_to_keyboard(status_ui_input_t input)
-{
-    status_ui_keyboard_event_t event = STATUS_UI_KEYBOARD_EVENT_PREV;
-    switch (input) {
-    case STATUS_UI_INPUT_SELECT:
-        event = STATUS_UI_KEYBOARD_EVENT_SELECT;
-        break;
-    case STATUS_UI_INPUT_NEXT:
-        event = STATUS_UI_KEYBOARD_EVENT_NEXT;
-        break;
-    case STATUS_UI_INPUT_PREV:
-    case STATUS_UI_INPUT_BACK:
-        event = STATUS_UI_KEYBOARD_EVENT_PREV;
-        break;
-    default:
-        return;
-    }
-    if (ui_keyboard_session_edit()->active) {
-        status_ui_keyboard_handle_menu_event(event);
-    } else {
-        keyboard_queue_event(event);
-    }
-}
-
-static void status_ui_route_button_to_menu(status_ui_input_t input)
+static void status_ui_queue_global_input(status_ui_input_t input)
 {
     if (s_input_queue != NULL) {
         (void)xQueueSend(s_input_queue, &input, 0);
     } else {
         status_ui_handle_input(input);
     }
+}
+
+static void status_ui_handle_key1_long(void)
+{
+    portENTER_CRITICAL(&s_state_mux);
+    if (!s_ui.menu_active) {
+        s_ui.menu_active = true;
+        ui_nav_init(&s_ui.nav);
+        s_ui.dirty = true;
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+}
+
+static void status_ui_apply_keyboard_cancel_policy_locked(const ui_keyboard_menu_edit_t *edit)
+{
+    if (edit == NULL) {
+        return;
+    }
+    if (edit->has_cancel_target && ui_nav_get_screen(edit->cancel_target) != NULL) {
+        s_ui.nav.current = edit->cancel_target;
+        s_ui.nav.stack_depth = 0u;
+        s_ui.nav.selected_index = 0u;
+        s_ui.nav.scroll_offset = 0u;
+        s_ui.nav.dirty = true;
+    } else if (edit->back_on_cancel) {
+        (void)ui_nav_back(&s_ui.nav);
+    }
+    s_ui.dirty = true;
+}
+
+static bool status_ui_keyboard_handle_menu_global_input(status_ui_input_t input,
+                                                        status_ui_input_effects_t *effects)
+{
+    (void)effects;
+    ui_keyboard_result_t result = UI_KEYBOARD_RESULT_NONE;
+    ui_menu_item_t item = {0};
+    ui_keyboard_menu_edit_t edit = {0};
+    char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1] = {0};
+
+    portENTER_CRITICAL(&s_state_mux);
+    if (!ui_keyboard_session_edit()->active) {
+        portEXIT_CRITICAL(&s_state_mux);
+        return false;
+    }
+
+    switch (input) {
+    case STATUS_UI_INPUT_SELECT:
+        ui_keyboard_handle_select(ui_keyboard_session_state(), (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+        break;
+    case STATUS_UI_INPUT_NEXT:
+        ui_keyboard_handle_next(ui_keyboard_session_state());
+        break;
+    case STATUS_UI_INPUT_PREV:
+        ui_keyboard_handle_prev(ui_keyboard_session_state());
+        break;
+    case STATUS_UI_INPUT_BACK:
+        ui_keyboard_cancel(ui_keyboard_session_state());
+        break;
+    default:
+        portEXIT_CRITICAL(&s_state_mux);
+        return false;
+    }
+
+    result = ui_keyboard_session_state()->result;
+    if (result != UI_KEYBOARD_RESULT_NONE) {
+        edit = *ui_keyboard_session_edit();
+        item = edit.item;
+        snprintf(text, sizeof(text), "%s", ui_keyboard_session_state()->text);
+        ui_keyboard_session_edit()->active = false;
+        ui_keyboard_close(ui_keyboard_session_state());
+        if (result == UI_KEYBOARD_RESULT_CANCEL) {
+            status_ui_apply_keyboard_cancel_policy_locked(&edit);
+        }
+        memset(ui_keyboard_session_edit(), 0, sizeof(*ui_keyboard_session_edit()));
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+
+    if (result != UI_KEYBOARD_RESULT_NONE) {
+        status_ui_complete_menu_keyboard_edit(&item, result, text);
+    }
+    return true;
+}
+
+static bool status_ui_keyboard_consume_input(status_ui_input_t input,
+                                             status_ui_input_effects_t *effects)
+{
+    bool active = false;
+    bool menu_edit_active = false;
+
+    portENTER_CRITICAL(&s_state_mux);
+    active = ui_keyboard_session_state()->active;
+    menu_edit_active = ui_keyboard_session_edit()->active;
+    portEXIT_CRITICAL(&s_state_mux);
+
+    if (!active) {
+        return false;
+    }
+
+    switch (input) {
+    case STATUS_UI_INPUT_SELECT:
+    case STATUS_UI_INPUT_NEXT:
+    case STATUS_UI_INPUT_PREV:
+    case STATUS_UI_INPUT_BACK:
+        if (menu_edit_active) {
+            return status_ui_keyboard_handle_menu_global_input(input, effects);
+        }
+        keyboard_queue_input(input);
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool status_ui_scan_consume_input(status_ui_input_t input,
+                                         status_ui_input_effects_t *effects)
+{
+    bool consumed = false;
+
+    if (effects == NULL) {
+        return false;
+    }
+
+    portENTER_CRITICAL(&s_state_mux);
+    const ui_screen_def_t *screen = ui_nav_current(&s_ui.nav);
+    ui_wifi_flow_state_t *scan_wifi = NULL;
+    if (screen != NULL && (s_ui.nav.current == UI_SCREEN_CONFIG_WIFI_SCAN || s_ui.nav.current == UI_SCREEN_CONNECT_WIFI_SCAN)) {
+        scan_wifi = ui_runtime_wifi_flow(&s_ui, screen->flow);
+    }
+
+    if (scan_wifi != NULL) {
+        switch (input) {
+        case STATUS_UI_INPUT_SELECT:
+            effects->select_scan = true;
+            effects->select_scan_flow = screen->flow;
+            effects->consumed = true;
+            consumed = true;
+            break;
+        case STATUS_UI_INPUT_NEXT:
+            if (scan_wifi->scan_results.count > 0u) {
+                scan_wifi->selected_scan_index = (scan_wifi->selected_scan_index + 1u) % scan_wifi->scan_results.count;
+            }
+            s_ui.dirty = true;
+            effects->consumed = true;
+            consumed = true;
+            break;
+        case STATUS_UI_INPUT_PREV:
+            if (scan_wifi->scan_results.count > 0u) {
+                scan_wifi->selected_scan_index = scan_wifi->selected_scan_index == 0u ? scan_wifi->scan_results.count - 1u : scan_wifi->selected_scan_index - 1u;
+            }
+            s_ui.dirty = true;
+            effects->consumed = true;
+            consumed = true;
+            break;
+        case STATUS_UI_INPUT_BACK:
+        default:
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+    return consumed;
+}
+
+static bool status_ui_menu_consume_input(status_ui_input_t input,
+                                         status_ui_input_effects_t *effects)
+{
+    bool consumed = false;
+
+    if (effects == NULL) {
+        return false;
+    }
+
+    portENTER_CRITICAL(&s_state_mux);
+    if (!s_ui.menu_active) {
+        portEXIT_CRITICAL(&s_state_mux);
+        return false;
+    }
+
+    switch (input) {
+    case STATUS_UI_INPUT_SELECT:
+        effects->activate_selected_item = true;
+        consumed = true;
+        break;
+    case STATUS_UI_INPUT_NEXT:
+        (void)ui_nav_next(&s_ui.nav);
+        s_ui.dirty = true;
+        consumed = true;
+        break;
+    case STATUS_UI_INPUT_PREV:
+        (void)ui_nav_prev(&s_ui.nav);
+        s_ui.dirty = true;
+        consumed = true;
+        break;
+    case STATUS_UI_INPUT_BACK:
+        if (s_ui.nav.current == UI_SCREEN_MAIN) {
+            s_ui.menu_active = true;
+        } else if (status_ui_is_wifi_done_screen(s_ui.nav.current)) {
+            effects->disable_web_ui_service = true;
+            ui_nav_init(&s_ui.nav);
+        } else {
+            (void)ui_nav_back(&s_ui.nav);
+        }
+        s_ui.dirty = true;
+        consumed = true;
+        break;
+    default:
+        break;
+    }
+    if (consumed) {
+        effects->consumed = true;
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+    return consumed;
 }
 
 static void status_ui_input_task(void *arg)
@@ -760,16 +975,10 @@ static void status_ui_input_task(void *arg)
 static void status_ui_dispatch_key1_short(status_button_t *button)
 {
 #if CONFIG_APP_STATUS_UI_LCD
-    if (keyboard_is_active()) {
-        if (ui_keyboard_session_edit()->active) {
-            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_SELECT);
-        } else {
-            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_SELECT);
-        }
-    } else if (s_ui.menu_active) {
-        status_ui_route_button_to_menu(STATUS_UI_INPUT_SELECT);
-    } else if (button->handler != NULL) {
-        button->handler(s_handlers.ctx);
+    (void)button;
+    status_ui_input_t input;
+    if (status_ui_input_from_physical_gesture(STATUS_UI_PHYSICAL_GESTURE_KEY1_SHORT, &input)) {
+        status_ui_queue_global_input(input);
     }
 #else
     if (button->handler != NULL) {
@@ -779,44 +988,31 @@ static void status_ui_dispatch_key1_short(status_button_t *button)
 }
 
 #if CONFIG_APP_STATUS_UI_LCD
+/* Keep physical gesture dispatch UI-state blind: these handlers translate
+ * debounced gestures to the global input contract only. Foreground state
+ * inspection and cleanup belong to status_ui_handle_input() and the focused
+ * consumers below it, never to GPIO polling or a future ISR path. */
 static void status_ui_dispatch_key2_single(void)
 {
-    if (keyboard_is_active()) {
-        if (ui_keyboard_session_edit()->active) {
-            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_NEXT);
-        } else {
-            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_NEXT);
-        }
-    } else if (s_ui.menu_active) {
-        status_ui_route_button_to_menu(STATUS_UI_INPUT_NEXT);
-    } else if (s_handlers.key2_pressed != NULL) {
-        s_handlers.key2_pressed(s_handlers.ctx);
+    status_ui_input_t input;
+    if (status_ui_input_from_physical_gesture(STATUS_UI_PHYSICAL_GESTURE_KEY2_SINGLE, &input)) {
+        status_ui_queue_global_input(input);
     }
 }
 
 static void status_ui_dispatch_key2_double(void)
 {
-    if (keyboard_is_active()) {
-        if (ui_keyboard_session_edit()->active) {
-            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-        } else {
-            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-        }
-    } else if (s_ui.menu_active) {
-        status_ui_route_button_to_menu(STATUS_UI_INPUT_PREV);
+    status_ui_input_t input;
+    if (status_ui_input_from_physical_gesture(STATUS_UI_PHYSICAL_GESTURE_KEY2_DOUBLE, &input)) {
+        status_ui_queue_global_input(input);
     }
 }
 
 static void status_ui_dispatch_key2_long(void)
 {
-    if (keyboard_is_active()) {
-        if (ui_keyboard_session_edit()->active) {
-            status_ui_keyboard_handle_menu_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-        } else {
-            keyboard_queue_event(STATUS_UI_KEYBOARD_EVENT_PREV);
-        }
-    } else if (s_ui.menu_active) {
-        status_ui_route_button_to_menu(STATUS_UI_INPUT_BACK);
+    status_ui_input_t input;
+    if (status_ui_input_from_physical_gesture(STATUS_UI_PHYSICAL_GESTURE_KEY2_LONG, &input)) {
+        status_ui_queue_global_input(input);
     }
 }
 #endif
@@ -850,8 +1046,8 @@ static void maybe_dispatch_button(status_button_t *button, TickType_t now)
         if (button->gpio == BOARD_BUTTON_KEY2_GPIO) {
             button->waiting_single = false;
             status_ui_dispatch_key2_long();
-        } else if (!s_ui.menu_active && button->gpio == BOARD_BUTTON_KEY1_GPIO) {
-            status_ui_open_screen(UI_SCREEN_MAIN);
+        } else if (button->gpio == BOARD_BUTTON_KEY1_GPIO) {
+            status_ui_handle_key1_long();
         }
     }
 #endif
@@ -936,13 +1132,14 @@ static void keyboard_snapshot(ui_keyboard_state_t *out)
 }
 
 
-static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui,
-                                              const ui_menu_item_t *item,
-                                              const char *title,
-                                              const char *initial,
-                                              size_t max_len,
-                                              ui_keyboard_mode_t mode,
-                                              bool secret)
+static bool status_ui_keyboard_open_menu_edit_ex(ui_runtime_t *ui,
+                                                 const ui_menu_item_t *item,
+                                                 const char *title,
+                                                 const char *initial,
+                                                 size_t max_len,
+                                                 ui_keyboard_mode_t mode,
+                                                 bool secret,
+                                                 status_ui_keyboard_cancel_policy_t cancel_policy)
 {
     if (ui == NULL || item == NULL || !status_lcd_is_ready()) {
         return false;
@@ -953,8 +1150,14 @@ static bool status_ui_keyboard_open_menu_edit(ui_runtime_t *ui,
     portENTER_CRITICAL(&s_state_mux);
     bool opened = ui_keyboard_open(ui_keyboard_session_state(), title, initial, max_len, mode, secret);
     if (opened) {
-        ui_keyboard_session_edit()->active = true;
-        ui_keyboard_session_edit()->item = *item;
+        ui_keyboard_menu_edit_t *edit = ui_keyboard_session_edit();
+        memset(edit, 0, sizeof(*edit));
+        edit->active = true;
+        edit->item = *item;
+        edit->back_on_cancel = cancel_policy.back_on_cancel;
+        edit->has_cancel_target = cancel_policy.has_cancel_target;
+        edit->cancel_target = cancel_policy.cancel_target;
+        edit->opened_screen = ui->nav.current;
         ui->dirty = true;
     }
     portEXIT_CRITICAL(&s_state_mux);
@@ -1031,50 +1234,6 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
     s_ui.dirty = true;
 }
 
-static void status_ui_keyboard_handle_menu_event(status_ui_keyboard_event_t event)
-{
-    ui_keyboard_result_t result = UI_KEYBOARD_RESULT_NONE;
-    ui_menu_item_t item = {0};
-    char text[STATUS_UI_KEYBOARD_MAX_TEXT + 1] = {0};
-
-    portENTER_CRITICAL(&s_state_mux);
-    if (!ui_keyboard_session_edit()->active) {
-        portEXIT_CRITICAL(&s_state_mux);
-        keyboard_queue_event(event);
-        return;
-    }
-    switch (event) {
-    case STATUS_UI_KEYBOARD_EVENT_SELECT:
-        ui_keyboard_handle_select(ui_keyboard_session_state(), (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
-        break;
-    case STATUS_UI_KEYBOARD_EVENT_NEXT:
-        ui_keyboard_handle_next(ui_keyboard_session_state());
-        break;
-    case STATUS_UI_KEYBOARD_EVENT_PREV:
-        ui_keyboard_handle_prev(ui_keyboard_session_state());
-        break;
-    case STATUS_UI_KEYBOARD_EVENT_OK:
-        ui_keyboard_commit_pending(ui_keyboard_session_state());
-        ui_keyboard_session_state()->result = UI_KEYBOARD_RESULT_OK;
-        break;
-    default:
-        break;
-    }
-    result = ui_keyboard_session_state()->result;
-    if (result != UI_KEYBOARD_RESULT_NONE) {
-        item = ui_keyboard_session_edit()->item;
-        snprintf(text, sizeof(text), "%s", ui_keyboard_session_state()->text);
-        ui_keyboard_session_edit()->active = false;
-        ui_keyboard_close(ui_keyboard_session_state());
-    }
-    portEXIT_CRITICAL(&s_state_mux);
-
-    if (result != UI_KEYBOARD_RESULT_NONE) {
-        status_ui_complete_menu_keyboard_edit(&item, result, text);
-    }
-}
-
-
 static void status_ui_render_keyboard_lcd(void)
 {
     ui_keyboard_state_t kb;
@@ -1109,7 +1268,7 @@ static bool status_ui_keyboard_read_line_mode(const char *title, const char *ini
     const TickType_t timeout = timeout_ms == 0 ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
     bool ok = false;
     while (true) {
-        status_ui_keyboard_event_t event;
+        status_ui_input_t event;
         TickType_t wait = pdMS_TO_TICKS(100);
         if (timeout != portMAX_DELAY) {
             TickType_t elapsed = xTaskGetTickCount() - start;
@@ -1118,13 +1277,12 @@ static bool status_ui_keyboard_read_line_mode(const char *title, const char *ini
             if (remaining < wait) wait = remaining;
         }
         if (xQueueReceive(s_virtual_keyboard_queue, &event, wait) == pdTRUE) {
-            if (event == STATUS_UI_KEYBOARD_EVENT_SELECT) keyboard_select();
-            else if (event == STATUS_UI_KEYBOARD_EVENT_NEXT) keyboard_move(1);
-            else if (event == STATUS_UI_KEYBOARD_EVENT_PREV) keyboard_move(-1);
-            else if (event == STATUS_UI_KEYBOARD_EVENT_OK) {
+            if (event == STATUS_UI_INPUT_SELECT) keyboard_select();
+            else if (event == STATUS_UI_INPUT_NEXT) keyboard_move(1);
+            else if (event == STATUS_UI_INPUT_PREV) keyboard_move(-1);
+            else if (event == STATUS_UI_INPUT_BACK) {
                 portENTER_CRITICAL(&s_state_mux);
-                ui_keyboard_commit_pending(ui_keyboard_session_state());
-                ui_keyboard_session_state()->result = UI_KEYBOARD_RESULT_OK;
+                ui_keyboard_cancel(ui_keyboard_session_state());
                 portEXIT_CRITICAL(&s_state_mux);
             }
         }
@@ -1232,7 +1390,7 @@ esp_err_t status_ui_init(const status_ui_button_handlers_t *handlers)
 {
 #if CONFIG_APP_STATUS_UI_LCD
     if (s_virtual_keyboard_queue == NULL) {
-        s_virtual_keyboard_queue = xQueueCreate(8, sizeof(status_ui_keyboard_event_t));
+        s_virtual_keyboard_queue = xQueueCreate(8, sizeof(status_ui_input_t));
         if (s_virtual_keyboard_queue == NULL) {
             ESP_LOGE(TAG, "failed to create virtual keyboard queue");
             status_ui_set_state(STATUS_UI_STATE_ERROR);

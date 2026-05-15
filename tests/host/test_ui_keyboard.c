@@ -50,11 +50,43 @@ static void test_secret_overlay_keeps_state_only(void)
     assert(!ui_keyboard_is_active(&kb));
 }
 
+static void test_cancel_commits_pending_cycle(void)
+{
+    ui_keyboard_state_t kb;
+    assert(ui_keyboard_open(&kb, "Input", "", 8, UI_KEYBOARD_MODE_TEXT, false));
+    kb.selected_key = 1u;
+    ui_keyboard_handle_select(&kb, 0u);
+    assert(kb.has_pending_cycle);
+
+    ui_keyboard_cancel(&kb);
+    assert(!kb.has_pending_cycle);
+    assert(kb.result == UI_KEYBOARD_RESULT_CANCEL);
+}
+
+static void test_menu_edit_cancel_metadata_is_explicit(void)
+{
+    ui_keyboard_menu_edit_t edit = {
+        .active = true,
+        .back_on_cancel = true,
+        .has_cancel_target = true,
+        .cancel_target = UI_SCREEN_CONFIG_AP_MODE,
+        .opened_screen = UI_SCREEN_CONFIG_AP_SET_PASSWORD,
+    };
+
+    assert(edit.active);
+    assert(edit.back_on_cancel);
+    assert(edit.has_cancel_target);
+    assert(edit.cancel_target == UI_SCREEN_CONFIG_AP_MODE);
+    assert(edit.opened_screen == UI_SCREEN_CONFIG_AP_SET_PASSWORD);
+}
+
 int main(void)
 {
     test_phone_key_cycles_with_expiry();
     test_navigation_wraps_and_commits_pending();
     test_secret_overlay_keeps_state_only();
+    test_cancel_commits_pending_cycle();
+    test_menu_edit_cancel_metadata_is_explicit();
     puts("ui_keyboard tests passed");
     return 0;
 }
