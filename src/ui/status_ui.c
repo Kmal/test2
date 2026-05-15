@@ -95,6 +95,7 @@ static void status_ui_handle_key1_long(void);
 static void status_ui_dispatch_focused_input(status_ui_input_t input, status_ui_input_effects_t *effects);
 static bool status_ui_keyboard_consume_input(status_ui_input_t input, status_ui_input_effects_t *effects);
 static bool status_ui_keyboard_handle_menu_global_input(status_ui_input_t input, status_ui_input_effects_t *effects);
+static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item, ui_keyboard_result_t result, const char *text);
 static bool status_ui_scan_consume_input(status_ui_input_t input, status_ui_input_effects_t *effects);
 static bool status_ui_menu_consume_input(status_ui_input_t input, status_ui_input_effects_t *effects);
 static void status_ui_input_task(void *arg);
