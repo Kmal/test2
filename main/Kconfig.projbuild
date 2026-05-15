@@ -202,18 +202,35 @@ menu "StickS3 hardware automation facts"
 config APP_BATTERY_FACTS
     bool "Enable battery-percent automation facts"
     default y
+    help
+        Compile M5PM1-backed power.battery_percent facts into the firmware.
+        The project sdkconfig defaults keep this enabled for the standard
+        StickS3 build; disable only for an explicit hardware-fact opt-out build.
 
 config APP_USB_POWER_FACTS
     bool "Enable USB/external-power automation facts"
     default y
+    help
+        Compile M5PM1-backed power.usb_present facts into the firmware.
+        The project sdkconfig defaults keep this enabled for the standard
+        StickS3 build; disable only for an explicit hardware-fact opt-out build.
 
 config APP_BMI270_FACTS
     bool "Enable BMI270 motion automation facts"
     default y
+    help
+        Compile polling-only bmi270.motion facts into the firmware. The
+        project sdkconfig defaults keep this enabled for the standard StickS3
+        build; disable only for an explicit hardware-fact opt-out build.
 
 config APP_ADC_FACTS
-    bool "Enable ADC voltage automation facts"
+    bool "Enable safe ADC voltage automation facts"
     default y
+    help
+        Compile adc.voltage_mv facts for the safe ADC1 Grove/Hat allowlist
+        into the firmware. The project sdkconfig defaults keep this enabled
+        for the standard StickS3 build; disable only for an explicit
+        hardware-fact opt-out build.
 
 config APP_HARDWARE_FACT_POLL_INTERVAL_MS
     int "Hardware fact polling interval in milliseconds"

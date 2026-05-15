@@ -7,6 +7,9 @@
 #ifndef CONFIG_APP_SOUND_LEVEL_TRIGGERS
 #define CONFIG_APP_SOUND_LEVEL_TRIGGERS 0
 #endif
+/* The production sdkconfig defaults compile hardware fact capabilities as
+ * runtime-available by default. These fallbacks keep host tests and older
+ * generated sdkconfig headers aligned unless a test explicitly overrides them. */
 #ifndef CONFIG_APP_BATTERY_FACTS
 #ifdef CONFIG_APP_POWER_FACTS
 #define CONFIG_APP_BATTERY_FACTS CONFIG_APP_POWER_FACTS

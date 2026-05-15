@@ -83,12 +83,12 @@ For product behavior, user-facing firmware functions, and transport/API status, 
 | I2S TX / onboard speaker output | ✅ Implemented/Kconfig-gated | StickS3 has an AW8737-backed speaker path; `speaker_tone` is Kconfig-gated and drives `G14_I2S_DDAC` with the M5PM1 PYG3 amplifier enabled only during playback. |
 | IR send | ✅ Implemented/wired for actions | NEC IR actions use the RMT TX path on GPIO46 after rule validation. |
 | IR receive | ⛔ Not implemented | GPIO42 is reserved as IR RX, but no receive action/source is wired. |
-| BMI270 | ✅ Implemented/Kconfig-gated | `bmi270.motion` uses polling-only accelerometer reads when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing through M5PM1 GPIO4 remains unused. |
+| BMI270 | ✅ Implemented/default available | `CONFIG_APP_BMI270_FACTS=y` is enabled in the project defaults, so `bmi270.motion` uses polling-only accelerometer reads unless disabled in menuconfig; interrupt routing through M5PM1 GPIO4 remains unused. |
 | External GPIO digital/edge | ✅ Implemented/wired with validation | GPIO rules are allowed only after conflict checks reject LCD, I2C, I2S/audio, buttons, IR, boot/USB, and internal-risk pins. |
 | GPIO pulse/frequency and HAT devices | ⛔ Not implemented / fail-closed | Capability validation reports these sources/actions disabled until source-backed drivers and routing are added. |
-| Battery percent fact | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | M5PM1-backed `power.battery_percent` is emitted by `hardware_fact_service` only when `CONFIG_APP_BATTERY_FACTS=y`; the firmware LiPo interpolation curve still requires hardware comparison against the official `M5.Power` battery API. |
-| USB/external-power fact | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | M5PM1-backed `power.usb_present` is emitted by `hardware_fact_service` only when `CONFIG_APP_USB_POWER_FACTS=y`; VIN/5V reads are independent of VBAT availability; the fact is emitted only when USB presence is proven or both VIN and 5V reads prove absence, and the firmware does not change EXT_5V mode. |
-| Safe ADC voltage facts | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | ADC1-only `adc.voltage_mv` is emitted by `hardware_fact_service` only when `CONFIG_APP_ADC_FACTS=y`; exposure is limited to the safe Grove/Hat ADC1 allowlist pending hardware calibration/bench checks. |
+| Battery percent fact | 🟡 Implemented/default available; hardware calibration/bench check needed | `CONFIG_APP_BATTERY_FACTS=y` is enabled in the project defaults, so M5PM1-backed `power.battery_percent` is compiled into the default firmware and emitted by `hardware_fact_service` unless disabled in menuconfig; the firmware LiPo interpolation curve still requires hardware comparison against the official `M5.Power` battery API. |
+| USB/external-power fact | 🟡 Implemented/default available; hardware calibration/bench check needed | `CONFIG_APP_USB_POWER_FACTS=y` is enabled in the project defaults, so M5PM1-backed `power.usb_present` is compiled into the default firmware and emitted by `hardware_fact_service` unless disabled in menuconfig; VIN/5V reads are independent of VBAT availability; the fact is emitted only when USB presence is proven or both VIN and 5V reads prove absence, and the firmware does not change EXT_5V mode. |
+| Safe ADC voltage facts | 🟡 Implemented/default available; hardware calibration/bench check needed | `CONFIG_APP_ADC_FACTS=y` is enabled in the project defaults, so ADC1-only `adc.voltage_mv` is compiled into the default firmware and emitted by `hardware_fact_service` for the safe Grove/Hat ADC1 allowlist unless disabled in menuconfig; exposure remains limited to that allowlist pending hardware calibration/bench checks. |
 
 ## Shared I2C bus
 
@@ -142,12 +142,12 @@ BMI270 is documented on the shared I2C bus at `0x68`, with interrupt routing thr
 
 ## Automation hardware scope
 
-Safe GPIO digital and edge triggers are implemented only behind conflict validation. Pins used by LCD, I2C, I2S/audio, the two StickS3 buttons, IR, boot/USB, or internal-risk functions are rejected before a rule can be saved. Battery percent, USB/external-power present, BMI270 motion, and safe ADC1 facts are implemented behind separate Kconfig gates. HAT sensors/actions and GPIO pulse/frequency facts remain disabled until their hardware behavior and routing are verified.
+Safe GPIO digital and edge triggers are implemented only behind conflict validation. Pins used by LCD, I2C, I2S/audio, the two StickS3 buttons, IR, boot/USB, or internal-risk functions are rejected before a rule can be saved. Battery percent, USB/external-power present, BMI270 motion, and safe ADC1 facts are compiled by the default `config/sdkconfig.defaults` profile and remain behind separate Kconfig gates for menuconfig opt-out builds. HAT sensors/actions and GPIO pulse/frequency facts remain disabled until their hardware behavior and routing are verified.
 
 ## Unknowns / deferred decisions
 
 - Hardware bench validation of the default sound-level capture path, including measured I2S clocks and ES8311 sample alignment; the firmware still does not expose PCM streaming.
-- Hardware bench validation of the separately Kconfig-gated battery, USB/external-power, BMI270 polling, and ADC facts.
+- Hardware bench validation of the default-enabled, separately Kconfig-gated battery, USB/external-power, BMI270 polling, and ADC facts.
 - Whether HAT features are needed by a future product feature.
 
 ## Source references
@@ -193,7 +193,7 @@ Shared sound capture uses `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` for both enabled `s
 
 ## Hardware automation facts
 
-The firmware exposes the following StickS3 hardware facts when their Kconfig gates are enabled. These names match the rule source metadata returned by the capability registry. The implementation is source-aligned with the official StickS3 pin map, Arduino examples, M5PM1 guidance, and ESP32-S3 ADC capability, but it is **not** a full product conformance claim until the facts are validated on real StickS3 hardware.
+The default `config/sdkconfig.defaults` profile enables the following StickS3 hardware fact Kconfig gates, so these facts are compiled into the standard firmware unless a menuconfig opt-out build disables them. These names match the rule source metadata returned by the capability registry. The implementation is source-aligned with the official StickS3 pin map, Arduino examples, M5PM1 guidance, and ESP32-S3 ADC capability, but it is **not** a full product conformance claim until the facts are validated on real StickS3 hardware.
 
 ### Official-source conformance boundary
 
@@ -210,14 +210,14 @@ The firmware exposes the following StickS3 hardware facts when their Kconfig gat
 * Source: M5PM1 VBAT millivolt registers on the shared I2C bus (`SDA=GPIO47`, `SCL=GPIO48`, PMIC address `0x6e`).
 * Policy: VBAT samples are considered valid only in the `2500..4500 mV` range.
 * Conversion: valid VBAT values are converted through the LiPo interpolation curve used by `board_power_lipo_percent_from_mv()`.
-* Configuration: emitted only when `CONFIG_APP_BATTERY_FACTS=y`.
+* Configuration: `CONFIG_APP_BATTERY_FACTS=y` is set in `config/sdkconfig.defaults`; emitted only while that Kconfig option remains enabled.
 
 ### USB/external power present: `power.usb_present`
 
 * Source: M5PM1 VIN and 5V input/output millivolt reads.
 * Policy: USB/external power is present when either VIN or 5V in/out is at least `CONFIG_APP_POWER_USB_PRESENT_MV`.
 * The StickS3 documentation warns that the 5V interface can be input or output depending on EXT_5V mode; automation only reads voltage and does not change EXT_5V/L3B policy.
-* Configuration: emitted only when `CONFIG_APP_USB_POWER_FACTS=y`.
+* Configuration: `CONFIG_APP_USB_POWER_FACTS=y` is set in `config/sdkconfig.defaults`; emitted only while that Kconfig option remains enabled.
 
 ### BMI270 motion: `bmi270.motion`
 
@@ -225,7 +225,7 @@ The firmware exposes the following StickS3 hardware facts when their Kconfig gat
 * First implementation: polling-only software thresholding using `CONFIG_APP_BMI270_MOTION_DELTA_MG` and a fixed still hysteresis of `30 mg`; initialization uses the BMI270 normal-power polling register path (`PWR_CONF=0x02`, accelerometer 100 Hz normal bandwidth, ±2g range, `PWR_CTRL.acc_en`).
 * Interrupt deferral: the implementation does not enable BMI270 interrupt mode and does not modify M5PM1 GPIO4 / `PYG4_IMU_INT`.
 * Future interrupt mode must preserve existing M5PM1 GPIO state and avoid disturbing M5PM1 GPIO2 / `PYG2_L3B_EN` LCD/audio power behavior.
-* Configuration: emitted only when `CONFIG_APP_BMI270_FACTS=y`.
+* Configuration: `CONFIG_APP_BMI270_FACTS=y` is set in `config/sdkconfig.defaults`; emitted only while that Kconfig option remains enabled.
 
 ### ADC voltage: `adc.voltage_mv`
 
@@ -244,7 +244,7 @@ The firmware exposes the following StickS3 hardware facts when their Kconfig gat
   * `GPIO19` and `GPIO20` are not exposed because ESP-IDF uses them for USB-JTAG by default on ESP32-S3.
   * `GPIO43` and `GPIO44` are not exposed as ADC because they are not ESP32-S3 ADC-capable GPIOs.
   * LCD, I2C, audio, IR, and other internal-risk pins are not exposed.
-* Configuration: emitted only when `CONFIG_APP_ADC_FACTS=y`.
+* Configuration: `CONFIG_APP_ADC_FACTS=y` is set in `config/sdkconfig.defaults`; emitted only while that Kconfig option remains enabled.
 
 ### Implementation references
 

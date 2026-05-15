@@ -32,6 +32,16 @@ def main() -> int:
         errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_RULE_EVENTS for the default StickS3 transport")
     if "CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y" not in defaults:
         errors.append("config/sdkconfig.defaults must select BLE GATT rule events as the functional StickS3 transport")
+
+    required_default_facts = {
+        "CONFIG_APP_BATTERY_FACTS=y": "battery-percent automation facts must compile into the default firmware",
+        "CONFIG_APP_USB_POWER_FACTS=y": "USB/external-power automation facts must compile into the default firmware",
+        "CONFIG_APP_BMI270_FACTS=y": "BMI270 motion automation facts must compile into the default firmware",
+        "CONFIG_APP_ADC_FACTS=y": "safe ADC voltage automation facts must compile into the default firmware",
+    }
+    for needle, reason in required_default_facts.items():
+        if needle not in defaults:
+            errors.append(f"config/sdkconfig.defaults must enable {needle}: {reason}")
     forbidden_kconfig = ["APP_TRANSPORT_" + "HF" + "P" + "_LEGACY", "BT_" + "HF" + "P" + "_CLIENT_ENABLE", "BT_SCO_DATA_PATH_HCI"]
     for needle in forbidden_kconfig:
         if needle in kconfig:

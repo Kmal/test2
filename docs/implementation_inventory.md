@@ -52,9 +52,9 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 
 ## Hardware automation facts inventory
 
-Implemented when the matching Kconfig option is enabled:
+Compiled by the default `config/sdkconfig.defaults` profile and emitted when the matching Kconfig option remains enabled:
 
-* `power.battery_percent` — implemented when `CONFIG_APP_BATTERY_FACTS=y`.
-* `power.usb_present` — implemented when `CONFIG_APP_USB_POWER_FACTS=y`.
-* `bmi270.motion` — implemented when `CONFIG_APP_BMI270_FACTS=y`.
-* `adc.voltage_mv` — implemented when `CONFIG_APP_ADC_FACTS=y`.
+* `power.battery_percent` — default-enabled by `CONFIG_APP_BATTERY_FACTS=y`.
+* `power.usb_present` — default-enabled by `CONFIG_APP_USB_POWER_FACTS=y`.
+* `bmi270.motion` — default-enabled by `CONFIG_APP_BMI270_FACTS=y`.
+* `adc.voltage_mv` — default-enabled by `CONFIG_APP_ADC_FACTS=y`.

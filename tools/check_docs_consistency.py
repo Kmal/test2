@@ -71,7 +71,8 @@ def main() -> int:
             "`74`",
             "Speaker-action conformance review",
             "not expose generic speaker streaming/playback",
-            "Implemented/Kconfig-gated",
+            "Implemented/default available",
+            "config/sdkconfig.defaults",
         ],
     }
     errors: list[str] = []

@@ -22,6 +22,14 @@ CONFIG_APP_SOUND_LEVEL_TRIGGERS=y
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 
+## Hardware automation facts are compiled into the default firmware profile:
+## power.battery_percent, power.usb_present, bmi270.motion, and safe ADC1
+## adc.voltage_mv sources stay available unless explicitly disabled in menuconfig.
+CONFIG_APP_BATTERY_FACTS=y
+CONFIG_APP_USB_POWER_FACTS=y
+CONFIG_APP_BMI270_FACTS=y
+CONFIG_APP_ADC_FACTS=y
+
 ## Prefer a larger ATT MTU for structured status and rule-event notifications.
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
 
