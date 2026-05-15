@@ -30,6 +30,8 @@ def main() -> int:
         errors.append("src/Kconfig.projbuild must define APP_TRANSPORT_NONE for explicit board-only fallback")
     if "APP_TRANSPORT_BLE_GATT_RULE_EVENTS" not in kconfig:
         errors.append("src/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_RULE_EVENTS for the default StickS3 transport")
+    if "APP_USB_UAC_DEVICE" not in kconfig:
+        errors.append("src/Kconfig.projbuild must define APP_USB_UAC_DEVICE for the explicit opt-in USB Audio Class profile")
     if "CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y" not in defaults:
         errors.append("config/sdkconfig.defaults must select BLE GATT rule events as the functional StickS3 transport")
 
@@ -38,6 +40,9 @@ def main() -> int:
         "CONFIG_APP_USB_POWER_FACTS=y": "USB/external-power automation facts must compile into the default firmware",
         "CONFIG_APP_BMI270_FACTS=y": "BMI270 motion automation facts must compile into the default firmware",
         "CONFIG_APP_ADC_FACTS=y": "safe ADC voltage automation facts must compile into the default firmware",
+        "CONFIG_APP_USB_UAC_DEVICE=n": "USB Audio Class must not be enabled in the default automation firmware",
+        "CONFIG_APP_USB_UAC_MIC=n": "USB microphone mode must not be enabled in the default automation firmware",
+        "CONFIG_APP_USB_UAC_SPEAKER=n": "USB speaker mode must not be enabled in the default automation firmware",
     }
     for needle, reason in required_default_facts.items():
         if needle not in defaults:

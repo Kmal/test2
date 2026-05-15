@@ -43,6 +43,8 @@ static esp_err_t real_es8311_init_profile(board_audio_profile_t profile, void *c
     es8311_profile_t codec_profile = ES8311_PROFILE_ADC_ONLY;
     if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
         codec_profile = ES8311_PROFILE_DAC_ONLY;
+    } else if (profile == BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER) {
+        codec_profile = ES8311_PROFILE_ADC_DAC;
     }
     return es8311_init_profile(BOARD_I2C_PORT, BOARD_ES8311_ADDR, BOARD_I2S_PORT,
                                codec_profile, BOARD_I2S_SAMPLE_RATE);
@@ -85,7 +87,8 @@ esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const bo
         return ESP_ERR_INVALID_ARG;
     }
     if (config->profile != BOARD_AUDIO_PROFILE_CAPTURE_ONLY &&
-        config->profile != BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
+        config->profile != BOARD_AUDIO_PROFILE_PLAYBACK_ONLY &&
+        config->profile != BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER) {
         return ESP_ERR_INVALID_ARG;
     }
     if (config->probe_m5pm1 && ops->m5pm1_probe == NULL) {
@@ -96,7 +99,8 @@ esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const bo
     }
 
     ESP_LOGI(TAG, "audio init start: profile=%s probe_m5pm1=%s require_power=%s",
-             config->profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" : "capture-only",
+             config->profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" :
+             (config->profile == BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER ? "simultaneous-mic-speaker" : "capture-only"),
              config->probe_m5pm1 ? "yes" : "no",
              config->require_audio_power_enable ? "yes" : "no");
 
@@ -145,7 +149,8 @@ esp_err_t board_audio_init_with_ops(const board_audio_config_t *config, const bo
     ESP_LOGI(TAG, "audio init step ok: ES8311 codec setup");
 
     ESP_LOGI(TAG, "audio profile initialised: %s",
-             config->profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" : "capture-only");
+             config->profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" :
+             (config->profile == BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER ? "simultaneous-mic-speaker" : "capture-only"));
     return ESP_OK;
 }
 

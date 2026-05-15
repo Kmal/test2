@@ -75,9 +75,9 @@ def main() -> int:
         errors.append("src/app/main.c must check s_sound_level_ready before starting the shared sound capture service")
 
     cmake_text = CMAKE.read_text(encoding="utf-8")
-    common_audio_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION\)(.*?)endif\(\)", cmake_text, flags=re.S)
+    common_audio_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION OR CONFIG_APP_USB_UAC_DEVICE\)(.*?)endif\(\)", cmake_text, flags=re.S)
     if not common_audio_block_match:
-        errors.append("app component must guard shared audio sources with CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION")
+        errors.append("app component must guard shared audio sources with CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION OR CONFIG_APP_USB_UAC_DEVICE")
         common_audio_block = ""
     else:
         common_audio_block = common_audio_block_match.group(1)

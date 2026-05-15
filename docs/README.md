@@ -279,6 +279,13 @@ Every new hardware write sequence must document or cite the source document or s
 
 Documentation must describe the current product as a custom BLE rule-event and local automation device, must not call it an unsupported Bluetooth or OS-native audio endpoint, and must clearly label each capability with the status categories in this document, including implemented, deferred/not implemented, not planned/hardware-unsupported, or deliberately disabled.
 
+
+### Experimental USB Audio Class firmware path
+
+The StickS3 hardware can support a custom USB Audio Class firmware profile through the ESP32-S3 native USB device pins and the ES8311 I2S/I2C audio codec, but the checked-in default image remains the local automation firmware and keeps `CONFIG_APP_USB_UAC_DEVICE=n`. UAC work and its managed `usb_device_uac` dependency are implemented behind explicit Kconfig gates for microphone, speaker, combined descriptor, and simultaneous mic+speaker experiments; it must not be treated as enabled in the default BLE/Wi-Fi/rule-automation image.
+
+The currently supported software target is 16 kHz mono 16-bit PCM; other rates remain rejected until matching ES8311/I2S clock profiles are implemented and tested. When explicitly enabled, `app_main()` starts the UAC service after rule-runtime initialization; the service resolves Kconfig, starts the selected board-audio owner, initializes Espressif UAC, and launches bridge tasks. The UAC callback bridge uses fixed ring buffers so USB callbacks move bytes only; codec configuration, logging, allocation, and blocking I2S work stay outside the callback path. Combined descriptors without the simultaneous owner enumerate with callbacks but intentionally do not start audio bridge tasks; the simultaneous mic+speaker profile is experimental and requires real StickS3 hardware validation before any product claim.
+
 ## Hardware reference
 
 Keep detailed board pins, electrical constraints, source-backed hardware facts, and hardware acceptance notes under `docs/hardware/sticks3/`, with `docs/hardware/sticks3/sticks3.md` as the main entry point. This README stays focused on product behavior, user-facing firmware functions, validation flow, and change policy.

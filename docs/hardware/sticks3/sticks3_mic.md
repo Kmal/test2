@@ -16,7 +16,7 @@ For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MC
 
 Shared sound-capture work requires an upstream/vendor reference review before changing audio code. For this implementation, the ESP-IDF programming guide was used for component/Kconfig conventions, FreeRTOS task/semaphore use, logging/error style, and the channel-based I2S API assumptions. M5Stack StickS3 product and Arduino/M5PM1 documentation, the StickS3 schematic, M5PM1, M5Unified, and M5GFX sources were cross-checked for the ESP32-S3-PICO-1-N8R8 board identity, ES8311 mono codec, MEMS microphone, AW8737 amplifier, MCLK/BCLK/LRCK/DADC/DDAC pins, shared I2C addresses, M5PM1 L3B power behavior, PYG3 speaker-amplifier behavior, and LCD/L3B safety. The ES8311 datasheet was used for ADC/I2S-format expectations, MCLK/LRCK clocking, and capture-only codec setup. The BMI270 datasheet was reviewed only to avoid altering the shared I2C/interrupt behavior; sound-capture demand code does not initialize or change BMI270 state.
 
-Shared sound capture uses `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` for both enabled `sound.*` rules and Web UI telemetry demand. The speaker amplifier and I2S TX/DAC path remain disabled for that capture feature; the `speaker_tone` action follows the official M5Unified single-owner audio pattern by stopping microphone capture before starting `BOARD_AUDIO_PROFILE_PLAYBACK_ONLY`, then allowing demand-driven capture to restart afterwards.
+Shared sound capture uses `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` for both enabled `sound.*` rules and Web UI telemetry demand. The speaker amplifier and I2S TX/DAC path remain disabled for that capture feature; the `speaker_tone` action follows the official M5Unified single-owner audio pattern by stopping microphone capture before starting `BOARD_AUDIO_PROFILE_PLAYBACK_ONLY`, then allowing demand-driven capture to restart afterwards. Experimental USB Audio Class support is Kconfig-gated outside the default automation image; its microphone-only path reuses this capture-only hardware path, while `BOARD_AUDIO_PROFILE_SIMULTANEOUS_MIC_SPEAKER` is reserved for explicit simultaneous mic+speaker UAC experiments that still require real StickS3 hardware validation before product claims.
 
 ## Audio init failure policy
 
@@ -30,3 +30,4 @@ Shared sound capture uses `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` for both enabled `s
 - ESP-IDF Programming Guide for I2S driver assumptions: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2s.html
 - Firmware audio clock and capture implementation: ../../../src/audio/board_audio_clock.c
 - Firmware board audio initialization policy: ../../../src/audio/board_audio.c
+- Firmware USB Audio Class helper implementation: ../../../src/usb_audio/uac_config.c

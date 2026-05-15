@@ -142,6 +142,68 @@ config APP_STATUS_UI_LCD_REFRESH_MS
 endmenu
 
 
+
+menu "StickS3 USB Audio Class"
+
+config APP_USB_UAC_DEVICE
+    bool "Enable experimental USB Audio Class device profile"
+    default n
+    help
+        Enable the opt-in StickS3 USB Audio Class firmware path. This is not
+        part of the default local automation image and uses the ESP32-S3 native
+        USB device PHY on the USB-C connector. Runtime logging should not rely
+        on USB-Serial-JTAG while UAC owns the internal PHY.
+
+config APP_USB_UAC_MIC
+    bool "Enable USB Audio Class microphone direction"
+    default n
+    depends on APP_USB_UAC_DEVICE
+    help
+        Enable the microphone direction. The implementation uses the StickS3
+        ES8311 ADC and I2S capture path.
+
+config APP_USB_UAC_SPEAKER
+    bool "Enable USB Audio Class speaker direction"
+    default n
+    depends on APP_USB_UAC_DEVICE
+    help
+        Enable the speaker direction. The implementation uses the StickS3
+        ES8311 DAC, I2S playback path, and battery-safe volume clamping.
+
+config APP_USB_UAC_COMBINED_EXPERIMENTAL
+    bool "Allow combined UAC input/output descriptors"
+    default n
+    depends on APP_USB_UAC_MIC && APP_USB_UAC_SPEAKER
+    help
+        Allows both UAC directions to be described in one firmware image. This
+        is not by itself evidence of validated simultaneous mic+speaker audio.
+
+config APP_USB_UAC_SIMULTANEOUS_MIC_SPEAKER
+    bool "Enable experimental simultaneous mic+speaker streaming"
+    default n
+    depends on APP_USB_UAC_COMBINED_EXPERIMENTAL
+    help
+        Enables the explicit simultaneous mic+speaker owner profile. Keep this
+        disabled unless real StickS3 hardware validation has been performed.
+
+config APP_USB_UAC_SAMPLE_RATE_HZ
+    int "USB Audio Class sample rate"
+    default 16000
+    range 16000 16000
+    depends on APP_USB_UAC_DEVICE
+    help
+        Current source-backed UAC sample rate. Keep fixed at 16 kHz until a
+        future phase adds tested ES8311 and I2S clock profiles for additional
+        rates.
+
+config APP_USB_UAC_RING_BUFFER_BYTES
+    int "USB Audio Class ring buffer bytes"
+    default 16384
+    range 4096 131072
+    depends on APP_USB_UAC_DEVICE
+
+endmenu
+
 menu "StickS3 speaker actions"
 
 config APP_SPEAKER_ACTION

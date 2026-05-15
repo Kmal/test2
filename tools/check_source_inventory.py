@@ -40,7 +40,16 @@ HELPER_AUDIO_SRCS = {
 CONDITIONAL_TRANSPORT_SRCS = {
     "transport_ble_gatt.c",
 }
-EXPECTED_NON_DEFAULT_SRCS = SOUND_LEVEL_SRCS | HELPER_AUDIO_SRCS | CONDITIONAL_TRANSPORT_SRCS
+UAC_SRCS = {
+    "uac_audio_buffer.c",
+    "uac_config.c",
+    "uac_device_adapter.c",
+    "uac_esp_device.c",
+    "uac_mic_source.c",
+    "uac_speaker_sink.c",
+    "uac_service.c",
+}
+EXPECTED_NON_DEFAULT_SRCS = SOUND_LEVEL_SRCS | HELPER_AUDIO_SRCS | CONDITIONAL_TRANSPORT_SRCS | UAC_SRCS
 
 
 def quoted_sources(text: str) -> set[str]:
@@ -133,10 +142,14 @@ def main() -> int:
     if missing_conditionals:
         errors.append(f"conditional transport sources not represented in CMake conditionals: {sorted(missing_conditionals)}")
 
+    missing_uac_conditionals = UAC_SRCS - conditional_sources
+    if missing_uac_conditionals:
+        errors.append(f"UAC sources not represented in CMake conditionals: {sorted(missing_uac_conditionals)}")
+
     # Host checks are the executable evidence for helper-only C modules that can
     # run off-device. Keep this list explicit so a helper source cannot be added
     # without either host coverage or a conscious inventory update.
-    host_expected = (SOUND_LEVEL_SRCS | HELPER_AUDIO_SRCS) - {"board_audio_power.c"}
+    host_expected = ((SOUND_LEVEL_SRCS | HELPER_AUDIO_SRCS | UAC_SRCS) - {"board_audio_power.c", "uac_esp_device.c", "uac_service.c"})
     missing_host = host_expected - host_sources
     if missing_host:
         errors.append(f"optional helper sources missing host-test compilation: {sorted(missing_host)}")

@@ -40,10 +40,13 @@ typedef enum {
  * path can be brought up without enabling the DAC/speaker path. DAC-only is
  * used by the StickS3 speaker action so microphone capture and speaker output
  * are not active at the same time, matching the official M5Unified examples.
+ * ADC_DAC is reserved for explicit USB Audio Class simultaneous mic+speaker
+ * experiments and must be hardware-validated before product claims.
  */
 typedef enum {
     ES8311_PROFILE_ADC_ONLY = 0,
     ES8311_PROFILE_DAC_ONLY,
+    ES8311_PROFILE_ADC_DAC,
 } es8311_profile_t;
 
 /**
