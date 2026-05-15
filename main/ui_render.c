@@ -170,8 +170,11 @@ static void ui_render_wifi_result(const ui_wifi_flow_state_t *wifi)
     snprintf(line, sizeof(line), "%s", wifi != NULL && wifi->last_error[0] ? wifi->last_error : "Connected and saved");
     ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, wifi != NULL && wifi->web_url[0] ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_WRAP);
     y += UI_LINE_H;
-    snprintf(line, sizeof(line), "URL: %s", wifi != NULL && wifi->web_url[0] ? wifi->web_url : "-");
-    ui_text_put_box(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                     "URL:", UI_COLOR_OK, DISPLAY_TEXT_FIT_ONE_LINE);
+    y += UI_LINE_H;
+    snprintf(line, sizeof(line), "%s", wifi != NULL && wifi->web_url[0] ? wifi->web_url : "-");
+    ui_text_put_box(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
                     UI_LCD_H - UI_BOTTOM_HINT_H - y, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_WRAP,
                     DISPLAY_TEXT_ALIGN_LEFT, DISPLAY_TEXT_PRIORITY_NORMAL);
 }
@@ -182,12 +185,15 @@ static void ui_render_ap_url(const ui_runtime_t *ui)
     int y = UI_BODY_Y;
     snprintf(line, sizeof(line), "SSID: %s", ui->ap.ap_name[0] ? ui->ap.ap_name : "-");
     ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
-    snprintf(line, sizeof(line), "URL: %s", ui->ap.url[0] ? ui->ap.url : "-");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_WRAP); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                     "URL:", UI_COLOR_OK, DISPLAY_TEXT_FIT_ONE_LINE);
+    y += UI_LINE_H;
+    snprintf(line, sizeof(line), "%s", ui->ap.url[0] ? ui->ap.url : "-");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_OK, DISPLAY_TEXT_FIT_MARQUEE); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Channel: %u", (unsigned)ui->ap.channel);
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
     snprintf(line, sizeof(line), "Status: %s", ui->ap.started ? "started" : "not started");
-    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, ui->ap.started ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE);
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_4, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, ui->ap.started ? UI_COLOR_OK : UI_COLOR_WARN, DISPLAY_TEXT_FIT_ONE_LINE);
 }
 
 static void ui_render_bluetooth_status(const ui_runtime_t *ui)
