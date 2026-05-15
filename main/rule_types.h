@@ -16,6 +16,12 @@
 #define RULE_MAX_COOLDOWN_MS 86400000u
 #define RULE_MAX_SUSTAIN_MS 3600000u
 #define RULE_MAX_HTTP_TIMEOUT_MS 10000u
+#define RULE_SPEAKER_MIN_FREQUENCY_HZ 20u
+#define RULE_SPEAKER_MAX_FREQUENCY_HZ 8000u
+#define RULE_SPEAKER_MIN_DURATION_MS 10u
+#define RULE_SPEAKER_MAX_DURATION_MS 5000u
+#define RULE_SPEAKER_MAX_VOLUME_PERCENT 74u
+#define RULE_SPEAKER_MAX_TIMEOUT_MS 1000u
 #define RULE_GPIO_UNUSED_PIN (-1)
 #define RULE_GPIO_MIN_DEBOUNCE_MS 5u
 #define RULE_GPIO_MAX_DEBOUNCE_MS 5000u
@@ -82,6 +88,7 @@ typedef enum {
     RULE_ACTION_HAT_OPERATION,
     RULE_ACTION_IR_SEND,
     RULE_ACTION_LOCAL_UI,
+    RULE_ACTION_SPEAKER_TONE,
     RULE_ACTION_COUNT,
 } rule_action_type_t;
 
@@ -146,6 +153,9 @@ typedef struct {
     uint16_t ir_address;
     uint16_t ir_command;
     uint8_t ir_repeat_count;
+    uint32_t speaker_frequency_hz;
+    uint32_t speaker_duration_ms;
+    uint8_t speaker_volume_percent;
 } rule_action_t;
 
 typedef struct {

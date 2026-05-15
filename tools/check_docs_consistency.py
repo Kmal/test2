@@ -25,7 +25,10 @@ def main() -> int:
             "PCM streaming endpoint",
             "No BLE, Wi-Fi, USB, or debug endpoint streams raw microphone PCM",
             "Raw PCM streaming would be a transport/service capability",
-            "StickS3 has onboard speaker hardware",
+            "bounded 16 kHz square-tone",
+            "StickS3 has onboard ES8311/AW8737 speaker hardware",
+            "single-owner mic/speaker pattern",
+            "caps configured volume below 75%",
             "Hardware reference",
             "docs/hardware/sticks3.md",
         ],
@@ -61,8 +64,14 @@ def main() -> int:
             "12.288 MHz",
             "16 kHz",
             "capture-only",
-            "ESP_ERR_NOT_SUPPORTED",
-            "Hardware present / ⛔ firmware output disabled",
+            "playback-only",
+            "G14_I2S_DDAC",
+            "G16_I2S_DADC",
+            "below 75%",
+            "`74`",
+            "Speaker-action conformance review",
+            "not expose generic speaker streaming/playback",
+            "Implemented/Kconfig-gated",
         ],
     }
     errors: list[str] = []
@@ -78,6 +87,22 @@ def main() -> int:
             text = doc.read_text(encoding="utf-8")
             if "`README.md`" in text:
                 errors.append(f"{doc.relative_to(ROOT)} references missing root README.md; use docs/README.md")
+
+    stale_phrases = {
+        HARDWARE_DOC: [
+            "Speaker output remains disabled as a product feature",
+            "speaker-control protocol is implemented",
+            "exact M5PM1 command/register sequence for enabling and disabling the amplifier is not implemented",
+        ],
+        MANIFEST: [
+            "no TX/speaker output",
+        ],
+    }
+    for doc, phrases in stale_phrases.items():
+        text = doc.read_text(encoding="utf-8")
+        for phrase in phrases:
+            if phrase in text:
+                errors.append(f"{doc.relative_to(ROOT)} contains stale speaker-status phrase {phrase!r}")
 
     if errors:
         print("Docs consistency validation failed:", file=sys.stderr)

@@ -16,6 +16,9 @@
 #ifndef CONFIG_APP_ADC_FACTS
 #define CONFIG_APP_ADC_FACTS 1
 #endif
+#ifndef CONFIG_APP_SPEAKER_ACTION
+#define CONFIG_APP_SPEAKER_ACTION 1
+#endif
 
 static void set_error(char *error, size_t error_len, const char *message)
 {
@@ -89,6 +92,7 @@ static const action_capability_t s_action_caps[] = {
     {RULE_ACTION_HAT_OPERATION, "hat_operation", false, "missing_hat_action_driver"},
     {RULE_ACTION_IR_SEND, "ir_send", true, "implemented"},
     {RULE_ACTION_LOCAL_UI, "local_ui", true, "implemented"},
+    {RULE_ACTION_SPEAKER_TONE, "speaker_tone", CONFIG_APP_SPEAKER_ACTION, CONFIG_APP_SPEAKER_ACTION ? "implemented" : "speaker_action_disabled"},
 };
 
 bool capability_source_supported(rule_source_t source)

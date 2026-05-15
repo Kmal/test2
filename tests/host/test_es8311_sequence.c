@@ -58,6 +58,21 @@ static void test_adc_only_configures_capture_path_without_unmuting_dac(void)
     ASSERT_TRUE(!fake_register_bus_has_write(0x18, 0x31, 0x00));
 }
 
+static void test_dac_only_configures_playback_without_adc_gain(void)
+{
+    fake_register_bus_reset();
+    ASSERT_EQ(ESP_OK, es8311_init_profile(I2C_NUM_0, 0x18, I2S_NUM_0, ES8311_PROFILE_DAC_ONLY, 16000));
+    assert_write(0, 0x18, 0x00, 0x1f);
+    assert_write(1, 0x18, 0x00, 0x80);
+    ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x09, 0x0c));
+    ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x12, 0x00));
+    ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x13, 0x10));
+    ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x32, 0xbf));
+    ASSERT_TRUE(fake_register_bus_has_write(0x18, 0x31, 0x00));
+    ASSERT_TRUE(!fake_register_bus_has_write(0x18, 0x14, 0x1a));
+    ASSERT_TRUE(!fake_register_bus_has_write(0x18, 0x17, 0xc8));
+}
+
 static void test_invalid_profile_rejected(void)
 {
     fake_register_bus_reset();
@@ -70,6 +85,7 @@ int main(void)
     test_unsupported_rate_emits_no_writes();
     test_reset_write_failure_returns_error();
     test_adc_only_configures_capture_path_without_unmuting_dac();
+    test_dac_only_configures_playback_without_adc_gain();
     test_invalid_profile_rejected();
     puts("es8311_sequence tests passed");
     return 0;

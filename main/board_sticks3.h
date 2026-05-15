@@ -9,8 +9,10 @@
  * Audio codec pins (reserved for optional audio builds; the default sound
  * trigger uses the capture-only path):
  *
- *   ES8311 I2C address=0x18, MCLK=GPIO18, codec DOUT/ESP32-S3 DIN=GPIO14,
- *   BCLK=GPIO17, LRCK=GPIO15, codec DIN/ESP32-S3 DOUT=GPIO16,
+ *   ES8311 I2C address=0x18, MCLK=GPIO18, ESP32-S3 speaker/DAC data=GPIO14
+ *   (`G14_I2S_DDAC` in the schematic and M5Unified speaker data-out),
+ *   BCLK=GPIO17, LRCK=GPIO15, ESP32-S3 microphone/ADC data=GPIO16
+ *   (`G16_I2S_DADC` in the schematic and M5Unified microphone data-in),
  *   I2C SCL=GPIO48, I2C SDA=GPIO47.
  *
  * Other documented I2C devices on the shared bus:
@@ -38,8 +40,8 @@
 #define BOARD_I2S_LRCK_HZ      BOARD_I2S_SAMPLE_RATE
 #define BOARD_I2S_BCK_IO       17
 #define BOARD_I2S_WS_IO        15
-#define BOARD_I2S_DO_IO        16
-#define BOARD_I2S_DI_IO        14
+#define BOARD_I2S_DO_IO        14
+#define BOARD_I2S_DI_IO        16
 #define BOARD_I2S_MCLK_IO      18
 
 #define BOARD_I2C_PORT         I2C_NUM_0

@@ -4,10 +4,11 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 
 | Source | Default app link | Host test | Code-derived status |
 | --- | --- | --- | --- |
-| `action_dispatcher.c` | default | yes | Queue-backed rule action dispatcher used by `rule_runtime.c`; BLE, HTTP, IR, local UI actions are dispatched or fail closed as unsupported. |
+| `action_dispatcher.c` | default | yes | Queue-backed rule action dispatcher used by `rule_runtime.c`; BLE, HTTP, IR, local UI, and speaker tone actions are dispatched or fail closed as unsupported. |
 | `action_hat.c` | default | yes | HAT actions are deliberately unsupported; capability/action dispatch remains fail-closed. |
 | `action_http.c` | default | yes | HTTP POST action helper is used by the app HTTP sender when network readiness is true; host tests cover JSON/config readiness behavior. |
 | `action_ir.c` | default | yes | NEC IR send action helper is wired through the app IR sender and validates carrier/repeat/timeout bounds. |
+| `action_speaker.c` | conditional | yes | Speaker tone action helper validates bounded tone parameters, initializes the playback-only StickS3 ES8311/I2S path, enables the M5PM1 PYG3 amplifier only during playback, writes PCM tone frames, and fails closed off target. |
 | `app_mode.c` | default | yes | Initializes and names the local control app mode used by boot/status state. |
 | `app_sound_level_demand.c` | default | yes | Shared sound-capture demand helper that combines enabled sound-rule trigger demand with Web UI telemetry demand before `main.c` starts the single capture service. |
 | `app_time.c` | default | yes | Provides timezone storage/formatting and `/api/time` JSON support used by boot and Web UI. |
@@ -18,15 +19,15 @@ This inventory is generated from direct source inspection of `main/*.c`, `main/C
 | `bmi270.c` | default | yes | BMI270 polling-only accelerometer driver and deterministic software motion thresholding used by hardware automation facts. |
 | `board_adc.c` | default | yes | ESP-IDF ADC1 oneshot allowlist for safe Grove/Hat voltage rule facts with divider scaling. |
 | `board_power.c` | default | yes | Board-level M5PM1 power policy, battery percent interpolation, USB-present thresholding, and status UI battery helper. |
-| `board_audio.c` | default via sound config | yes | Capture-only audio initializer linked by the default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build and called from `app_main()` for sound-level triggers. |
-| `board_audio_clock.c` | default via sound config | yes | 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by default sound-level trigger builds. |
-| `board_audio_power.c` | default via sound config | no | M5PM1 L3B audio rail enable wrapper linked by default sound-level trigger builds while preserving LCD M5PM1 behavior. |
+| `board_audio.c` | default via sound/speaker config | yes | Capture-only and playback-only audio initializer linked by sound-level trigger or speaker-action builds; `app_main()` uses capture-only for sound rules and `action_speaker.c` uses playback-only for tones. |
+| `board_audio_clock.c` | default via sound/speaker config | yes | 16 kHz/12.288 MHz/512 kHz audio clock profile helper linked by sound-level trigger or speaker-action builds. |
+| `board_audio_power.c` | default via sound/speaker config | yes | M5PM1 L3B audio rail enable wrapper and PYG3 speaker-amplifier control linked by audio trigger or speaker-action builds while preserving LCD M5PM1 behavior. |
 | `board_i2c.c` | default | no | ESP-IDF shared I2C bus initializer used by LCD/status UI paths and available to board helpers. |
-| `board_i2s.c` | default via sound config | yes | Capture-only/full-duplex I2S driver source linked by default sound-level trigger builds; includes 32-bit-slot mono `int16_t` decode helper and pin-configuration coverage. |
+| `board_i2s.c` | default via sound/speaker config | yes | Capture-only/playback-only/full-duplex I2S driver source linked by sound-level trigger or speaker-action builds; includes 32-bit-slot mono `int16_t` decode helper and pin-configuration coverage. |
 | `button_state.c` | default | yes | Active-low KEY1/KEY2 debouncing and event classification for status UI and automation facts. |
 | `capability_registry.c` | default | yes | Central capability gate for supported/disabled sources/actions and safe GPIO profile validation. |
 | `display_text.c` | default | yes | LCD text measuring, sanitizing, wrapping/marquee, collision, and glyph rendering support. |
-| `es8311.c` | default via sound config | yes | ES8311 codec profile driver source linked by default sound-level trigger builds; capture-only setup keeps the DAC muted/down. |
+| `es8311.c` | default via sound/speaker config | yes | ES8311 codec profile driver source linked by sound-level trigger or speaker-action builds; capture-only setup keeps the DAC muted/down while playback-only setup enables DAC output for bounded tones. |
 | `hardware_fact_service.c` | default | yes | Unified hardware fact polling service that emits battery, USB-present, BMI270 motion, and safe ADC voltage facts through the trigger adapter. |
 | `m5pm1.c` | default | yes | M5PM1 register helper and LCD/L3B GPIO sequence used by LCD power, with bit-preserving host tests. |
 | `main.c` | default | no | Firmware entry point wiring NVS, time, network, status UI, Wi-Fi, rule runtime, BLE transport, and default error/idle policy. |

@@ -24,8 +24,30 @@ static void append(fake_audio_t *fake, const char *text)
 static esp_err_t fake_i2c(void *ctx) { fake_audio_t *f = ctx; append(f, "i2c>"); return f->fail_i2c; }
 static esp_err_t fake_probe(void *ctx) { fake_audio_t *f = ctx; append(f, "probe>"); return f->fail_probe; }
 static esp_err_t fake_power(void *ctx) { fake_audio_t *f = ctx; append(f, "power>"); return f->fail_power; }
-static esp_err_t fake_i2s(board_audio_profile_t profile, void *ctx) { fake_audio_t *f = ctx; append(f, profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY ? "i2s-rx>" : "i2s-fd>"); return f->fail_i2s; }
-static esp_err_t fake_codec(board_audio_profile_t profile, void *ctx) { fake_audio_t *f = ctx; append(f, profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY ? "codec-adc>" : "codec-fd>"); return f->fail_codec; }
+static const char *profile_i2s_step(board_audio_profile_t profile)
+{
+    if (profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) {
+        return "i2s-rx>";
+    }
+    if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
+        return "i2s-tx>";
+    }
+    return "i2s-fd>";
+}
+
+static const char *profile_codec_step(board_audio_profile_t profile)
+{
+    if (profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) {
+        return "codec-adc>";
+    }
+    if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
+        return "codec-dac>";
+    }
+    return "codec-fd>";
+}
+
+static esp_err_t fake_i2s(board_audio_profile_t profile, void *ctx) { fake_audio_t *f = ctx; append(f, profile_i2s_step(profile)); return f->fail_i2s; }
+static esp_err_t fake_codec(board_audio_profile_t profile, void *ctx) { fake_audio_t *f = ctx; append(f, profile_codec_step(profile)); return f->fail_codec; }
 static esp_err_t fake_cleanup(esp_err_t cause, void *ctx) { fake_audio_t *f = ctx; (void)cause; append(f, "cleanup>"); return ESP_OK; }
 
 static board_audio_ops_t ops(fake_audio_t *fake)
@@ -59,7 +81,16 @@ static void test_capture_only_skips_optional_m5pm1_probe(void)
     ASSERT_TRUE(strcmp(fake.log, "i2c>i2s-rx>codec-adc>") == 0);
 }
 
-static void test_power_gate_order_when_required(void)
+static void test_playback_only_power_gate_order_when_required(void)
+{
+    fake_audio_t fake = {0};
+    board_audio_ops_t o = ops(&fake);
+    board_audio_config_t cfg = {.profile = BOARD_AUDIO_PROFILE_PLAYBACK_ONLY, .probe_m5pm1 = true, .require_audio_power_enable = true};
+    ASSERT_EQ(ESP_OK, board_audio_init_with_ops(&cfg, &o));
+    ASSERT_TRUE(strcmp(fake.log, "i2c>probe>power>i2s-tx>codec-dac>") == 0);
+}
+
+static void test_full_duplex_power_gate_order_when_required(void)
 {
     fake_audio_t fake = {0};
     board_audio_ops_t o = ops(&fake);
@@ -81,7 +112,8 @@ int main(void)
 {
     test_capture_only_order();
     test_capture_only_skips_optional_m5pm1_probe();
-    test_power_gate_order_when_required();
+    test_playback_only_power_gate_order_when_required();
+    test_full_duplex_power_gate_order_when_required();
     test_failure_aborts_later_steps_and_cleans_up();
     puts("board_audio tests passed");
     return 0;

@@ -134,6 +134,14 @@ void rule_runtime_set_local_ui_sender(rule_runtime_t *runtime, action_dispatcher
     action_dispatcher_set_local_ui_sender(&runtime->dispatcher, cb, ctx);
 }
 
+void rule_runtime_set_speaker_sender(rule_runtime_t *runtime, action_dispatcher_send_cb_t cb, void *ctx)
+{
+    if (runtime == NULL) {
+        return;
+    }
+    action_dispatcher_set_speaker_sender(&runtime->dispatcher, cb, ctx);
+}
+
 size_t rule_runtime_process_fact(rule_runtime_t *runtime, const trigger_fact_t *fact)
 {
     if (runtime == NULL || fact == NULL) {

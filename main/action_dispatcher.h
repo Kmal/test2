@@ -56,6 +56,8 @@ typedef struct {
     void *ir_ctx;
     action_dispatcher_send_cb_t local_ui_send;
     void *local_ui_ctx;
+    action_dispatcher_send_cb_t speaker_send;
+    void *speaker_ctx;
 } action_dispatcher_t;
 
 void action_dispatcher_init(action_dispatcher_t *dispatcher);
@@ -64,6 +66,7 @@ void action_dispatcher_set_ble_sender(action_dispatcher_t *dispatcher, action_di
 void action_dispatcher_set_http_sender(action_dispatcher_t *dispatcher, action_dispatcher_send_cb_t cb, void *ctx);
 void action_dispatcher_set_ir_sender(action_dispatcher_t *dispatcher, action_dispatcher_send_cb_t cb, void *ctx);
 void action_dispatcher_set_local_ui_sender(action_dispatcher_t *dispatcher, action_dispatcher_send_cb_t cb, void *ctx);
+void action_dispatcher_set_speaker_sender(action_dispatcher_t *dispatcher, action_dispatcher_send_cb_t cb, void *ctx);
 bool action_enqueue(action_dispatcher_t *dispatcher, const rule_event_t *event);
 bool action_dispatcher_process_one(action_dispatcher_t *dispatcher);
 size_t action_dispatcher_process_all(action_dispatcher_t *dispatcher);

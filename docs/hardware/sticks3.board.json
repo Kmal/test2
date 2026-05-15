@@ -7,14 +7,14 @@
     "bits": "I2S_DATA_BIT_WIDTH_16BIT",
     "pins": {
       "mclk": 18,
-      "dout": 16,
+      "dout": 14,
       "bclk": 17,
       "lrck": 15,
-      "din": 14
+      "din": 16
     },
     "bclk_hz": 512000,
     "lrck_hz": 16000,
-    "profile": "default sound-level capture-only; no TX/speaker output",
+    "profile": "default sound-level capture-only; speaker_tone uses playback-only TX when CONFIG_APP_SPEAKER_ACTION=y",
     "mclk_multiple": 768
   },
   "i2c": {
@@ -58,6 +58,7 @@
   },
   "m5pm1": {
     "l3b_enable_sequence_verified": true,
+    "speaker_pyg3_enable_sequence_verified": true,
     "speaker_pulse_sequence_verified": false
   }
 }

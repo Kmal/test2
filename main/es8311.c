@@ -205,8 +205,9 @@ static esp_err_t es8311_update_reg_bits(i2c_port_t i2c_num, uint8_t i2c_addr,
 
 /*
  * The sequence below is the project's current minimal ES8311 programming
- * sequence for StickS3. It supports an ADC-only profile for default capture boot
- * and a full-duplex compatibility profile for quarantined legacy code. Future
+ * sequence for StickS3. It supports an ADC-only profile for default capture boot,
+ * a DAC-only profile for speaker actions, and a full-duplex compatibility
+ * profile for quarantined legacy code. Future
  * changes must classify ES8311 registers as exact-readback-safe, masked,
  * volatile, or write-only before adding stricter hardware verification.
  */
@@ -215,7 +216,9 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
 {
     (void)i2s_port; // The codec is configured over I2C; I2S is configured by the caller.
 
-    if (profile != ES8311_PROFILE_ADC_ONLY && profile != ES8311_PROFILE_FULL_DUPLEX) {
+    if (profile != ES8311_PROFILE_ADC_ONLY &&
+        profile != ES8311_PROFILE_DAC_ONLY &&
+        profile != ES8311_PROFILE_FULL_DUPLEX) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -224,9 +227,14 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
         return ret;
     }
 
+    const bool adc_enabled = profile != ES8311_PROFILE_DAC_ONLY;
+    const bool dac_enabled = profile != ES8311_PROFILE_ADC_ONLY;
+    const char *profile_name = profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" :
+                               (profile == ES8311_PROFILE_DAC_ONLY ? "dac-only" : "full-duplex");
+    (void)profile_name;
+
     ESP_LOGI(TAG_CODEC, "Initialising ES8311 at I2C 0x%02x (sample_rate=%d, profile=%s)",
-             i2c_addr, sample_rate,
-             profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" : "full-duplex");
+             i2c_addr, sample_rate, profile_name);
 
     ret = es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_RESET, ES8311_RESET_ASSERT);
     if (ret != ESP_OK) {
@@ -252,14 +260,15 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SDP_DAC, ES8311_SDP_16BIT_I2S));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SDP_ADC, ES8311_SDP_16BIT_I2S));
     ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_0D, ES8311_SYSTEM0D_ANALOG_UP));
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_0E, ES8311_SYSTEM0E_ADC_PGA_UP));
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_13, ES8311_SYSTEM13_OUTPUT_UP));
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_EQ_HPF, ES8311_ADC_EQ_HPF_ENABLE));
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_SCALE, ES8311_ADC_SCALE_STANDARD));
-    ret = es8311_first_error(ret, es8311_set_mic_gain(i2c_num, i2c_addr, ES8311_DEFAULT_MIC_GAIN));
-    ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_VOLUME, ES8311_ADC_VOLUME_BOOST));
-
-    if (profile == ES8311_PROFILE_FULL_DUPLEX) {
+    if (adc_enabled) {
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_0E, ES8311_SYSTEM0E_ADC_PGA_UP));
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_EQ_HPF, ES8311_ADC_EQ_HPF_ENABLE));
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_SCALE, ES8311_ADC_SCALE_STANDARD));
+        ret = es8311_first_error(ret, es8311_set_mic_gain(i2c_num, i2c_addr, ES8311_DEFAULT_MIC_GAIN));
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_ADC_VOLUME, ES8311_ADC_VOLUME_BOOST));
+    }
+    if (dac_enabled) {
+        ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_13, ES8311_SYSTEM13_OUTPUT_UP));
         ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_12, ES8311_SYSTEM12_DAC_UP));
         ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_DAC_EQ, ES8311_DAC_EQ_BYPASS));
         ret = es8311_first_error(ret, es8311_set_dac_volume(i2c_num, i2c_addr, ES8311_DAC_DEFAULT_VOLUME));
@@ -267,8 +276,8 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
     } else {
         /*
          * Optional StickS3 audio capture mode is ADC-only. Keep the DAC path muted
-         * and avoid powering it up until a source-backed monitoring/playback
-         * feature explicitly requests the speaker path.
+         * and avoid powering it up until a source-backed playback feature explicitly
+         * requests the speaker path.
          */
         ret = es8311_first_error(ret, es8311_write_reg(i2c_num, i2c_addr, ES8311_REG_SYSTEM_12, ES8311_SYSTEM12_DAC_DOWN));
         ret = es8311_first_error(ret, es8311_mute(i2c_num, i2c_addr, true));
@@ -276,10 +285,11 @@ esp_err_t es8311_init_profile(i2c_port_t i2c_num, uint8_t i2c_addr, int i2s_port
 
     if (ret == ESP_OK) {
         es8311_log_register_snapshot(i2c_num, i2c_addr);
-        ESP_LOGI(TAG_CODEC, "ES8311 initialised: profile=%s adc_volume=0x%02x mic_gain=%u dac_muted=%s",
-                 profile == ES8311_PROFILE_ADC_ONLY ? "adc-only" : "full-duplex",
-                 ES8311_ADC_VOLUME_BOOST, (unsigned)ES8311_DEFAULT_MIC_GAIN,
-                 profile == ES8311_PROFILE_ADC_ONLY ? "yes" : "no");
+        ESP_LOGI(TAG_CODEC, "ES8311 initialised: profile=%s adc=%s dac=%s adc_volume=0x%02x mic_gain=%u dac_muted=%s",
+                 profile_name, adc_enabled ? "on" : "off", dac_enabled ? "on" : "off",
+                 adc_enabled ? ES8311_ADC_VOLUME_BOOST : 0u,
+                 adc_enabled ? (unsigned)ES8311_DEFAULT_MIC_GAIN : 0u,
+                 dac_enabled ? "no" : "yes");
     } else {
         ESP_LOGE(TAG_CODEC, "ES8311 initialisation failed: %s", esp_err_to_name(ret));
     }

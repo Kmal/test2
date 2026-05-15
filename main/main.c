@@ -20,6 +20,9 @@
 
 #include "action_http.h"
 #include "action_ir.h"
+#if CONFIG_APP_SPEAKER_ACTION
+#include "action_speaker.h"
+#endif
 #include "app_mode.h"
 #include "app_time.h"
 #include "app_wifi.h"
@@ -76,6 +79,7 @@ static bool app_sound_level_capture_needed(const automation_config_t *config);
 static bool app_sound_level_status_json(char *out, size_t out_len, void *ctx);
 static void app_sound_level_release_audio(void);
 static void app_sound_level_release_if_stopped(void);
+static void app_sound_level_stop(void);
 static void app_sound_level_sync(const automation_config_t *config);
 #endif
 
@@ -140,6 +144,35 @@ static action_result_t app_send_ir_rule_action(const rule_event_t *event, void *
     }
     return result;
 }
+
+
+#if CONFIG_APP_SPEAKER_ACTION
+static action_result_t app_send_speaker_rule_action(const rule_event_t *event, void *ctx)
+{
+    (void)ctx;
+    action_result_t result = {
+        .code = ACTION_RESULT_OK,
+    };
+    if (event != NULL) {
+        result.sequence = event->sequence;
+        result.rule_id = event->rule_id;
+        result.action = event->action;
+    }
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+    /* Official StickS3 examples stop the microphone before speaker playback and
+     * restart it afterwards.  Keep the same single-owner I2S policy here so the
+     * speaker action never attempts to share the ES8311/I2S path with capture. */
+    app_sound_level_stop();
+#endif
+    if (!action_speaker_send_event(event)) {
+        result.code = ACTION_RESULT_UNSUPPORTED;
+    }
+#if CONFIG_APP_SOUND_LEVEL_TRIGGERS
+    app_sound_level_sync(&s_rule_config);
+#endif
+    return result;
+}
+#endif
 
 
 static action_result_t app_send_local_ui_rule_action(const rule_event_t *event, void *ctx)
@@ -285,6 +318,9 @@ static void app_rule_runtime_init(void)
     rule_runtime_set_http_sender(&s_rule_runtime, app_send_http_rule_action, NULL);
     rule_runtime_set_ir_sender(&s_rule_runtime, app_send_ir_rule_action, NULL);
     rule_runtime_set_local_ui_sender(&s_rule_runtime, app_send_local_ui_rule_action, NULL);
+#if CONFIG_APP_SPEAKER_ACTION
+    rule_runtime_set_speaker_sender(&s_rule_runtime, app_send_speaker_rule_action, NULL);
+#endif
 #if CONFIG_APP_TRANSPORT_BLE_GATT_PCM
     rule_runtime_set_ble_sender(&s_rule_runtime, app_send_ble_rule_action, NULL);
 #endif

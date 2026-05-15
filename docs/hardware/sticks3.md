@@ -11,10 +11,10 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 | Audio codec | ES8311 | M5Stack StickS3 documentation and schematic |
 | ES8311 I2C address | `0x18` | M5Stack StickS3 pin map |
 | ES8311 MCLK | GPIO18 | M5Stack StickS3 pin map |
-| ES8311 DOUT / ESP32-S3 I2S RX data | GPIO14 | M5Stack StickS3 pin map |
+| ESP32-S3 I2S speaker/DAC data (`G14_I2S_DDAC`) | GPIO14 | StickS3 schematic and M5Unified StickS3 speaker config |
 | ES8311 BCLK | GPIO17 | M5Stack StickS3 pin map |
 | ES8311 LRCK / WS | GPIO15 | M5Stack StickS3 pin map |
-| ES8311 DIN / ESP32-S3 I2S TX data | GPIO16 | M5Stack StickS3 pin map |
+| ESP32-S3 I2S microphone/ADC data (`G16_I2S_DADC`) | GPIO16 | StickS3 schematic and M5Unified StickS3 microphone config |
 | Shared I2C SCL | GPIO48 | M5Stack StickS3 pin map |
 | Shared I2C SDA | GPIO47 | M5Stack StickS3 pin map |
 | IMU | BMI270 | M5Stack StickS3 documentation |
@@ -46,8 +46,8 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 | I2S MCLK | GPIO18 | ESP32-S3 -> ES8311 | `BOARD_I2S_MCLK_IO` | Current profile uses fixed MCLK at 12.288 MHz. |
 | I2S BCLK | GPIO17 | ESP32-S3 -> ES8311 | `BOARD_I2S_BCK_IO` | Current documented target is 512 kHz for 16 kHz, 16-bit mono capture. |
 | I2S LRCLK/WS | GPIO15 | ESP32-S3 -> ES8311 | `BOARD_I2S_WS_IO` | Current profile uses 16 kHz LRCK. |
-| I2S RX / codec DOUT (`G14_I2S_DOUT`) | GPIO14 | ES8311 -> ESP32-S3 | `BOARD_I2S_DI_IO` | Microphone/ADC samples read by the ESP32-S3. |
-| I2S TX / codec DIN (`G16_I2S_DIN`) | GPIO16 | ESP32-S3 -> ES8311 | `BOARD_I2S_DO_IO` | Codec DAC/input data pin; not driven in the default capture-only profile. |
+| I2S TX / speaker DAC data (`G14_I2S_DDAC`) | GPIO14 | ESP32-S3 -> ES8311 | `BOARD_I2S_DO_IO` | Codec DAC/input data pin used by the speaker path. |
+| I2S RX / microphone ADC data (`G16_I2S_DADC`) | GPIO16 | ES8311 -> ESP32-S3 | `BOARD_I2S_DI_IO` | Microphone/ADC samples read by the ESP32-S3. |
 | I2C SDA | GPIO47 | Bidirectional | `BOARD_I2C_SDA_IO` | Shared ES8311/BMI270/M5PM1 control bus. |
 | I2C SCL | GPIO48 | ESP32-S3 -> devices | `BOARD_I2C_SCL_IO` | Shared bus clock; M5PM1 handle remains at 100 kHz for power-up behavior. |
 | ES8311 I2C address | `0x18` | N/A | `BOARD_ES8311_ADDR` | Minimal codec driver target. |
@@ -79,7 +79,7 @@ For product behavior, user-facing firmware functions, and transport/API status, 
 | M5PM1 L3B helper | ✅ Wired for LCD/audio | The source-backed GPIO2-active-low sequence exists and is used by LCD power and by demand-driven ES8311 capture initialization. |
 | Capture-only I2S/ES8311 profile | ✅ Implemented/wired by default | `board_audio_init_with_ops()` sequences I2C, optional M5PM1 probe, required audio power, I2S, and ES8311 ADC-only setup because `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is set in the project defaults. |
 | ES8311 microphone capture path | ✅ Implemented/wired by default | The default `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` build initializes the ES8311/I2S path only while firmware demand requires microphone metrics, reads normalized I2S microphone samples, and keeps the path capture-only. |
-| I2S TX / onboard speaker output | ✅ Hardware present / ⛔ firmware output disabled | StickS3 has an AW8737-backed speaker path, but full-duplex/TX is not selected by default and M5PM1/AW8737 speaker-amplifier control remains blocked with `ESP_ERR_NOT_SUPPORTED`. |
+| I2S TX / onboard speaker output | ✅ Implemented/Kconfig-gated | StickS3 has an AW8737-backed speaker path; `speaker_tone` is Kconfig-gated and drives `G14_I2S_DDAC` with the M5PM1 PYG3 amplifier enabled only during playback. |
 | IR send | ✅ Implemented/wired for actions | NEC IR actions use the RMT TX path on GPIO46 after rule validation. |
 | IR receive | ⛔ Not implemented | GPIO42 is reserved as IR RX, but no receive action/source is wired. |
 | BMI270 | ✅ Implemented/Kconfig-gated | `bmi270.motion` uses polling-only accelerometer reads when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing through M5PM1 GPIO4 remains unused. |
@@ -107,7 +107,7 @@ For the ESP-IDF v6 standard I2S channel API path, the driver uses a 768 × Fs MC
 
 The StickS3 documentation and schematic identify M5PM1/PY `G2` as `PYG2_L3B_EN`, with the ES8311 audio rail on `3V3_L3B_AU`. The implemented helper configures M5PM1 GPIO2 as a normal output, push-pull drive, and **low** output using the same tested GPIO-helper path as LCD/L3B setup. The official M5PM1 StickS3 guidance enables L3B with `gpioSetOutput(..., false)`, after which this firmware writes `I2C_CFG=0x00` and waits for the rail before LCD reset. M5PM1 powers up in 100 kHz I2C mode, so the shared register-bus cache keeps the M5PM1 device handle at 100 kHz while other devices can use the board-default 400 kHz speed. The PMIC helper retries a first `ESP_ERR_INVALID_RESPONSE` once, because the boot log showed the LCD path failing on the first M5PM1 GPIO-function read while a later L3B access succeeded. The separate M5PM1 identity probe remains optional. In the default boot, this sequence is reached through LCD power initialization when LCD is enabled and through demand-driven sound-level audio initialization when enabled `sound.*` rules or Web UI telemetry demand exist.
 
-This L3B enable sequence is not treated as evidence that local speaker output is safe. Speaker-amplifier pulse/control remains blocked and returns `ESP_ERR_NOT_SUPPORTED` until its exact source-backed M5PM1/AW8737 sequence is documented and tested.
+This L3B enable sequence is separate from speaker amplification. The Kconfig-gated `speaker_tone` action uses the source-backed M5PM1 PYG3 SPK amplifier sequence (`GPIO3` function, output mode, push-pull drive, high to enable and low to disable) and releases playback audio resources after each tone so demand-driven microphone capture can restart.
 
 ## Button notes
 
@@ -123,9 +123,11 @@ When validating the L3B/LCD fix on UART, the expected M5PM1 lines include `activ
 
 ## Audio output, speaker amplifier, and IR
 
-The StickS3 includes an AW8737 speaker amplifier and M5PM1 speaker-control function (`PYG3_SPK_Pulse`). The exact M5PM1 command/register sequence for enabling and disabling the amplifier is not implemented here because it must be verified from official M5PM1 protocol documentation or source before driver code is written.
+The StickS3 includes an ES8311 codec, MEMS microphone, AW8737 speaker amplifier, and M5PM1 speaker-control function (`PYG3_SPK_Pulse`). The implemented audio-output scope is intentionally narrow: the Kconfig-gated `speaker_tone` action uses a bounded 16 kHz square-tone generator on the playback-only ES8311/I2S path and schematic net `G14_I2S_DDAC`, configures M5PM1 GPIO3 as a normal push-pull output, drives it high only while tone PCM is being written, then drives it low and releases playback resources. This is not a general M5Unified-compatible speaker playback API; broader sample rates, streaming, gain modes, and arbitrary PCM playback remain out of scope. The legacy `board_speaker_amp_pulse()` gain/pulse helper remains fail-closed because no feature currently needs AW8737 pulse-mode gain control.
 
-Speaker output remains disabled as a product feature until a compatible transport requires local output and the M5PM1 speaker-control protocol is implemented. The StickS3 documentation notes that IR reception requires the speaker amplifier to be off.
+The official StickS3 microphone example states that the microphone and speaker cannot be used at the same time. Firmware therefore stops demand-driven microphone capture before a speaker action, starts `BOARD_AUDIO_PROFILE_PLAYBACK_ONLY`, and resynchronizes sound-level demand after playback so `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` can restart if rules or Web UI telemetry still need it. The official product page also recommends speaker volume below 75% when running from battery; both rule validation and `action_speaker` validation cap `speaker_volume_percent` at `74` so integer values stay below 75%.
+
+The StickS3 documentation notes that IR reception requires the speaker amplifier to be off. This firmware still implements only IR transmit actions, but the speaker action disables PYG3 after every tone and on playback-write failures so future IR RX work starts from an amplifier-off policy.
 
 ## BMI270 scope
 
@@ -142,7 +144,6 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 ## Unknowns / deferred decisions
 
 - Physical StickS3 validation of the default sound-level capture path, including measured I2S clocks and ES8311 sample alignment; the firmware still does not expose PCM streaming.
-- Exact M5PM1 speaker amplifier command sequence.
 - Physical StickS3 validation of the Kconfig-gated battery/USB, BMI270 polling, and ADC facts.
 - Whether HAT features are needed by a future product feature.
 
@@ -150,6 +151,14 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 
 - M5Stack StickS3 documentation and pin map: https://docs.m5stack.com/en/core/StickS3
 - M5Stack StickS3 Arduino programming documentation: https://docs.m5stack.com/en/arduino/m5sticks3/program
+- M5Stack StickS3 Battery Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/battery
+- M5Stack StickS3 Button Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/button
+- M5Stack StickS3 Display Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/display
+- M5Stack StickS3 IMU Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/imu
+- M5Stack StickS3 IR NEC Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec
+- M5Stack StickS3 Microphone Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/mic
+- M5Stack StickS3 Speaker Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/speaker
+- M5Stack StickS3 Wakeup Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/wakeup
 - M5Stack StickS3 M5PM1 Arduino documentation: https://docs.m5stack.com/en/arduino/m5sticks3/m5pm1
 - M5Stack M5PM1 source repository: https://github.com/m5stack/M5PM1
 - M5Stack M5Unified source repository: https://github.com/m5stack/M5Unified
@@ -164,9 +173,20 @@ Safe GPIO digital and edge triggers are implemented only behind conflict validat
 
 ## Sound-level trigger reference review
 
-Shared sound-capture work requires an upstream/vendor reference review before changing audio code. For this implementation, the ESP-IDF programming guide was used for component/Kconfig conventions, FreeRTOS task/semaphore use, logging/error style, and the channel-based I2S API assumptions. M5Stack StickS3 product and Arduino/M5PM1 documentation, the StickS3 schematic, M5PM1, M5Unified, and M5GFX sources were cross-checked for the ESP32-S3-PICO-1-N8R8 board identity, ES8311 mono codec, MEMS microphone, AW8737 amplifier, MCLK/BCLK/LRCK/DIN/DOUT pins, shared I2C addresses, M5PM1 L3B power behavior, and LCD/L3B safety. The ES8311 datasheet was used for ADC/I2S-format expectations, MCLK/LRCK clocking, and capture-only codec setup. The BMI270 datasheet was reviewed only to avoid altering the shared I2C/interrupt behavior; sound-capture demand code does not initialize or change BMI270 state.
+Shared sound-capture work requires an upstream/vendor reference review before changing audio code. For this implementation, the ESP-IDF programming guide was used for component/Kconfig conventions, FreeRTOS task/semaphore use, logging/error style, and the channel-based I2S API assumptions. M5Stack StickS3 product and Arduino/M5PM1 documentation, the StickS3 schematic, M5PM1, M5Unified, and M5GFX sources were cross-checked for the ESP32-S3-PICO-1-N8R8 board identity, ES8311 mono codec, MEMS microphone, AW8737 amplifier, MCLK/BCLK/LRCK/DADC/DDAC pins, shared I2C addresses, M5PM1 L3B power behavior, PYG3 speaker-amplifier behavior, and LCD/L3B safety. The ES8311 datasheet was used for ADC/I2S-format expectations, MCLK/LRCK clocking, and capture-only codec setup. The BMI270 datasheet was reviewed only to avoid altering the shared I2C/interrupt behavior; sound-capture demand code does not initialize or change BMI270 state.
 
-Shared sound capture uses `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` for both enabled `sound.*` rules and Web UI telemetry demand. The speaker amplifier, I2S TX/DAC path, and full-duplex speaker behavior remain disabled for this feature; only the ES8311 microphone capture path is brought up.
+Shared sound capture uses `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` for both enabled `sound.*` rules and Web UI telemetry demand. The speaker amplifier and I2S TX/DAC path remain disabled for that capture feature; the `speaker_tone` action follows the official M5Unified single-owner audio pattern by stopping microphone capture before starting `BOARD_AUDIO_PROFILE_PLAYBACK_ONLY`, then allowing demand-driven capture to restart afterwards.
+
+### Speaker-action conformance review
+
+| Official source/spec point | Firmware check result |
+| --- | --- |
+| Product documentation lists ES8311 audio codec, MEMS microphone, AW8737 power amplifier, and an 8Ω/1W speaker. | Firmware keeps ES8311 codec setup in `es8311.c`, M5PM1/PYG3 amplifier control in `board_audio_power.c`, and the bounded 16 kHz square-tone action in `action_speaker.c`; it does not expose generic speaker streaming/playback. |
+| StickS3 schematic names GPIO14 as `G14_I2S_DDAC` and GPIO16 as `G16_I2S_DADC`; M5Unified uses GPIO14 for speaker data out and GPIO16 for microphone data in. | `BOARD_I2S_DO_IO=14` is used only by playback/full-duplex profiles and `BOARD_I2S_DI_IO=16` is used only by capture/full-duplex profiles. |
+| M5Unified initializes StickS3 PYG3 as a normal GPIO output and toggles M5PM1 GPIO output bit 3 for speaker enable/disable. | `board_speaker_amp_set()` writes GPIO3 function, output mode, push-pull drive, and output high/low with read-modify-write preservation of unrelated PMIC bits. |
+| Official microphone example says mic and speaker cannot be used simultaneously. | `app_send_speaker_rule_action()` stops the sound-level service before playback and calls `app_sound_level_sync()` afterwards. |
+| Product speaker-volume notice recommends keeping battery speaker volume below 75%. | Rule and action validation reject volume `0` and values above `74`; default web-import value is `50`. |
+| Product IR note says IR reception requires speaker amplifier off. | IR receive remains unimplemented; the speaker action always disables PYG3 after success or failed writes. |
 
 ## Hardware automation facts
 

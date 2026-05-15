@@ -381,7 +381,9 @@ static bool write_config_json(const automation_config_t *config, char *out, size
                            "\"threshold_bool\":%s,\"threshold_i32\":%ld,"
                            "\"cooldown_ms\":%lu,\"sustain_ms\":%lu,"
                            "\"gpio_pin\":%d,\"gpio_profile\":\"%s\","
-                           "\"gpio_active_low\":%s,\"gpio_debounce_ms\":%lu,\"http_url\":",
+                           "\"gpio_active_low\":%s,\"gpio_debounce_ms\":%lu,"
+                           "\"speaker_frequency_hz\":%lu,\"speaker_duration_ms\":%lu,"
+                           "\"speaker_volume_percent\":%u,\"action_timeout_ms\":%lu,\"http_url\":",
                            rule != NULL ? rule_source_name(rule->when.source) : "invalid",
                            action != NULL ? rule_action_name(action->type) : "invalid",
                            rule != NULL ? comparator_name(rule->when.comparator) : "invalid",
@@ -393,17 +395,26 @@ static bool write_config_json(const automation_config_t *config, char *out, size
                            gpio->pin,
                            gpio_profile_name(gpio->profile),
                            gpio->active_low ? "true" : "false",
-                           (unsigned long)gpio->debounce_ms) &&
+                           (unsigned long)gpio->debounce_ms,
+                           action != NULL ? (unsigned long)action->speaker_frequency_hz : 0ul,
+                           action != NULL ? (unsigned long)action->speaker_duration_ms : 0ul,
+                           action != NULL ? (unsigned)action->speaker_volume_percent : 0u,
+                           action != NULL ? (unsigned long)action->timeout_ms : 0ul) &&
               json_append_string(&cursor, &remaining, action != NULL ? action->http_url : "") &&
               json_appendf(&cursor, &remaining, ",\"http_bearer_token\":\"%s\",\"rules\":[{\"id\":%lu,\"enabled\":%s,\"name\":",
                            auth_state,
                            rule != NULL ? (unsigned long)rule->id : 0ul,
                            (rule != NULL && rule->enabled) ? "true" : "false") &&
               json_append_string(&cursor, &remaining, rule != NULL ? rule->name : "") &&
-              json_appendf(&cursor, &remaining, ",\"source\":\"%s\",\"action\":\"%s\",\"http_bearer_token\":\"%s\"}]}",
+              json_appendf(&cursor, &remaining, ",\"source\":\"%s\",\"action\":\"%s\",\"http_bearer_token\":\"%s\","
+                           "\"speaker_frequency_hz\":%lu,\"speaker_duration_ms\":%lu,"
+                           "\"speaker_volume_percent\":%u}]}",
                            rule != NULL ? rule_source_name(rule->when.source) : "invalid",
                            action != NULL ? rule_action_name(action->type) : "invalid",
-                           auth_state);
+                           auth_state,
+                           action != NULL ? (unsigned long)action->speaker_frequency_hz : 0ul,
+                           action != NULL ? (unsigned long)action->speaker_duration_ms : 0ul,
+                           action != NULL ? (unsigned)action->speaker_volume_percent : 0u);
     if (!ok) {
         if (out_len > 0) {
             out[0] = '\0';
@@ -752,6 +763,20 @@ static bool make_json_config(automation_config_t *config, const char *body)
         }
         (void)snprintf(rule->when.source_key, sizeof(rule->when.source_key), "%s.%d",
                        rule_source_name(source), rule->when.gpio.pin);
+    }
+    if (action == RULE_ACTION_SPEAKER_TONE) {
+        int32_t frequency_hz = 7000;
+        int32_t duration_ms = 100;
+        int32_t volume_percent = 50;
+        int32_t timeout_ms = 100;
+        (void)json_get_i32(body, "speaker_frequency_hz", &frequency_hz);
+        (void)json_get_i32(body, "speaker_duration_ms", &duration_ms);
+        (void)json_get_i32(body, "speaker_volume_percent", &volume_percent);
+        (void)json_get_i32(body, "action_timeout_ms", &timeout_ms);
+        rule->actions[0].speaker_frequency_hz = frequency_hz > 0 ? (uint32_t)frequency_hz : 0u;
+        rule->actions[0].speaker_duration_ms = duration_ms > 0 ? (uint32_t)duration_ms : 0u;
+        rule->actions[0].speaker_volume_percent = volume_percent > 0 ? (uint8_t)volume_percent : 0u;
+        rule->actions[0].timeout_ms = timeout_ms > 0 ? (uint32_t)timeout_ms : 0u;
     }
     if (action == RULE_ACTION_HTTP_POST) {
         if (!json_get_string(body, "http_url", rule->actions[0].http_url, sizeof(rule->actions[0].http_url))) {

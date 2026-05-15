@@ -4,9 +4,9 @@
  * analog microphone PGA, digital volume controls, mute controls and
  * power-management registers. This driver intentionally implements only the
  * project-tested StickS3 subset: fixed 12.288 MHz MCLK, 16-bit I2S slave
- * mode, ADC-only capture profile, and a full-duplex compatibility
- * profile. Configuration is performed over I2C while audio data is exchanged
- * via the I2S bus.
+ * mode, ADC-only capture profile, DAC-only playback profile, and a
+ * full-duplex compatibility profile. Configuration is performed over I2C while
+ * audio data is exchanged via the I2S bus.
  */
 
 #pragma once
@@ -38,11 +38,14 @@ typedef enum {
  * @brief ES8311 initialization profiles.
  *
  * ADC-only is available for optional audio builds so the microphone
- * path can be brought up without enabling the DAC/speaker-monitoring path.
+ * path can be brought up without enabling the DAC/speaker path. DAC-only is
+ * used by the StickS3 speaker action so microphone capture and speaker output
+ * are not active at the same time, matching the official M5Unified examples.
  * Full-duplex preserves the historical behavior for non-StickS3 legacy code.
  */
 typedef enum {
     ES8311_PROFILE_ADC_ONLY = 0,
+    ES8311_PROFILE_DAC_ONLY,
     ES8311_PROFILE_FULL_DUPLEX,
 } es8311_profile_t;
 
@@ -56,7 +59,7 @@ typedef enum {
  * @param i2c_num      I2C port used to communicate with the codec
  * @param i2c_addr     7-bit I2C address of the codec (M5StickS3: 0x18)
  * @param i2s_port     I2S port number used for audio data
- * @param sample_rate  Audio sample rate in Hz (supported: 8000, 16000, 48000)
+ * @param sample_rate  Audio sample rate in Hz (supported by this firmware: 16000)
  *
  * @return ESP_OK on success, or an error code on failure
  */

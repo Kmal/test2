@@ -147,6 +147,25 @@ static void test_ir_action_validation(void)
     ASSERT_FALSE(automation_config_validate(&config, error, sizeof(error)));
 }
 
+static void test_speaker_action_validation(void)
+{
+    char error[RULE_ERROR_MAX];
+    automation_config_t config = valid_config();
+    config.rules[0].actions[0].type = RULE_ACTION_SPEAKER_TONE;
+    config.rules[0].actions[0].speaker_frequency_hz = 7000;
+    config.rules[0].actions[0].speaker_duration_ms = 100;
+    config.rules[0].actions[0].speaker_volume_percent = 50;
+    config.rules[0].actions[0].timeout_ms = 100;
+    ASSERT_TRUE(automation_config_validate(&config, error, sizeof(error)));
+
+    config.rules[0].actions[0].speaker_volume_percent = 75;
+    ASSERT_FALSE(automation_config_validate(&config, error, sizeof(error)));
+    config.rules[0].actions[0].speaker_volume_percent = 50;
+
+    config.rules[0].actions[0].speaker_frequency_hz = 9000;
+    ASSERT_FALSE(automation_config_validate(&config, error, sizeof(error)));
+}
+
 static void test_comparator_value_compatibility(void)
 {
     char error[RULE_ERROR_MAX];
@@ -222,6 +241,7 @@ static void test_names_and_value_equality(void)
     ASSERT_TRUE(strcmp(rule_source_name(RULE_SOURCE_HAT_ENV3_HUMIDITY_RH), "hat.env3.humidity_rh") == 0);
     ASSERT_TRUE(strcmp(rule_source_name(RULE_SOURCE_HAT_THERMAL_MAX_C), "hat.thermal.max_c") == 0);
     ASSERT_TRUE(strcmp(rule_action_name(RULE_ACTION_IR_SEND), "ir_send") == 0);
+    ASSERT_TRUE(strcmp(rule_action_name(RULE_ACTION_SPEAKER_TONE), "speaker_tone") == 0);
     ASSERT_TRUE(rule_value_equal(rule_value_i32(7), rule_value_i32(7)));
     ASSERT_FALSE(rule_value_equal(rule_value_i32(7), rule_value_bool(true)));
 }
@@ -235,6 +255,7 @@ int main(void)
     test_wifi_connected_source_is_supported();
     test_http_url_validation();
     test_ir_action_validation();
+    test_speaker_action_validation();
     test_comparator_value_compatibility();
     test_gpio_profile_compatibility_direct();
     test_capability_json_excludes_disabled_actions();

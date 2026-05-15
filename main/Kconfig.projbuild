@@ -151,6 +151,21 @@ config APP_STATUS_UI_LCD_REFRESH_MS
 
 endmenu
 
+
+menu "StickS3 speaker actions"
+
+config APP_SPEAKER_ACTION
+    bool "Enable speaker tone automation action"
+    default y
+    help
+        Allow automation rules to play a short tone through the StickS3 ES8311
+        speaker path. The implementation follows the official single-owner
+        microphone/speaker model, caps requested volume below 75% for battery
+        safety, and enables the M5PM1-controlled speaker amplifier only while
+        the action is playing.
+
+endmenu
+
 menu "StickS3 sound-level triggers"
 
 config APP_SOUND_LEVEL_TRIGGERS
