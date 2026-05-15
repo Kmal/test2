@@ -11,7 +11,8 @@
 #include <stdint.h>
 
 typedef struct {
-    bool enable_power;
+    bool enable_battery;
+    bool enable_usb_power;
     bool enable_bmi270;
     bool enable_adc;
     uint32_t poll_interval_ms;

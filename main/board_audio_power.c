@@ -51,7 +51,7 @@ esp_err_t board_speaker_amp_pulse(i2c_port_t port, uint8_t pulse_count)
      * The source-backed StickS3 speaker action uses the documented PYG3
      * amplifier enable/disable GPIO sequence. AW8737 pulse/gain modes are a
      * separate M5PM1 register feature and are not needed for the bounded tone
-     * action, so keep this legacy helper fail-closed until a feature explicitly
+     * action, so keep this optional helper fail-closed until a feature explicitly
      * requires source-backed gain-pulse control.
      */
     ESP_LOGW(TAG, "speaker amplifier pulse/gain control is not implemented");

@@ -41,7 +41,8 @@ typedef enum {
  * path can be brought up without enabling the DAC/speaker path. DAC-only is
  * used by the StickS3 speaker action so microphone capture and speaker output
  * are not active at the same time, matching the official M5Unified examples.
- * Full-duplex preserves the historical behavior for non-StickS3 legacy code.
+ * Full-duplex remains available only as an explicit compatibility profile;
+ * default StickS3 paths should use ADC-only or DAC-only.
  */
 typedef enum {
     ES8311_PROFILE_ADC_ONLY = 0,
@@ -52,7 +53,7 @@ typedef enum {
 /**
  * @brief Initialise the ES8311 codec.
  *
- * Compatibility wrapper for the historical full-duplex behavior. New StickS3
+ * Compatibility wrapper for explicit full-duplex initialization. New StickS3
  * code should call es8311_init_profile() so default boot can select the
  * ADC-only profile and keep DAC/speaker output disabled.
  *

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that StickS3 defaults select BLE GATT PCM and not Classic HFP."""
+"""Validate that StickS3 defaults select BLE GATT rule events and not Classic HFP."""
 
 from __future__ import annotations
 
@@ -28,14 +28,14 @@ def main() -> int:
     kconfig = KCONFIG.read_text(encoding="utf-8") if KCONFIG.exists() else ""
     if "APP_TRANSPORT_NONE" not in kconfig:
         errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_NONE for explicit board-only fallback")
-    if "APP_TRANSPORT_BLE_GATT_PCM" not in kconfig:
-        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_PCM for the default StickS3 transport")
-    if "CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y" not in defaults:
-        errors.append("config/sdkconfig.defaults must select BLE GATT PCM as the functional StickS3 transport")
+    if "APP_TRANSPORT_BLE_GATT_RULE_EVENTS" not in kconfig:
+        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_RULE_EVENTS for the default StickS3 transport")
+    if "CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y" not in defaults:
+        errors.append("config/sdkconfig.defaults must select BLE GATT rule events as the functional StickS3 transport")
     if "APP_TRANSPORT_HFP_LEGACY" not in kconfig:
-        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_HFP_LEGACY if legacy HFP code remains")
+        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_HFP_LEGACY if HFP compatibility code remains")
     if "depends on !IDF_TARGET_ESP32S3" not in kconfig:
-        errors.append("legacy HFP Kconfig option must depend on !IDF_TARGET_ESP32S3")
+        errors.append("HFP compatibility Kconfig option must depend on !IDF_TARGET_ESP32S3")
 
     if errors:
         print("Transport-config validation failed:", file=sys.stderr)

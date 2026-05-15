@@ -13,7 +13,8 @@ This section is a direct status overlay from the current C implementation, not f
 - ✅ **Implemented and wired on default boot**: executed from `app_main()` or reachable through tasks/callbacks it starts.
 - 🟡 **Kconfig-controlled / conditionally wired**: source support exists and is wired when its Kconfig option is enabled; maintainers can still disable it for smaller or bring-up builds.
 - ⛔ **Not implemented / fail-closed**: validation rejects it, the dispatcher returns unsupported, or no driver path exists.
-- 🧪 **Host/static tested only**: covered by repository checks, but still requires physical StickS3 validation before product claims.
+- 🧪 **Hardware calibration/bench check needed**: the code path is implemented and covered by host/static checks, but measurements on a real StickS3 are still needed before product claims.
+- 🚫 **Not planned / not supported by StickS3 hardware**: intentionally out of scope for this firmware or impossible on ESP32-S3/StickS3 hardware.
 
 ### Default boot path
 
@@ -26,6 +27,10 @@ On the default `esp32s3` build the app currently does the following:
 5. ✅ Starts the rule runtime, action worker, GPIO polling, network-state polling, and BLE-state polling tasks; the Web UI HTTP server is deferred until the Web UI service is enabled from the on-device menu.
 6. ✅ Starts the custom BLE GATT status/rule-event service, publishes BLE status, and keeps the device alive in an error state if BLE startup fails.
 7. ✅ Includes sound-level capture in the default build through `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`: `app_main()` initializes and monitors the capture-only StickS3 ES8311/I2S path only while shared sound-capture demand is active: enabled `sound.*` automation rules or Web UI telemetry. Maintainers can still disable the feature through Kconfig for audio-free builds.
+
+### Why some features remain Kconfig-gated
+
+Firmware size is only one reason for Kconfig gates, and not the main reason for every gate. Runtime automation config controls whether a rule consumes a compiled source, but it cannot remove SDK components, background tasks, boot-time initialization, or hardware side effects from the firmware image. Kconfig gates are kept for features that pull in optional stacks or touch shared board resources before a user rule can safely use them. Examples: sound triggers and speaker actions add the ES8311/I2S/audio path and can affect shared microphone/speaker ownership; BLE transport selection changes Bluetooth components and the Classic HFP option stays blocked on ESP32-S3; the LCD gate controls panel bring-up; and battery/USB/BMI270/ADC gates let bring-up or release builds exclude polling of M5PM1/BMI270/ADC hardware until those paths are desired. For supported sources that are compiled in, runtime rule config still controls actual automation use; disabled or unsupported sources continue to fail closed through capability reporting and validation.
 
 ### Capability matrix from code
 
@@ -41,7 +46,10 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while shared demand is active: enabled `sound.*` automation rules or Web UI telemetry. The capture service computes metrics and feeds `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts into the rule runtime. |
 | HAT sources | ⛔ Not implemented / fail-closed | Capabilities report HAT sources disabled and the HAT probe returns unsupported. |
 | GPIO pulse/frequency sources | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
-| Battery, USB-power, BMI270, ADC facts | ✅ Implemented/Kconfig-gated | `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` are implemented when their `CONFIG_APP_*_FACTS` gates are enabled; ADC exposure is limited to the source-backed safe ADC1 allowlist. |
+| Battery percent fact | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | `power.battery_percent` is emitted from M5PM1 VBAT reads when `CONFIG_APP_BATTERY_FACTS=y`; it uses firmware LiPo interpolation and still requires hardware comparison against the official `M5.Power` battery API before product conformance claims. |
+| USB/external-power fact | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | `power.usb_present` is emitted from M5PM1 VIN/5V reads when `CONFIG_APP_USB_POWER_FACTS=y`; VIN/5V reads tolerate VBAT read failures, absence is emitted only when both rails read below threshold, and the firmware does not switch EXT_5V mode or infer current direction. |
+| BMI270 motion fact | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | `bmi270.motion` is emitted from polling-only BMI270 accelerometer reads when `CONFIG_APP_BMI270_FACTS=y`; interrupt routing through M5PM1 GPIO4/PYG4 remains unused until hardware bench checks are complete. |
+| Safe ADC voltage facts | 🟡 Implemented/Kconfig-gated; hardware calibration/bench check needed | `adc.voltage_mv` is emitted when `CONFIG_APP_ADC_FACTS=y`; ADC exposure is limited to the source-backed safe ADC1 allowlist and excludes boot, button, USB-JTAG, LCD, I2C, audio, IR, power-sensitive, and non-ADC pins. |
 
 #### Rule actions
 
@@ -58,12 +66,13 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 
 | Capability | Current status | Code-derived note |
 | --- | --- | --- |
-| BLE GATT status | ✅ Implemented/wired | Default transport starts the custom BLE GATT service when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`; despite the historical Kconfig symbol suffix, this service exposes status and rule-event notifications only. |
+| BLE GATT status | ✅ Implemented/wired | Default transport starts the custom BLE GATT service when `CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y`; this service exposes status and rule-event notifications only. |
 | Web UI sound telemetry | ✅ Implemented/default available | Web UI status reads the same sound-level service last-metrics path used by sound triggers; telemetry demand can keep capture active without creating a second I2S reader. |
 | PCM streaming endpoint | ⛔ Not implemented / not exposed | No BLE, Wi-Fi, USB, or debug endpoint streams raw microphone PCM. Raw PCM streaming would be a transport/service capability, not a trigger source or rule action. |
 | Onboard speaker hardware / AW8737 firmware control | ✅ Implemented/Kconfig-gated | StickS3 has onboard ES8311/AW8737 speaker hardware, and speaker output is exposed as the bounded 16 kHz square-tone `speaker_tone` rule action. The firmware follows the official single-owner mic/speaker pattern, caps configured volume below 75%, uses the source-backed M5PM1 PYG3 amplifier enable sequence, and disables the amplifier after each tone. |
-| Classic Bluetooth HFP | ⛔ Not implemented for StickS3 | The Kconfig option depends on `!IDF_TARGET_ESP32S3`, and `main.c` errors if it is enabled for ESP32-S3. |
-| USB Audio / BLE Audio class device | ⛔ Not implemented | No default class-device transport path is wired. |
+| Classic Bluetooth HFP | 🚫 Not planned / not supported by StickS3 hardware | StickS3 uses ESP32-S3, which does not support Bluetooth Classic / BR/EDR; the HFP compatibility Kconfig is blocked for `esp32s3`, and `main.c` errors if it is forced on. |
+| BLE Audio class device | 🚫 Not planned / not supported by current StickS3 hardware target | The firmware uses a custom BLE GATT rule-event/status service; it does not expose an OS-native BLE Audio microphone/speaker class and no BLE Audio transport is planned for this ESP32-S3 StickS3 target. |
+| USB Audio class device | ⛔ Not implemented / deferred, not marked hardware-unsupported | ESP32-S3 has USB device capability, but this firmware has no USB Audio Class/TinyUSB audio transport path wired; USB Audio remains a separate product decision rather than a current rule-runtime capability. |
 | Wi-Fi station/setup AP | ✅ Implemented/wired | Boot starts Wi-Fi support; station/AP mode, scan/connect/forget/AP/mode APIs are implemented. |
 | HTTP Web UI server | ✅ Implemented/on demand | Server starts only when the on-device Web UI service enables it and stops when the service is disabled. |
 | Web time endpoint | ✅ Implemented | `/api/time` GET/POST is registered and handled. |
@@ -82,7 +91,7 @@ The default transport is a custom Bluetooth LE GATT rule-event service advertise
 
 The default firmware includes capture-only sound-level telemetry for local automation and Web UI status, but it starts monitoring only while enabled `sound.*` rules or Web UI telemetry demand exist and still does not expose PCM debug streaming. The launcher/menu UI is the product UI on boot. Sound trigger enums, metric helpers, and the capture-only sound-level service are available through `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`, which is enabled in the checked-in defaults and can be disabled for audio-free builds.
 
-**Transport decision:** Classic Bluetooth HFP is rejected because StickS3 uses ESP32-S3-PICO-1-N8R8 and ESP32-S3 does not support Bluetooth Classic / BR/EDR. USB Audio and BLE Audio are deferred until official support, roles, memory, host compatibility, and product requirements are verified.
+**Transport decision:** Classic Bluetooth HFP is rejected because StickS3 uses ESP32-S3-PICO-1-N8R8 and ESP32-S3 does not support Bluetooth Classic / BR/EDR. BLE Audio class-device work is also marked not-planned for the current ESP32-S3 StickS3 target. USB Audio is different: it is not labeled hardware-unsupported, but it remains deferred until a USB Audio Class design, roles, memory budget, host compatibility, and product requirements are verified.
 
 ### Wi-Fi and web UI
 
@@ -182,22 +191,22 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 
 ## What has been done
 
-- Replaced the misleading Classic Bluetooth HFP microphone direction with a StickS3-compatible BLE rule-event transport. ESP32-S3 does not support Bluetooth Classic / BR/EDR, so HFP remains quarantined behind `CONFIG_APP_TRANSPORT_HFP_LEGACY` and is unavailable for `esp32s3`.
+- Replaced the misleading Classic Bluetooth HFP microphone direction with a StickS3-compatible BLE rule-event transport. ESP32-S3 does not support Bluetooth Classic / BR/EDR, so the HFP compatibility option remains blocked by `CONFIG_APP_TRANSPORT_HFP_LEGACY` and is unavailable for `esp32s3`.
 - Implemented source-backed StickS3 board constants, shared I2C ownership, M5PM1 L3B audio-rail enable helpers, capture-only I2S/ES8311 initialization helpers, LCD status UI, documented key polling, and audio safety checks. The sound-level service invokes the audio helpers when `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`, which is enabled by default.
 - Removed the legacy meter UI path and kept BLE status/rule-event packets for automation.
 - Added Wi-Fi station/setup-AP provisioning, LCD keyboard provisioning, a local web UI, JSON APIs, NVS-backed automation config storage, and capability reporting.
-- Added the local rule automation core: schema, validation, engine, runtime, button/BLE/Wi-Fi/GPIO/sound facts, Kconfig-gated battery/USB/BMI270/ADC hardware facts, HTTP/IR/BLE/UI actions, safe GPIO/ADC validation, and host/static test coverage.
+- Added the local rule automation core: schema, validation, engine, runtime, button/BLE/Wi-Fi/GPIO/sound facts, separately Kconfig-gated battery, USB/external-power, BMI270, and ADC hardware facts, HTTP/IR/BLE/UI actions, safe GPIO/ADC validation, and host/static test coverage.
 - Added factory-image generation and documentation/static checks so the release image can be flashed at offset `0x0` instead of flashing the app partition by mistake.
 
 ## What is planned next
 
-1. Run full ESP-IDF hardware validation on a physical StickS3: boot, BLE telemetry, Wi-Fi setup, web UI, NVS save/reload, GPIO fixture tests, IR frame tests, and oscilloscope/logic-analyzer audio clock checks.
+1. Run full ESP-IDF hardware validation on a real StickS3: boot, BLE telemetry, Wi-Fi setup, web UI, NVS save/reload, GPIO fixture tests, IR frame tests, and oscilloscope/logic-analyzer audio clock checks.
 2. Improve the web rule editor beyond the current compact setup page and JSON import/export flow.
 3. Add authenticated or local-only deployment guidance for the web UI before treating it as a user-facing network service.
-4. Implement and validate more external sources only after hardware routes are verified: GPIO pulse/frequency and selected M5Stack HAT sensors. Battery/USB power, BMI270 motion, and safe ADC1 paths are implemented behind Kconfig gates but still require physical StickS3 validation before release claims.
+4. Implement and validate more external sources only after hardware routes are verified: GPIO pulse/frequency and selected M5Stack HAT sensors. Battery percent, USB/external-power present, BMI270 motion, and safe ADC1 paths are implemented behind separate Kconfig gates but still require hardware bench validation before release claims.
 5. Implement HAT actions only with source-backed protocols and tests.
-6. Physically validate the Kconfig-gated `speaker_tone` action on StickS3 hardware, including M5PM1 PYG3 amplifier enable/disable, I2S `G14_I2S_DDAC` output, and restoration of demand-driven microphone capture after playback.
-7. Revisit whether the product needs a standard USB Audio or BLE Audio class; until then, this firmware should be described as a custom BLE rule-event and local automation device, not an OS-native microphone.
+6. Bench-validate the Kconfig-gated `speaker_tone` action on StickS3 hardware, including M5PM1 PYG3 amplifier enable/disable, I2S `G14_I2S_DDAC` output, and restoration of demand-driven microphone capture after playback.
+7. Revisit whether the product needs a standard USB Audio class; BLE Audio class-device support is not planned for the current ESP32-S3 StickS3 target, and until USB Audio is explicitly designed and implemented this firmware should be described as a custom BLE rule-event and local automation device, not an OS-native microphone.
 
 ## Automation implementation status
 
@@ -206,11 +215,11 @@ The automation plan is now summarized here instead of in a separate planning REA
 - **Rule model and validation:** schema version 1, up to 8 rules, up to 3 actions per rule, bounded names/source keys/HTTP fields, cooldown and sustain limits, source/action validation, and safe defaults.
 - **Rule engine:** deterministic source matching, comparators, false-to-true transition detection, sustain-duration tracking, cooldown enforcement, event sequencing, and fire counts.
 - **Trigger runtime:** KEY1/KEY2 facts, BLE connection facts, Wi-Fi readiness facts, safe GPIO digital/edge facts, and sound-level facts are wired by default; sound sensor monitoring starts only when shared sound demand exists (enabled `sound.*` rules or Web UI telemetry) and audio initialization succeeds.
-- **Capability gating:** `/api/capabilities` reports supported and disabled sources/actions. Battery/USB, BMI270, and ADC source runtime availability follows Kconfig gates; validation still rejects unsupported HAT, GPIO pulse/frequency, unsafe ADC/GPIO routes, and HAT-action features.
+- **Capability gating:** `/api/capabilities` reports supported and disabled sources/actions. Battery, USB/external-power, BMI270, and ADC source runtime availability follows separate Kconfig gates; validation still rejects unsupported HAT, GPIO pulse/frequency, unsafe ADC/GPIO routes, and HAT-action features.
 - **Action dispatch:** BLE rule-event notifications, HTTP POST events, NEC IR send, and local UI feedback are implemented; HAT actions return unsupported.
 - **Web/storage path:** `/` serves the compact setup UI, `/api/config` imports/exports/saves bounded NVS configs, `/api/time` reads/updates timezone state, and invalid stored configs fall back to safe defaults.
 
-The remaining automation roadmap is hardware/product work: validate the runtime on physical StickS3 hardware, improve the web editor UX, document network-security assumptions, add a host BLE client example, and only then implement additional source-backed HAT, GPIO pulse/frequency, or speaker features beyond the Kconfig-gated battery/USB, BMI270, and safe ADC fact service.
+The remaining automation roadmap is hardware/product work: validate the runtime on real StickS3 hardware, improve the web editor UX, document network-security assumptions, add a host BLE client example, and only then implement additional source-backed HAT, GPIO pulse/frequency, or speaker features beyond the separately Kconfig-gated battery, USB/external-power, BMI270, and safe ADC fact service.
 
 ## Factory image and flashing
 
@@ -229,7 +238,7 @@ esptool.py --chip esp32s3 --port <PORT> write_flash 0x0 build/m5sticks3_bluetoot
 
 ## Hardware smoke checklist
 
-Before claiming end-to-end hardware validation, run these checks on a physical StickS3 and any required external fixtures:
+Before claiming end-to-end hardware validation, run these checks on a real StickS3 and any required external fixtures:
 
 | Item | Hardware validation steps |
 | --- | --- |
@@ -252,7 +261,7 @@ The project can claim working StickS3 firmware only when these checks match the 
 
 - **Static checks:** run the six validation scripts in the development-checks section below.
 - **Host checks:** run `tests/host/run_host_tests.sh`; host tests cover pure helpers, display-text sanitizing/layout, audio pipeline/metric helpers, app mode cycling, fake-bus ES8311 sequencing, bit-preserving M5PM1 GPIO helpers, board-audio ordering, failure cleanup, BLE protocol helpers, rule validation, engine transitions/sustain/cooldown, config storage, trigger adapters, GPIO safety, web handlers, and action modules.
-- **ESP-IDF checks:** build the default `esp32s3` BLE rule-event/automation transport; keep legacy Classic Bluetooth HFP blocked for `esp32s3`; generate the merged factory image with `python3 tools/make_factory_image.py`.
+- **ESP-IDF checks:** build the default `esp32s3` BLE rule-event/automation transport; keep Classic Bluetooth HFP blocked for `esp32s3`; generate the merged factory image with `python3 tools/make_factory_image.py`.
 - **Automation checks:** verify `/api/capabilities`, `/api/config`, `/api/gpio/test`, sound/button/BLE/Wi-Fi/GPIO facts, cooldown/sustain behavior, HTTP POST actions, and NEC IR actions against the current supported feature set.
 - **Failure checks:** if shared I2C, BLE startup fails, later dependent work must not run and the app must remain alive in an error/diagnostic state instead of guessing unsafe hardware cleanup or reset-looping.
 
@@ -268,7 +277,7 @@ For every hardware, transport, web, or automation change, update or explicitly c
 
 Every new hardware write sequence must document or cite the source document or source code, device address, register address, bit mask, intended value, reset/default behavior if known, read-modify-write requirements, unrelated fields that must be preserved, and host tests proving bit preservation for shared registers. If required hardware behavior is unknown, keep it blocked or feature-gated; do not guess M5PM1 L3B polarity, M5PM1 speaker-amplifier pulses, ES8311 volatile readback, BMI270 interrupt routing, HAT protocols, ADC paths, or safe external GPIO routes.
 
-Documentation must describe the current product as a custom BLE rule-event and local automation device, must not call it a Classic Bluetooth HFP or OS-native microphone, and must clearly label each capability as implemented, debug-only, planned, or deliberately disabled.
+Documentation must describe the current product as a custom BLE rule-event and local automation device, must not call it a Classic Bluetooth HFP or OS-native microphone, and must clearly label each capability with the status categories in this document, including implemented, deferred/not implemented, not planned/hardware-unsupported, or deliberately disabled.
 
 ## Hardware reference
 

@@ -10,6 +10,7 @@ typedef struct {
     uint16_t vbat_mv;
     uint8_t battery_percent;
     bool usb_present;
+    bool usb_valid;
     uint16_t vin_mv;
     uint16_t fivev_mv;
     bool charging;

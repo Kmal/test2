@@ -2,7 +2,7 @@ menu "StickS3 application transport"
 
 choice APP_TRANSPORT
     prompt "Application transport"
-    default APP_TRANSPORT_BLE_GATT_PCM
+    default APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     help
         Select the application transport used by the configuration and
         automation firmware.
@@ -13,7 +13,7 @@ config APP_TRANSPORT_NONE
         Board bring-up only. The firmware initializes local UI, Wi-Fi, and
         automation support without a BLE rule-event service.
 
-config APP_TRANSPORT_BLE_GATT_PCM
+config APP_TRANSPORT_BLE_GATT_RULE_EVENTS
     bool "Bluetooth LE GATT rule-event transport"
     select BT_ENABLED
     help
@@ -34,7 +34,7 @@ config APP_TRANSPORT_HFP_LEGACY
 
 endchoice
 
-if APP_TRANSPORT_BLE_GATT_PCM
+if APP_TRANSPORT_BLE_GATT_RULE_EVENTS
 
 config APP_BLE_GATT_DEVICE_NAME
     string "BLE GATT device name"
@@ -209,8 +209,12 @@ endmenu
 
 menu "StickS3 hardware automation facts"
 
-config APP_POWER_FACTS
-    bool "Enable battery and USB power automation facts"
+config APP_BATTERY_FACTS
+    bool "Enable battery-percent automation facts"
+    default y
+
+config APP_USB_POWER_FACTS
+    bool "Enable USB/external-power automation facts"
     default y
 
 config APP_BMI270_FACTS

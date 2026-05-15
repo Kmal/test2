@@ -1,6 +1,7 @@
 #include "fake_register_bus.h"
 #include "register_bus.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #define MAX_OPS 256
@@ -9,6 +10,10 @@ static fake_bus_op_t s_ops[MAX_OPS];
 static size_t s_op_count;
 static esp_err_t s_fail_next_read;
 static esp_err_t s_fail_next_write;
+static bool s_fail_reg_read_enabled;
+static uint8_t s_fail_reg_read_addr;
+static uint8_t s_fail_reg_read_reg;
+static esp_err_t s_fail_reg_read_err;
 
 void fake_register_bus_reset(void)
 {
@@ -17,11 +22,22 @@ void fake_register_bus_reset(void)
     s_op_count = 0;
     s_fail_next_read = ESP_OK;
     s_fail_next_write = ESP_OK;
+    s_fail_reg_read_enabled = false;
+    s_fail_reg_read_addr = 0;
+    s_fail_reg_read_reg = 0;
+    s_fail_reg_read_err = ESP_OK;
 }
 
 void fake_register_bus_set_reg(uint8_t addr, uint8_t reg, uint8_t value) { s_regs[addr & 0x7f][reg] = value; }
 void fake_register_bus_fail_next_read(esp_err_t err) { s_fail_next_read = err; }
 void fake_register_bus_fail_next_write(esp_err_t err) { s_fail_next_write = err; }
+void fake_register_bus_fail_reg_read_once(uint8_t addr, uint8_t reg, esp_err_t err)
+{
+    s_fail_reg_read_enabled = true;
+    s_fail_reg_read_addr = addr;
+    s_fail_reg_read_reg = reg;
+    s_fail_reg_read_err = err;
+}
 size_t fake_register_bus_op_count(void) { return s_op_count; }
 const fake_bus_op_t *fake_register_bus_op(size_t index) { return index < s_op_count ? &s_ops[index] : NULL; }
 
@@ -66,6 +82,12 @@ esp_err_t register_bus_read_u8(i2c_port_t port, uint8_t dev_addr, uint8_t reg, u
         s_fail_next_read = ESP_OK;
         return err;
     }
+    if (s_fail_reg_read_enabled && s_fail_reg_read_addr == dev_addr && s_fail_reg_read_reg == reg) {
+        esp_err_t err = s_fail_reg_read_err;
+        s_fail_reg_read_enabled = false;
+        s_fail_reg_read_err = ESP_OK;
+        return err;
+    }
     *value = s_regs[dev_addr & 0x7f][reg];
     record(FAKE_BUS_OP_READ, dev_addr, reg, *value);
     return ESP_OK;
@@ -98,6 +120,12 @@ esp_err_t register_bus_read(i2c_port_t port, uint8_t dev_addr, uint8_t reg, uint
     if (s_fail_next_read != ESP_OK) {
         esp_err_t err = s_fail_next_read;
         s_fail_next_read = ESP_OK;
+        return err;
+    }
+    if (s_fail_reg_read_enabled && s_fail_reg_read_addr == dev_addr && s_fail_reg_read_reg == reg) {
+        esp_err_t err = s_fail_reg_read_err;
+        s_fail_reg_read_enabled = false;
+        s_fail_reg_read_err = ESP_OK;
         return err;
     }
     for (size_t i = 0; i < len; ++i) {

@@ -47,12 +47,14 @@ static void test_usb_present_from_vin_or_5v(void)
     board_power_status_t status;
     assert(board_power_read_status(&status) == ESP_OK);
     assert(status.valid);
+    assert(status.usb_valid);
     assert(status.usb_present);
 
     fake_register_bus_reset();
     set_reg16(M5PM1_REG_VBAT_L, 4000);
     set_reg16(M5PM1_REG_5VINOUT_L, 4800);
     assert(board_power_read_status(&status) == ESP_OK);
+    assert(status.usb_valid);
     assert(status.usb_present);
 }
 
@@ -67,6 +69,7 @@ static void test_usb_absent_when_both_inputs_below_threshold(void)
     board_power_status_t status;
     assert(board_power_read_status(&status) == ESP_OK);
     assert(status.valid);
+    assert(status.usb_valid);
     assert(!status.usb_present);
 }
 
@@ -80,11 +83,54 @@ static void test_invalid_battery_range_does_not_hide_usb_status(void)
     board_power_status_t status;
     assert(board_power_read_status(&status) == ESP_OK);
     assert(!status.valid);
+    assert(status.usb_valid);
     assert(status.usb_present);
 
     uint8_t percent = 0;
     bool usb_present = false;
     assert(!board_power_get_battery_percent(&percent));
+    assert(board_power_get_usb_present(&usb_present));
+    assert(usb_present);
+}
+
+static void test_partial_usb_absence_is_unknown(void)
+{
+    init_default_test_config();
+    fake_register_bus_reset();
+    set_reg16(M5PM1_REG_VBAT_L, 4000);
+    set_reg16(M5PM1_REG_VIN_L, 1000);
+    fake_register_bus_fail_reg_read_once(BOARD_M5PM1_ADDR, M5PM1_REG_5VINOUT_L, ESP_FAIL);
+
+    board_power_status_t status;
+    assert(board_power_read_status(&status) == ESP_OK);
+    assert(status.valid);
+    assert(!status.usb_valid);
+    assert(!status.usb_present);
+
+    bool usb_present = true;
+    fake_register_bus_fail_reg_read_once(BOARD_M5PM1_ADDR, M5PM1_REG_5VINOUT_L, ESP_FAIL);
+    assert(!board_power_get_usb_present(&usb_present));
+}
+
+static void test_vbat_read_failure_does_not_hide_usb_status(void)
+{
+    init_default_test_config();
+    fake_register_bus_reset();
+    fake_register_bus_fail_next_read(ESP_FAIL);
+    set_reg16(M5PM1_REG_VIN_L, 5000);
+
+    board_power_status_t status;
+    assert(board_power_read_status(&status) == ESP_OK);
+    assert(!status.valid);
+    assert(status.vbat_mv == 0);
+    assert(status.usb_valid);
+    assert(status.usb_present);
+
+    uint8_t percent = 0;
+    bool usb_present = false;
+    fake_register_bus_fail_next_read(ESP_FAIL);
+    assert(!board_power_get_battery_percent(&percent));
+    fake_register_bus_fail_next_read(ESP_FAIL);
     assert(board_power_get_usb_present(&usb_present));
     assert(usb_present);
 }
@@ -96,5 +142,7 @@ int main(void)
     test_usb_present_from_vin_or_5v();
     test_usb_absent_when_both_inputs_below_threshold();
     test_invalid_battery_range_does_not_hide_usb_status();
+    test_partial_usb_absence_is_unknown();
+    test_vbat_read_failure_does_not_hide_usb_status();
     return 0;
 }

@@ -122,7 +122,7 @@ static esp_err_t m5pm1_read_u16_mv(i2c_port_t port, uint8_t addr, uint8_t reg_l,
     }
     /* M5PM1 upstream readReg16() returns two little-endian bytes for these
      * voltage APIs. Do not mask the high byte; VIN/5V readings need values
-     * above 4095 mV for USB-present thresholds. */
+     * above 4095 mV for USB/external-power-present thresholds. */
     *out_mv = (uint16_t)(((uint16_t)hi << 8) | lo);
     return ESP_OK;
 }
