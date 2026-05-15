@@ -5,8 +5,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-UI_KEYBOARD = ROOT / "main" / "ui_keyboard.c"
-DISPLAY_TEXT = ROOT / "main" / "display_text.c"
+UI_KEYBOARD = ROOT / "src" / "ui" / "ui_keyboard.c"
+DISPLAY_TEXT = ROOT / "src" / "ui" / "display_text.c"
 
 
 def read_ui_keyboard() -> str:

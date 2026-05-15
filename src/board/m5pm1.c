@@ -209,12 +209,12 @@ esp_err_t m5pm1_gpio_set_drive(i2c_port_t port, uint8_t addr, uint8_t gpio, bool
 
 static esp_err_t m5pm1_configure_l3b_enable(i2c_port_t port, uint8_t addr)
 {
-    ESP_LOGI(TAG, "M5PM1 L3B enable sequence start: addr=0x%02x gpio=2 active_level=low out_reg=0x%02x out_mask=0x04 out_value=0x00 settle_ms=%u",
+    ESP_LOGI(TAG, "M5PM1 L3B enable sequence start: addr=0x%02x gpio=2 active_level=high out_reg=0x%02x out_mask=0x04 out_value=0x04 settle_ms=%u",
              addr, M5PM1_REG_GPIO_OUT, M5PM1_L3B_SETTLE_MS);
     /*
      * StickS3 schematic and pin map route M5PM1/PY G2 to PYG2_L3B_EN.
      * Official M5PM1 StickS3 guidance enables L3B by configuring GPIO2 as a
-     * normal push-pull output and driving it low.
+     * normal push-pull output and driving it high.
      */
     esp_err_t err = m5pm1_gpio_set_function(port, addr, 2, 0);
     if (err != ESP_OK) {
@@ -231,13 +231,13 @@ static esp_err_t m5pm1_configure_l3b_enable(i2c_port_t port, uint8_t addr)
         ESP_LOGE(TAG, "M5PM1 L3B enable failed while setting GPIO2 push-pull drive: %s", esp_err_to_name(err));
         return err;
     }
-    err = m5pm1_gpio_set_output(port, addr, 2, false);
+    err = m5pm1_gpio_set_output(port, addr, 2, true);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "M5PM1 L3B enable failed while driving GPIO2 low: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "M5PM1 L3B enable failed while driving GPIO2 high: %s", esp_err_to_name(err));
         return err;
     }
     vTaskDelay(pdMS_TO_TICKS(M5PM1_L3B_SETTLE_MS));
-    ESP_LOGI(TAG, "M5PM1 L3B enable sequence complete: GPIO2 driven low; settled %u ms",
+    ESP_LOGI(TAG, "M5PM1 L3B enable sequence complete: GPIO2 driven high; settled %u ms",
              M5PM1_L3B_SETTLE_MS);
     return ESP_OK;
 }

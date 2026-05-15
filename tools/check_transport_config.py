@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SDKCONFIG_DEFAULTS = ROOT / "config" / "sdkconfig.defaults"
-KCONFIG = ROOT / "main" / "Kconfig.projbuild"
+KCONFIG = ROOT / "src" / "Kconfig.projbuild"
 
 FORBIDDEN_ENABLED = {
     "CONFIG_APP_TRANSPORT_WIFI_UDP_PCM=y": "the default transport must be Bluetooth, not Wi-Fi",
@@ -27,9 +27,9 @@ def main() -> int:
 
     kconfig = KCONFIG.read_text(encoding="utf-8") if KCONFIG.exists() else ""
     if "APP_TRANSPORT_NONE" not in kconfig:
-        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_NONE for explicit board-only fallback")
+        errors.append("src/Kconfig.projbuild must define APP_TRANSPORT_NONE for explicit board-only fallback")
     if "APP_TRANSPORT_BLE_GATT_RULE_EVENTS" not in kconfig:
-        errors.append("main/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_RULE_EVENTS for the default StickS3 transport")
+        errors.append("src/Kconfig.projbuild must define APP_TRANSPORT_BLE_GATT_RULE_EVENTS for the default StickS3 transport")
     if "CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS=y" not in defaults:
         errors.append("config/sdkconfig.defaults must select BLE GATT rule events as the functional StickS3 transport")
 
@@ -45,7 +45,7 @@ def main() -> int:
     forbidden_kconfig = ["APP_TRANSPORT_" + "HF" + "P" + "_LEGACY", "BT_" + "HF" + "P" + "_CLIENT_ENABLE", "BT_SCO_DATA_PATH_HCI"]
     for needle in forbidden_kconfig:
         if needle in kconfig:
-            errors.append(f"main/Kconfig.projbuild must not keep removed unsupported Bluetooth audio config {needle}")
+            errors.append(f"src/Kconfig.projbuild must not keep removed unsupported Bluetooth audio config {needle}")
 
     if errors:
         print("Transport-config validation failed:", file=sys.stderr)
