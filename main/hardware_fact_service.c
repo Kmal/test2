@@ -4,6 +4,9 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
+/* The production sdkconfig defaults compile these hardware facts by default.
+ * Keep fallback values here so host tests and older generated sdkconfig headers
+ * exercise the same default-available behavior unless a test overrides them. */
 #ifndef CONFIG_APP_BATTERY_FACTS
 #ifdef CONFIG_APP_POWER_FACTS
 #define CONFIG_APP_BATTERY_FACTS CONFIG_APP_POWER_FACTS
