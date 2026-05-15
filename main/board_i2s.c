@@ -60,7 +60,9 @@ static esp_err_t board_i2s_enable_channel(i2s_chan_handle_t handle, const char *
 
 esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
 {
-    if (profile != BOARD_AUDIO_PROFILE_CAPTURE_ONLY && profile != BOARD_AUDIO_PROFILE_FULL_DUPLEX) {
+    if (profile != BOARD_AUDIO_PROFILE_CAPTURE_ONLY &&
+        profile != BOARD_AUDIO_PROFILE_PLAYBACK_ONLY &&
+        profile != BOARD_AUDIO_PROFILE_FULL_DUPLEX) {
         return ESP_ERR_INVALID_ARG;
     }
     if (s_i2s_ready) {
@@ -74,9 +76,9 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
 
     const board_audio_clock_profile_t *clock = board_audio_clock_get_profile();
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(BOARD_I2S_PORT, I2S_ROLE_MASTER);
-    esp_err_t err = i2s_new_channel(&chan_cfg,
-                                    (profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX) ? &s_tx_handle : NULL,
-                                    &s_rx_handle);
+    i2s_chan_handle_t *tx_out = (profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) ? NULL : &s_tx_handle;
+    i2s_chan_handle_t *rx_out = (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) ? NULL : &s_rx_handle;
+    esp_err_t err = i2s_new_channel(&chan_cfg, tx_out, rx_out);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S channel allocation failed: %s", esp_err_to_name(err));
         return err;
@@ -89,8 +91,8 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
             .mclk = BOARD_I2S_MCLK_IO,
             .bclk = BOARD_I2S_BCK_IO,
             .ws = BOARD_I2S_WS_IO,
-            .dout = (profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX) ? BOARD_I2S_DO_IO : I2S_GPIO_UNUSED,
-            .din = BOARD_I2S_DI_IO,
+            .dout = (profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) ? I2S_GPIO_UNUSED : BOARD_I2S_DO_IO,
+            .din = (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) ? I2S_GPIO_UNUSED : BOARD_I2S_DI_IO,
             .invert_flags = {
                 .mclk_inv = false,
                 .bclk_inv = false,
@@ -107,11 +109,13 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
      */
     std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
 
-    err = i2s_channel_init_std_mode(s_rx_handle, &std_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2S RX standard-mode init failed: %s", esp_err_to_name(err));
-        board_i2s_cleanup_partial(rx_enabled, tx_enabled);
-        return err;
+    if (s_rx_handle != NULL) {
+        err = i2s_channel_init_std_mode(s_rx_handle, &std_cfg);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "I2S RX standard-mode init failed: %s", esp_err_to_name(err));
+            board_i2s_cleanup_partial(rx_enabled, tx_enabled);
+            return err;
+        }
     }
     if (s_tx_handle != NULL) {
         err = i2s_channel_init_std_mode(s_tx_handle, &std_cfg);
@@ -122,12 +126,14 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
         }
     }
 
-    err = board_i2s_enable_channel(s_rx_handle, "RX");
-    if (err != ESP_OK) {
-        board_i2s_cleanup_partial(rx_enabled, tx_enabled);
-        return err;
+    if (s_rx_handle != NULL) {
+        err = board_i2s_enable_channel(s_rx_handle, "RX");
+        if (err != ESP_OK) {
+            board_i2s_cleanup_partial(rx_enabled, tx_enabled);
+            return err;
+        }
+        rx_enabled = true;
     }
-    rx_enabled = true;
     if (s_tx_handle != NULL) {
         err = board_i2s_enable_channel(s_tx_handle, "TX");
         if (err != ESP_OK) {
@@ -140,15 +146,19 @@ esp_err_t board_i2s_init_profile(board_audio_profile_t profile)
     s_active_profile = profile;
     s_i2s_ready = true;
     ESP_LOGI(TAG, "I2S standard %s profile ready: Fs=%d MCLK=%d BCLK=%d LRCK=%d bits=%d channels=%d slot_bits=%d",
-             profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "full-duplex" : "capture-only",
+             profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX ? "full-duplex" :
+             (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY ? "playback-only" : "capture-only"),
              clock->sample_rate_hz, clock->mclk_hz, clock->bclk_hz, clock->lrck_hz,
              clock->bits_per_sample, clock->channels, (int)std_cfg.slot_cfg.slot_bit_width);
-    if (profile == BOARD_AUDIO_PROFILE_FULL_DUPLEX) {
-        ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=GPIO%d",
-                 BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO, BOARD_I2S_DO_IO);
-    } else {
+    if (profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) {
         ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=unused",
                  BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO);
+    } else if (profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) {
+        ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=unused DOUT=GPIO%d",
+                 BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DO_IO);
+    } else {
+        ESP_LOGI(TAG, "I2S pins: MCLK=GPIO%d BCLK=GPIO%d WS=GPIO%d DIN=GPIO%d DOUT=GPIO%d",
+                 BOARD_I2S_MCLK_IO, BOARD_I2S_BCK_IO, BOARD_I2S_WS_IO, BOARD_I2S_DI_IO, BOARD_I2S_DO_IO);
     }
     return ESP_OK;
 }

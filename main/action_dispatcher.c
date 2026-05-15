@@ -45,6 +45,11 @@ static action_result_t execute_event(action_dispatcher_t *dispatcher, const rule
             return dispatcher->ir_send(event, dispatcher->ir_ctx);
         }
         return make_result(ACTION_RESULT_UNSUPPORTED, event);
+    case RULE_ACTION_SPEAKER_TONE:
+        if (dispatcher != NULL && dispatcher->speaker_send != NULL) {
+            return dispatcher->speaker_send(event, dispatcher->speaker_ctx);
+        }
+        return make_result(ACTION_RESULT_UNSUPPORTED, event);
     case RULE_ACTION_HAT_OPERATION:
     default:
         return make_result(ACTION_RESULT_UNSUPPORTED, event);
@@ -118,6 +123,15 @@ void action_dispatcher_set_local_ui_sender(action_dispatcher_t *dispatcher, acti
     }
     dispatcher->local_ui_send = cb;
     dispatcher->local_ui_ctx = ctx;
+}
+
+void action_dispatcher_set_speaker_sender(action_dispatcher_t *dispatcher, action_dispatcher_send_cb_t cb, void *ctx)
+{
+    if (dispatcher == NULL) {
+        return;
+    }
+    dispatcher->speaker_send = cb;
+    dispatcher->speaker_ctx = ctx;
 }
 
 bool action_enqueue(action_dispatcher_t *dispatcher, const rule_event_t *event)

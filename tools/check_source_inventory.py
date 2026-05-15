@@ -16,18 +16,23 @@ DOCS = ROOT / "docs" / "README.md"
 INVENTORY_DOC = ROOT / "docs" / "implementation_inventory.md"
 
 # Source files that intentionally remain outside unconditional APP_SRCS.
-# Sound-level files are conditionally linked by CONFIG_APP_SOUND_LEVEL_TRIGGERS,
-# which is enabled in the checked-in StickS3 defaults; helper audio sources stay
-# out of the default app component.
-SOUND_LEVEL_SRCS = {
-    "audio_metrics.c",
+# Shared audio files are conditionally linked by the sound-level trigger or
+# speaker-action Kconfig gates, both of which are enabled in the checked-in
+# StickS3 defaults. Sound-level-only files remain behind
+# CONFIG_APP_SOUND_LEVEL_TRIGGERS; helper audio sources stay out of the default
+# app component.
+SHARED_AUDIO_SRCS = {
     "board_audio.c",
     "board_audio_clock.c",
     "board_audio_power.c",
     "board_i2s.c",
     "es8311.c",
+}
+SOUND_LEVEL_ONLY_SRCS = {
+    "audio_metrics.c",
     "sound_level_service.c",
 }
+SOUND_LEVEL_SRCS = SHARED_AUDIO_SRCS | SOUND_LEVEL_ONLY_SRCS
 HELPER_AUDIO_SRCS = {
     "audio_pipeline.c",
     "audio_resample.c",
@@ -72,6 +77,7 @@ def main() -> int:
     host_sources = quoted_sources(HOST_RUNNER.read_text(encoding="utf-8")) & all_main
     sdkconfig_defaults = SDKCONFIG_DEFAULTS.read_text(encoding="utf-8")
     sound_enabled_by_default = "CONFIG_APP_SOUND_LEVEL_TRIGGERS=y" in sdkconfig_defaults
+    speaker_enabled_by_default = "CONFIG_APP_SPEAKER_ACTION=y" in sdkconfig_defaults
     docs_text = DOCS.read_text(encoding="utf-8")
     inventory = inventory_rows(INVENTORY_DOC.read_text(encoding="utf-8"))
 
@@ -85,7 +91,9 @@ def main() -> int:
     for source in sorted(all_main & set(inventory)):
         if source in default_sources:
             expected_status = "default"
-        elif source in SOUND_LEVEL_SRCS and source in conditional_sources and sound_enabled_by_default:
+        elif source in SHARED_AUDIO_SRCS and source in conditional_sources and (sound_enabled_by_default or speaker_enabled_by_default):
+            expected_status = "default via sound/speaker config"
+        elif source in SOUND_LEVEL_ONLY_SRCS and source in conditional_sources and sound_enabled_by_default:
             expected_status = "default via sound config"
         elif source in conditional_sources:
             expected_status = "conditional"
@@ -120,7 +128,7 @@ def main() -> int:
 
     missing_sound_conditionals = SOUND_LEVEL_SRCS - conditional_sources
     if missing_sound_conditionals:
-        errors.append(f"sound-level sources not represented in CMake conditionals: {sorted(missing_sound_conditionals)}")
+        errors.append(f"sound-level/shared audio sources not represented in CMake conditionals: {sorted(missing_sound_conditionals)}")
 
     missing_conditionals = CONDITIONAL_TRANSPORT_SRCS - conditional_sources
     if missing_conditionals:

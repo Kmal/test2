@@ -174,6 +174,8 @@ const char *rule_action_name(rule_action_type_t action)
         return "ir_send";
     case RULE_ACTION_LOCAL_UI:
         return "local_ui";
+    case RULE_ACTION_SPEAKER_TONE:
+        return "speaker_tone";
     default:
         return "invalid";
     }
@@ -346,6 +348,18 @@ bool automation_rule_validate(const automation_rule_t *rule, char *error, size_t
             if (action->ir_protocol != RULE_IR_PROTOCOL_NEC || action->ir_carrier_hz < 30000u || action->ir_carrier_hz > 60000u ||
                 action->ir_repeat_count > 5u || action->timeout_ms == 0 || action->timeout_ms > 1000u) {
                 set_error(error, error_len, "invalid ir action");
+                return false;
+            }
+        }
+        if (action->type == RULE_ACTION_SPEAKER_TONE) {
+            if (action->speaker_frequency_hz < RULE_SPEAKER_MIN_FREQUENCY_HZ ||
+                action->speaker_frequency_hz > RULE_SPEAKER_MAX_FREQUENCY_HZ ||
+                action->speaker_duration_ms < RULE_SPEAKER_MIN_DURATION_MS ||
+                action->speaker_duration_ms > RULE_SPEAKER_MAX_DURATION_MS ||
+                action->speaker_volume_percent == 0 ||
+                action->speaker_volume_percent > RULE_SPEAKER_MAX_VOLUME_PERCENT ||
+                action->timeout_ms == 0 || action->timeout_ms > RULE_SPEAKER_MAX_TIMEOUT_MS) {
+                set_error(error, error_len, "invalid speaker action");
                 return false;
             }
         }

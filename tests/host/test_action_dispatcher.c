@@ -53,6 +53,21 @@ static action_result_t fake_ir_sender(const rule_event_t *event, void *ctx)
 }
 
 
+static action_result_t fake_speaker_sender(const rule_event_t *event, void *ctx)
+{
+    int *calls = (int *)ctx;
+    if (calls != NULL) {
+        (*calls)++;
+    }
+    action_result_t result = {
+        .code = ACTION_RESULT_OK,
+        .sequence = event->sequence,
+        .rule_id = event->rule_id,
+        .action = event->action,
+    };
+    return result;
+}
+
 static action_result_t fake_local_ui_sender(const rule_event_t *event, void *ctx)
 {
     int *calls = (int *)ctx;
@@ -138,6 +153,20 @@ static void test_ir_callback_action(void)
 }
 
 
+static void test_speaker_callback_action(void)
+{
+    action_dispatcher_t dispatcher;
+    int calls = 0;
+    ASSERT_TRUE(action_dispatcher_start(&dispatcher));
+    action_dispatcher_set_speaker_sender(&dispatcher, fake_speaker_sender, &calls);
+    rule_event_t event = event_with_action(RULE_ACTION_SPEAKER_TONE, 7);
+    ASSERT_TRUE(action_enqueue(&dispatcher, &event));
+    ASSERT_TRUE(action_dispatcher_process_one(&dispatcher));
+    ASSERT_EQ(1, calls);
+    ASSERT_EQ(ACTION_RESULT_OK, action_dispatcher_get_last_result(&dispatcher).code);
+    ASSERT_EQ(RULE_ACTION_SPEAKER_TONE, action_dispatcher_get_last_result(&dispatcher).action);
+}
+
 static void test_local_ui_callback_action(void)
 {
     action_dispatcher_t dispatcher;
@@ -160,6 +189,7 @@ int main(void)
     test_http_callback_action();
     test_ir_callback_action();
     test_local_ui_callback_action();
+    test_speaker_callback_action();
     puts("action_dispatcher tests passed");
     return 0;
 }

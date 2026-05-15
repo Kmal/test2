@@ -164,6 +164,7 @@ static void test_rule_web_status(void)
     ASSERT_TRUE(strstr(json, "\"runtime_available\":true") != NULL);
     ASSERT_TRUE(strstr(json, "hat.thermal.avg_c") != NULL);
     ASSERT_TRUE(strstr(json, "pulse_count") != NULL);
+    ASSERT_TRUE(strstr(json, "speaker_tone") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_GET, "/api/config", NULL, json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "threshold_kind") != NULL);
     char exported[16384];
@@ -195,6 +196,18 @@ static void test_rule_web_status(void)
                                         json, sizeof(json)));
     ASSERT_TRUE(strstr(json, "masked") != NULL);
     ASSERT_TRUE(strstr(json, "secret-token") == NULL);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"button.key1.short\",\"action\":\"speaker_tone\",\"speaker_frequency_hz\":7000,\"speaker_duration_ms\":100,\"speaker_volume_percent\":50,\"action_timeout_ms\":100}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "speaker_tone") != NULL);
+    ASSERT_TRUE(strstr(json, "\"speaker_frequency_hz\":7000") != NULL);
+    ASSERT_TRUE(strstr(json, "\"speaker_volume_percent\":50") != NULL);
+    ASSERT_TRUE(s_last_config_changed.rules[0].actions[0].type == RULE_ACTION_SPEAKER_TONE);
+    ASSERT_TRUE(s_last_config_changed.rules[0].actions[0].speaker_frequency_hz == 7000u);
+    ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
+                                        "{\"source\":\"button.key1.short\",\"action\":\"speaker_tone\",\"speaker_frequency_hz\":9000,\"speaker_duration_ms\":100,\"speaker_volume_percent\":50,\"action_timeout_ms\":100}",
+                                        json, sizeof(json)));
+    ASSERT_TRUE(strstr(json, "config rejected") != NULL);
     ASSERT_TRUE(rule_web_handle_request(&web, RULE_WEB_METHOD_POST, "/api/config",
                                         "{\"source\":\"button.key1.short\",\"action\":\"local_ui\",\"name\":\"Quote \\\"slash\\\\ line\\n\"}",
                                         json, sizeof(json)));

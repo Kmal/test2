@@ -36,7 +36,7 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | Button triggers | ✅ Implemented/wired | KEY1/KEY2 short events emit automation facts. |
 | BLE/Wi-Fi state triggers | ✅ Implemented/wired | Background tasks emit `ble.connected` and `wifi.connected` facts on state changes. |
 | GPIO digital/edge triggers | ✅ Implemented/wired | Enabled rules create validated GPIO triggers and the runtime polls them every 20 ms. |
-| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts while enabled `sound.*` automation rules create trigger demand. The capture service computes metrics and feeds `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts into the rule runtime. |
+| Sound-level triggers | ✅ Implemented/default available | `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y` is enabled in the project defaults and links the audio sources. Runtime capture starts only while shared demand is active: enabled `sound.*` automation rules or Web UI telemetry. The capture service computes metrics and feeds `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts into the rule runtime. |
 | HAT sources | ⛔ Not implemented / fail-closed | Capabilities report HAT sources disabled and the HAT probe returns unsupported. |
 | GPIO pulse/frequency sources | ⛔ Not implemented | Profiles are reported disabled and source support is false. |
 | Battery, USB-power, BMI270, ADC facts | ✅ Implemented/Kconfig-gated | `power.battery_percent`, `power.usb_present`, `bmi270.motion`, and `adc.voltage_mv` are implemented when their `CONFIG_APP_*_FACTS` gates are enabled; ADC exposure is limited to the source-backed safe ADC1 allowlist. |
@@ -49,6 +49,7 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | HTTP POST action | ✅ Implemented/wired | Dispatch uses `esp_http_client` when network readiness is true. |
 | NEC IR send action | ✅ Implemented/wired | Dispatch uses the RMT TX path on the configured IR TX GPIO. |
 | Local UI action | ✅ Implemented/wired | Dispatch sets the status UI ready state. |
+| Speaker tone action | ✅ Implemented/Kconfig-gated | `speaker_tone` validates bounded frequency/duration/volume parameters, uses the playback-only ES8311/I2S speaker path and temporarily stops microphone capture before playback, and enables the M5PM1 PYG3 speaker amplifier only while playback is active. |
 | HAT actions | ⛔ Not implemented / fail-closed | Capabilities report HAT actions disabled and HAT actions are rejected/unsupported by the dispatcher. |
 
 #### Supporting services, transports, and disabled product capabilities
@@ -58,7 +59,7 @@ The code-derived capability overlay is grouped by how the rule runtime uses each
 | BLE GATT status | ✅ Implemented/wired | Default transport starts the custom BLE GATT service when `CONFIG_APP_TRANSPORT_BLE_GATT_PCM=y`; despite the historical Kconfig symbol suffix, this service exposes status and rule-event notifications only. |
 | Web UI sound telemetry | ✅ Implemented/default available | Web UI status reads the same sound-level service last-metrics path used by sound triggers; telemetry demand can keep capture active without creating a second I2S reader. |
 | PCM streaming endpoint | ⛔ Not implemented / not exposed | No BLE, Wi-Fi, USB, or debug endpoint streams raw microphone PCM. Raw PCM streaming would be a transport/service capability, not a trigger source or rule action. |
-| Onboard speaker hardware / AW8737 firmware control | ✅ Hardware present / ⛔ firmware output disabled | StickS3 has onboard speaker hardware, but this firmware has no source-backed M5PM1/AW8737 enable sequence and no speaker-output rule action; speaker output remains blocked until that path is implemented and tested. |
+| Onboard speaker hardware / AW8737 firmware control | ✅ Implemented/Kconfig-gated | StickS3 has onboard ES8311/AW8737 speaker hardware, and speaker output is exposed as the bounded 16 kHz square-tone `speaker_tone` rule action. The firmware follows the official single-owner mic/speaker pattern, caps configured volume below 75%, uses the source-backed M5PM1 PYG3 amplifier enable sequence, and disables the amplifier after each tone. |
 | Classic Bluetooth HFP | ⛔ Not implemented for StickS3 | The Kconfig option depends on `!IDF_TARGET_ESP32S3`, and `main.c` errors if it is enabled for ESP32-S3. |
 | USB Audio / BLE Audio class device | ⛔ Not implemented | No default class-device transport path is wired. |
 | Wi-Fi station/setup AP | ✅ Implemented/wired | Boot starts Wi-Fi support; station/AP mode, scan/connect/forget/AP/mode APIs are implemented. |
@@ -193,7 +194,7 @@ Currently supported actions are `ble_message`, `http_post`, `ir_send`, and `loca
 3. Add authenticated or local-only deployment guidance for the web UI before treating it as a user-facing network service.
 4. Implement and validate more external sources only after hardware routes are verified: GPIO pulse/frequency and selected M5Stack HAT sensors. Battery/USB power, BMI270 motion, and safe ADC1 paths are implemented behind Kconfig gates but still require physical StickS3 validation before release claims.
 5. Implement HAT actions only with source-backed protocols and tests.
-6. Treat the onboard speaker as present hardware but keep firmware speaker output disabled until the AW8737/M5PM1 speaker-amplifier sequence is documented, implemented, and tested; current speaker-amplifier control stays blocked and returns `ESP_ERR_NOT_SUPPORTED`.
+6. Physically validate the Kconfig-gated `speaker_tone` action on StickS3 hardware, including M5PM1 PYG3 amplifier enable/disable, I2S `G14_I2S_DDAC` output, and restoration of demand-driven microphone capture after playback.
 7. Revisit whether the product needs a standard USB Audio or BLE Audio class; until then, this firmware should be described as a custom BLE rule-event and local automation device, not an OS-native microphone.
 
 ## Automation implementation status
@@ -240,7 +241,8 @@ Before claiming end-to-end hardware validation, run these checks on a physical S
 | GPIO trigger | Configure a safe GPIO digital/edge rule on a validated pin, toggle the input after debounce, and confirm exactly one normalized GPIO fact fires the action. |
 | Fail-closed HAT probe | Call `/api/hat/probe` for unsupported HAT sources and confirm the response remains unsupported until a real HAT driver is implemented. |
 | Audio clocks | Measure GPIO18 MCLK at 12.288 MHz, GPIO17 BCLK at the documented 512 kHz target, and GPIO15 LRCK at 16 kHz. |
-| Capture-only safety | Confirm default boot does not drive I2S TX, unmute the ES8311 DAC, or pulse the speaker amplifier. |
+| Capture-only safety | Confirm default capture boot does not drive I2S TX, unmute the ES8311 DAC, or enable the speaker amplifier unless a `speaker_tone` action is actively running. |
+| Speaker action | Configure `speaker_tone` at 7000 Hz / 100 ms / 50% volume, trigger it, and confirm GPIO14 (`G14_I2S_DDAC`) activity, M5PM1 PYG3 high only during playback, PYG3 low after completion, and sound-level capture restart when still demanded. |
 
 ## Acceptance and failure checks
 
@@ -305,4 +307,4 @@ ESP-IDF build/flash validation still requires an ESP-IDF environment and attache
 
 Global sensor-monitoring rule: firmware must initialize and monitor a sensor only while an explicit demand source needs it. For GPIO this is enabled-rule source usage; for sound capture this is the union of enabled `sound.*` automation rules and Web UI telemetry. If neither trigger nor telemetry demand is active, the producer must stay stopped and release its runtime RAM/task resources. Future sensor producers should keep demand sources explicit and avoid duplicate readers.
 
-Sound-level triggers are enabled in the checked-in defaults with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. This links `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`. To honor demand-driven sensor monitoring, the firmware allocates the sound service state and initializes the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` only while shared sound demand is active. Enabled `sound.*` rules consume live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts through the existing automation runtime, and Web UI telemetry reads the same service status/last-metrics path without starting a second I2S reader. Maintainers can still turn the Kconfig option off for audio-free builds.
+Runtime capture starts only while shared demand is active. Sound-level triggers are enabled in the checked-in defaults with `CONFIG_APP_SOUND_LEVEL_TRIGGERS=y`. This links `audio_metrics.c`, `board_audio.c`, `board_audio_clock.c`, `board_audio_power.c`, `board_i2s.c`, `es8311.c`, and `sound_level_service.c`. To honor demand-driven sensor monitoring, the firmware allocates the sound service state and initializes the StickS3 ES8311 microphone path with `BOARD_AUDIO_PROFILE_CAPTURE_ONLY` only while shared sound demand is active. Enabled `sound.*` rules consume live `sound.rms_dbfs`, `sound.peak_dbfs`, and `sound.clipped` facts through the existing automation runtime, and Web UI telemetry reads the same service status/last-metrics path without starting a second I2S reader. Maintainers can still turn the Kconfig option off for audio-free builds.

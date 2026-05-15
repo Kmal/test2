@@ -82,9 +82,24 @@ static void test_capture_only_pin_config(void)
     ASSERT_EQ(18, s_last_rx_cfg.gpio_cfg.mclk);
     ASSERT_EQ(17, s_last_rx_cfg.gpio_cfg.bclk);
     ASSERT_EQ(15, s_last_rx_cfg.gpio_cfg.ws);
-    ASSERT_EQ(14, s_last_rx_cfg.gpio_cfg.din);
+    ASSERT_EQ(16, s_last_rx_cfg.gpio_cfg.din);
     ASSERT_EQ(I2S_GPIO_UNUSED, s_last_rx_cfg.gpio_cfg.dout);
     ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_rx_cfg.slot_cfg.slot_bit_width);
+}
+
+static void test_playback_only_pin_config(void)
+{
+    ASSERT_EQ(ESP_OK, board_i2s_deinit());
+    memset(&s_last_rx_cfg, 0, sizeof(s_last_rx_cfg));
+    memset(&s_last_tx_cfg, 0, sizeof(s_last_tx_cfg));
+    s_rx_init_count = 0;
+    s_tx_init_count = 0;
+    ASSERT_EQ(ESP_OK, board_i2s_init_profile(BOARD_AUDIO_PROFILE_PLAYBACK_ONLY));
+    ASSERT_EQ(0, s_rx_init_count);
+    ASSERT_EQ(1, s_tx_init_count);
+    ASSERT_EQ(I2S_GPIO_UNUSED, s_last_tx_cfg.gpio_cfg.din);
+    ASSERT_EQ(14, s_last_tx_cfg.gpio_cfg.dout);
+    ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_tx_cfg.slot_cfg.slot_bit_width);
 }
 
 static void test_full_duplex_pin_config(void)
@@ -97,10 +112,10 @@ static void test_full_duplex_pin_config(void)
     ASSERT_EQ(ESP_OK, board_i2s_init_profile(BOARD_AUDIO_PROFILE_FULL_DUPLEX));
     ASSERT_EQ(1, s_rx_init_count);
     ASSERT_EQ(1, s_tx_init_count);
-    ASSERT_EQ(14, s_last_rx_cfg.gpio_cfg.din);
-    ASSERT_EQ(16, s_last_rx_cfg.gpio_cfg.dout);
-    ASSERT_EQ(14, s_last_tx_cfg.gpio_cfg.din);
-    ASSERT_EQ(16, s_last_tx_cfg.gpio_cfg.dout);
+    ASSERT_EQ(16, s_last_rx_cfg.gpio_cfg.din);
+    ASSERT_EQ(14, s_last_rx_cfg.gpio_cfg.dout);
+    ASSERT_EQ(16, s_last_tx_cfg.gpio_cfg.din);
+    ASSERT_EQ(14, s_last_tx_cfg.gpio_cfg.dout);
     ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_rx_cfg.slot_cfg.slot_bit_width);
     ASSERT_EQ(I2S_SLOT_BIT_WIDTH_32BIT, s_last_tx_cfg.slot_cfg.slot_bit_width);
     ASSERT_EQ(ESP_OK, board_i2s_deinit());
@@ -142,6 +157,7 @@ static void test_partial_raw_read_handling(void)
 int main(void)
 {
     test_capture_only_pin_config();
+    test_playback_only_pin_config();
     test_full_duplex_pin_config();
     test_decode_samples();
     test_partial_raw_read_handling();

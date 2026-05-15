@@ -55,6 +55,8 @@ compile test_hardware_fact_service -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" 
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/trigger_sources.c" "${ROOT}/main/m5pm1.c" "${ROOT}/main/board_power.c" "${ROOT}/main/bmi270.c" "${ROOT}/main/board_adc.c" "${ROOT}/main/hardware_fact_service.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/tests/host/test_hardware_fact_service.c"
 compile test_board_audio -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}/main" \
   "${ROOT}/main/board_audio.c" "${ROOT}/tests/host/fakes/fake_board_deps.c" "${ROOT}/tests/host/test_board_audio.c"
+compile test_board_audio_power -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT}/main" \
+  "${ROOT}/main/m5pm1.c" "${ROOT}/main/board_audio_power.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/tests/host/test_board_audio_power.c"
 compile test_board_audio_clock -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/board_audio_clock.c" "${ROOT}/tests/host/test_board_audio_clock.c"
 compile test_board_i2s_decode -I"${FAKE_INC}" -I"${ROOT}/main" \
@@ -84,7 +86,7 @@ compile test_rule_runtime -I"${FAKE_INC}" -I"${ROOT}/tests/host/fakes" -I"${ROOT
 compile test_rule_config_store -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_config_store.c" "${ROOT}/tests/host/test_rule_config_store.c"
 compile test_action_modules -I"${FAKE_INC}" -I"${ROOT}/main" \
-  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/action_http.c" "${ROOT}/main/action_ir.c" "${ROOT}/main/action_hat.c" "${ROOT}/tests/host/test_action_modules.c"
+  "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/action_http.c" "${ROOT}/main/action_ir.c" "${ROOT}/main/action_speaker.c" "${ROOT}/main/action_hat.c" "${ROOT}/tests/host/test_action_modules.c"
 compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
   "${ROOT}/main/rule_types.c" "${ROOT}/main/capability_registry.c" "${ROOT}/main/rule_engine.c" "${ROOT}/main/trigger_sources.c" "${ROOT}/main/action_dispatcher.c" "${ROOT}/main/m5pm1.c" "${ROOT}/main/board_power.c" "${ROOT}/main/bmi270.c" "${ROOT}/main/board_adc.c" "${ROOT}/main/hardware_fact_service.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/main/rule_runtime.c" "${ROOT}/main/rule_config_store.c" "${ROOT}/main/action_http.c" "${ROOT}/main/app_wifi.c" "${ROOT}/main/app_time.c" "${ROOT}/main/rule_web.c" "${ROOT}/main/trigger_gpio.c" "${ROOT}/main/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
 "${BUILD_DIR}/test_button_state"
@@ -104,6 +106,7 @@ compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/main" \
 "${BUILD_DIR}/test_board_adc"
 "${BUILD_DIR}/test_hardware_fact_service"
 "${BUILD_DIR}/test_board_audio"
+"${BUILD_DIR}/test_board_audio_power"
 "${BUILD_DIR}/test_board_audio_clock"
 "${BUILD_DIR}/test_board_i2s_decode"
 "${BUILD_DIR}/test_sound_level_service"

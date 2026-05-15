@@ -11,16 +11,22 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "main" / "main.c"
 BOARD_I2S = ROOT / "main" / "board_i2s.c"
 ES8311 = ROOT / "main" / "es8311.c"
+ES8311_HEADER = ROOT / "main" / "es8311.h"
+ACTION_SPEAKER = ROOT / "main" / "action_speaker.h"
+BOARD_AUDIO_POWER = ROOT / "main" / "board_audio_power.c"
 CMAKE = ROOT / "main" / "CMakeLists.txt"
-SOUND_LEVEL_APP_SRCS = (
-    "audio_metrics.c",
+COMMON_AUDIO_APP_SRCS = (
     "board_audio.c",
     "board_audio_clock.c",
     "board_audio_power.c",
     "board_i2s.c",
     "es8311.c",
+)
+SOUND_LEVEL_ONLY_APP_SRCS = (
+    "audio_metrics.c",
     "sound_level_service.c",
 )
+SOUND_LEVEL_APP_SRCS = COMMON_AUDIO_APP_SRCS + SOUND_LEVEL_ONLY_APP_SRCS
 FORBIDDEN_DEFAULT_AUDIO_APP_SRCS = (
     "audio_pipeline.c",
     "audio_resample.c",
@@ -65,34 +71,70 @@ def main() -> int:
         errors.append("main.c must check s_sound_level_ready before starting the shared sound capture service")
 
     cmake_text = CMAKE.read_text(encoding="utf-8")
+    common_audio_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION\)(.*?)endif\(\)", cmake_text, flags=re.S)
+    if not common_audio_block_match:
+        errors.append("app component must guard shared audio sources with CONFIG_APP_SOUND_LEVEL_TRIGGERS OR CONFIG_APP_SPEAKER_ACTION")
+        common_audio_block = ""
+    else:
+        common_audio_block = common_audio_block_match.group(1)
+    for source in COMMON_AUDIO_APP_SRCS:
+        if f'"{source}"' not in common_audio_block:
+            errors.append(f"shared audio config must link required source {source}")
+
     sound_block_match = re.search(r"if\(CONFIG_APP_SOUND_LEVEL_TRIGGERS\)(.*?)endif\(\)", cmake_text, flags=re.S)
     if not sound_block_match:
-        errors.append("default app component must guard sound sources with CONFIG_APP_SOUND_LEVEL_TRIGGERS")
+        errors.append("default app component must guard sound-level-only sources with CONFIG_APP_SOUND_LEVEL_TRIGGERS")
         sound_block = ""
     else:
         sound_block = sound_block_match.group(1)
-    for source in SOUND_LEVEL_APP_SRCS:
+    for source in SOUND_LEVEL_ONLY_APP_SRCS:
         if f'"{source}"' not in sound_block:
             errors.append(f"sound-level config must link required source {source}")
-    cmake_without_sound_block = cmake_text.replace(sound_block_match.group(0), "") if sound_block_match else cmake_text
+
+    cmake_without_audio_blocks = cmake_text
+    for match in (common_audio_block_match, sound_block_match):
+        if match:
+            cmake_without_audio_blocks = cmake_without_audio_blocks.replace(match.group(0), "")
     for source in SOUND_LEVEL_APP_SRCS + FORBIDDEN_DEFAULT_AUDIO_APP_SRCS:
-        if f'"{source}"' in cmake_without_sound_block:
-            errors.append(f"app component must not link audio source outside sound-level config {source}")
+        if f'"{source}"' in cmake_without_audio_blocks:
+            errors.append(f"app component must not link audio source outside audio config {source}")
     for source in FORBIDDEN_DEFAULT_AUDIO_APP_SRCS:
-        if f'"{source}"' in sound_block:
-            errors.append(f"sound-level config must not link unsupported audio source {source}")
+        if f'"{source}"' in common_audio_block or f'"{source}"' in sound_block:
+            errors.append(f"audio config must not link unsupported audio source {source}")
 
     i2s_text = BOARD_I2S.read_text(encoding="utf-8")
-    if "&s_rx_handle" not in i2s_text or "s_tx_handle : NULL" not in i2s_text:
-        errors.append("board_i2s.c must default to RX-only standard-channel allocation")
-    if "BOARD_AUDIO_PROFILE_FULL_DUPLEX" not in i2s_text or "BOARD_I2S_DO_IO" not in i2s_text:
-        errors.append("board_i2s.c must make TX explicit only for full-duplex profile")
+    if "profile == BOARD_AUDIO_PROFILE_CAPTURE_ONLY) ? NULL : &s_tx_handle" not in i2s_text:
+        errors.append("board_i2s.c must avoid allocating TX for capture-only sound input")
+    if "BOARD_AUDIO_PROFILE_PLAYBACK_ONLY" not in i2s_text or "BOARD_I2S_DO_IO" not in i2s_text:
+        errors.append("board_i2s.c must make TX explicit for playback-only speaker profile")
+    if "profile == BOARD_AUDIO_PROFILE_PLAYBACK_ONLY) ? NULL : &s_rx_handle" not in i2s_text:
+        errors.append("board_i2s.c must avoid allocating RX for playback-only speaker output")
 
     es_text = ES8311.read_text(encoding="utf-8")
+    es_header_text = ES8311_HEADER.read_text(encoding="utf-8")
+    if "supported: 8000, 16000, 48000" in es_header_text:
+        errors.append("es8311.h must not advertise unsupported sample rates")
+    if "supported by this firmware: 16000" not in es_header_text:
+        errors.append("es8311.h must document that only 16 kHz is currently supported")
     if "ES8311_PROFILE_ADC_ONLY" not in es_text:
         errors.append("es8311.c must implement ADC-only profile")
+    if "ES8311_PROFILE_DAC_ONLY" not in es_text:
+        errors.append("es8311.c must implement DAC-only profile for speaker actions")
     if "ES8311_SYSTEM12_DAC_DOWN" not in es_text or "es8311_mute(i2c_num, i2c_addr, true)" not in es_text:
         errors.append("ADC-only codec profile must keep DAC powered down/muted")
+
+    speaker_text = ACTION_SPEAKER.read_text(encoding="utf-8")
+    rule_types_text = (ROOT / "main" / "rule_types.h").read_text(encoding="utf-8")
+    if "RULE_SPEAKER_MAX_VOLUME_PERCENT" not in speaker_text:
+        errors.append("action_speaker.h must share the rule-level below-75% speaker volume cap")
+    if "RULE_SPEAKER_MAX_VOLUME_PERCENT 74u" not in rule_types_text:
+        errors.append("rule_types.h must keep speaker volume below the official 75% battery notice")
+
+    power_text = BOARD_AUDIO_POWER.read_text(encoding="utf-8")
+    if "BOARD_M5PM1_SPK_AMP_GPIO 3u" not in power_text or "m5pm1_gpio_set_output" not in power_text:
+        errors.append("board_audio_power.c must control source-backed M5PM1 PYG3 for speaker enable")
+    if "ESP_ERR_NOT_SUPPORTED" not in power_text or "speaker amplifier pulse/gain control is not implemented" not in power_text:
+        errors.append("unsupported AW8737 pulse/gain helper must remain fail-closed")
 
     if errors:
         print("Audio-safety validation failed:", file=sys.stderr)
