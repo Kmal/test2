@@ -66,7 +66,7 @@ This document records the StickS3 hardware facts that the firmware is allowed to
 
 ## Current firmware status
 
-The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
+The repository previously described the StickS3 firmware as a Classic Bluetooth HFP microphone. That is not a valid StickS3 implementation because the StickS3 controller is ESP32-S3, and ESP32-S3 does not support Bluetooth Classic / BR/EDR. StickS3 can advertise and connect with Bluetooth LE services only; it cannot pair as a Classic Bluetooth microphone, headset, speaker, serial-port, or other BR/EDR profile. The legacy HFP source is retained as quarantined historical code and intentionally errors if selected until refreshed for a non-StickS3 target.
 
 For product behavior, user-facing firmware functions, and transport/API status, use `docs/README.md`. This hardware file records the board-level implications of the current default firmware: the onboard ST7789P3 135x240 LCD path is optional and non-fatal, the shared ESP-IDF v6 I2C master bus owns ES8311/BMI270/M5PM1 access, and the ES8311/I2S path is initialized only in a capture-only profile. The firmware does not drive I2S TX, unmute the ES8311 DAC, or pulse/enable the AW8737 speaker amplifier.
 
