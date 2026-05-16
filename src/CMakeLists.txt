@@ -49,7 +49,27 @@ set(APP_SRCS
     "actions/action_ir.c"
     "actions/action_hat.c"
 )
-set(APP_REQUIRES esp_system nvs_flash esp_netif esp_event esp_lcd bt esp_driver_i2c esp_driver_gpio esp_driver_spi esp_http_client esp_http_server esp_wifi esp_driver_rmt esp_driver_i2s esp_adc)
+set(APP_REQUIRES
+    esp_system
+    nvs_flash
+    esp_netif
+    esp_event
+    esp_lcd
+    bt
+    esp_driver_i2c
+    esp_driver_gpio
+    esp_driver_spi
+    esp_http_client
+    esp_http_server
+    esp_wifi
+    esp_driver_rmt
+    esp_driver_i2s
+    esp_adc
+)
+
+set(APP_PRIV_REQUIRES
+    esp_app_format
+)
 
 if(CONFIG_APP_TRANSPORT_BLE_GATT_RULE_EVENTS)
     list(APPEND APP_SRCS "transport/transport_ble_gatt.c")
@@ -94,4 +114,5 @@ idf_component_register(
     SRCS ${APP_SRCS}
     INCLUDE_DIRS ${APP_INCLUDE_DIRS}
     REQUIRES ${APP_REQUIRES}
+    PRIV_REQUIRES ${APP_PRIV_REQUIRES}
 )
