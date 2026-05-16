@@ -7,9 +7,16 @@
 #include <string.h>
 
 #include "board_sticks3.h"
+#include "app_time.h"
 #include "display_text.h"
 #include "status_lcd.h"
+#include "status_ui.h"
 #include "ui_nav.h"
+#ifdef ESP_PLATFORM
+#include "esp_app_desc.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#endif
 
 #define STATUS_UI_LCD_BG 0x0000
 #define STATUS_UI_LCD_HEADER_BG 0x001F
@@ -237,9 +244,116 @@ static void ui_render_automation_detail(const ui_runtime_t *ui, const ui_screen_
     }
 }
 
-static void ui_render_settings(const ui_runtime_t *ui)
+static const char *ui_settings_item_value(const ui_runtime_t *ui, const ui_menu_item_t *item)
 {
-    ui_render_menu(ui, ui_nav_current(&ui->nav));
+    static char value[APP_TIME_TIMEZONE_MAX_LEN + 1u];
+    if (item == NULL) return "";
+    switch (item->action) {
+    case UI_ACTION_SETTINGS_EDIT_TIMEZONE: {
+        app_time_config_t config;
+        if (app_time_get_config(&config)) {
+            snprintf(value, sizeof(value), "%s", config.timezone);
+            return value;
+        }
+        return "unknown";
+    }
+    case UI_ACTION_SETTINGS_TOGGLE_WEB_UI_SERVICE:
+        return status_ui_get_service_enabled() ? "on" : "off";
+    default:
+        break;
+    }
+    if (strcmp(item->label, "Wi-Fi Setup") == 0) {
+        return (ui != NULL && ui->status_bar.wifi_connected) ? "connected" : "setup";
+    }
+    if (strcmp(item->label, "Power Status") == 0) {
+        if (ui != NULL && ui->status_bar.battery_valid) {
+            snprintf(value, sizeof(value), "%u%%", (unsigned)ui->status_bar.battery_percent);
+            return value;
+        }
+        return "unknown";
+    }
+    if (strcmp(item->label, "Buttons") == 0) return "KEY1/KEY2";
+    if (strcmp(item->label, "LCD") == 0) return status_lcd_is_ready() ? "ready" : "off";
+    return "";
+}
+
+static void ui_render_menu_with_values(const ui_runtime_t *ui, const ui_screen_def_t *screen)
+{
+    int y = UI_BODY_Y;
+    size_t row = 0;
+    size_t start = ui->nav.scroll_offset;
+    for (size_t i = start; screen != NULL && i < screen->item_count && y < UI_LCD_H - UI_BOTTOM_HINT_H; ++i, ++row) {
+        const bool selected = i == ui->nav.selected_index;
+        const char *value = ui_settings_item_value(ui, &screen->items[i]);
+        char line[DISPLAY_TEXT_MAX_TEXT];
+        if (value != NULL && value[0] != '\0') {
+            snprintf(line, sizeof(line), "%c %s: %s", selected ? '>' : ' ', screen->items[i].label, value);
+        } else {
+            snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', screen->items[i].label);
+        }
+        ui_text_put_line(ui_body_row_region(row), UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                         line, selected ? UI_COLOR_OK : UI_COLOR_TEXT,
+                         selected ? DISPLAY_TEXT_FIT_MARQUEE : DISPLAY_TEXT_FIT_PAGE);
+        y += UI_LINE_H;
+    }
+}
+
+static void ui_render_device_status(const ui_runtime_t *ui)
+{
+    char line[DISPLAY_TEXT_MAX_TEXT];
+    int y = UI_BODY_Y;
+    snprintf(line, sizeof(line), "UI: %s", ui != NULL && ui->menu_active ? "menu" : "idle");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Wi-Fi: %s", ui != NULL && ui->status_bar.wifi_connected ? "connected" : "disconnected");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+#ifdef ESP_PLATFORM
+    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    snprintf(line, sizeof(line), "Uptime: %luh %02lum", (unsigned long)(uptime_s / 3600u), (unsigned long)((uptime_s / 60u) % 60u));
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Heap: %lu", (unsigned long)esp_get_free_heap_size());
+#else
+    snprintf(line, sizeof(line), "Uptime: host");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_ONE_LINE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Heap: n/a");
+#endif
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_ONE_LINE);
+}
+
+static void ui_render_about(void)
+{
+    char line[DISPLAY_TEXT_MAX_TEXT];
+    int y = UI_BODY_Y;
+#ifdef ESP_PLATFORM
+    const esp_app_desc_t *desc = esp_app_get_description();
+    snprintf(line, sizeof(line), "%s", desc != NULL ? desc->project_name : "StickS3 Control");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Version: %s", desc != NULL ? desc->version : "unknown");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_MARQUEE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "IDF: %s", esp_get_idf_version());
+#else
+    snprintf(line, sizeof(line), "StickS3 Control");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_0, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_TEXT, DISPLAY_TEXT_FIT_MARQUEE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "Version: host");
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_1, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_MARQUEE); y += UI_LINE_H;
+    snprintf(line, sizeof(line), "IDF: n/a");
+#endif
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_2, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD, line, UI_COLOR_DIM, DISPLAY_TEXT_FIT_MARQUEE); y += UI_LINE_H;
+    ui_text_put_line(DISPLAY_TEXT_REGION_BODY_ROW_3, UI_LEFT_PAD, y, UI_LCD_W - UI_LEFT_PAD - UI_RIGHT_PAD,
+                     "Local automation UI", UI_COLOR_DIM, DISPLAY_TEXT_FIT_WRAP);
+}
+
+static void ui_render_settings(const ui_runtime_t *ui, const ui_screen_def_t *screen)
+{
+    switch (screen != NULL ? screen->id : UI_SCREEN_COUNT) {
+    case UI_SCREEN_SETTINGS_DISPLAY:
+    case UI_SCREEN_SETTINGS_CONNECTIVITY:
+    case UI_SCREEN_SETTINGS_HARDWARE:
+        ui_render_menu_with_values(ui, screen);
+        break;
+    default:
+        ui_render_menu(ui, screen);
+        break;
+    }
 }
 
 void ui_render_toast(const ui_toast_t *toast)
@@ -284,7 +398,21 @@ void ui_render_screen(const ui_runtime_t *ui, const ui_screen_def_t *screen)
         ui_render_automation_detail(ui, screen);
         break;
     case UI_SCREEN_SETTINGS:
-        ui_render_settings(ui);
+    case UI_SCREEN_SETTINGS_DEVICE:
+    case UI_SCREEN_SETTINGS_AUTOMATION:
+    case UI_SCREEN_SETTINGS_MAINTENANCE:
+        ui_render_settings(ui, screen);
+        break;
+    case UI_SCREEN_SETTINGS_DISPLAY:
+    case UI_SCREEN_SETTINGS_CONNECTIVITY:
+    case UI_SCREEN_SETTINGS_HARDWARE:
+        ui_render_settings(ui, screen);
+        break;
+    case UI_SCREEN_SETTINGS_DEVICE_STATUS:
+        ui_render_device_status(ui);
+        break;
+    case UI_SCREEN_SETTINGS_ABOUT:
+        ui_render_about();
         break;
     default:
         ui_render_menu(ui, screen);
