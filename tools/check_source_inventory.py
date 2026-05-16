@@ -51,6 +51,13 @@ UAC_SRCS = {
 }
 EXPECTED_NON_DEFAULT_SRCS = SOUND_LEVEL_SRCS | HELPER_AUDIO_SRCS | CONDITIONAL_TRANSPORT_SRCS | UAC_SRCS
 
+# Generated C assets may be linked by the app component but intentionally stay
+# outside the one-row-per-src/**/*.c implementation inventory. Keep this list
+# explicit so generated assets do not skew source inventory counts.
+GENERATED_CMAKE_SRCS = {
+    "webui_assets.c",
+}
+
 
 def quoted_sources(text: str) -> set[str]:
     return {Path(match).name for match in re.findall(r'"([^"\n]+\.c)"', text)}
@@ -81,7 +88,9 @@ def main() -> int:
     all_src = {path.name for path in SRC_DIR.rglob("*.c")}
     cmake_text = CMAKE.read_text(encoding="utf-8")
     default_sources = cmake_default_sources(cmake_text)
-    conditional_sources = quoted_sources(cmake_text) - default_sources
+    generated_default_sources = default_sources & GENERATED_CMAKE_SRCS
+    src_default_sources = default_sources & all_src
+    conditional_sources = (quoted_sources(cmake_text) - default_sources) & all_src
     host_sources = quoted_sources(HOST_RUNNER.read_text(encoding="utf-8")) & all_src
     sdkconfig_defaults = SDKCONFIG_DEFAULTS.read_text(encoding="utf-8")
     sound_enabled_by_default = "CONFIG_APP_SOUND_LEVEL_TRIGGERS=y" in sdkconfig_defaults
@@ -97,7 +106,7 @@ def main() -> int:
         errors.append(f"docs/implementation_inventory.md references unknown sources: {sorted(extra_doc_rows)}")
 
     for source in sorted(all_src & set(inventory)):
-        if source in default_sources:
+        if source in src_default_sources:
             expected_status = "default"
         elif source in SHARED_AUDIO_SRCS and source in conditional_sources and (sound_enabled_by_default or speaker_enabled_by_default):
             expected_status = "default via sound/speaker config"
@@ -118,19 +127,19 @@ def main() -> int:
                 f"docs/implementation_inventory.md host coverage mismatch for {source}: expected {expected_host}, found {actual_host}"
             )
 
-    unknown_default = default_sources - all_src
+    unknown_default = default_sources - all_src - GENERATED_CMAKE_SRCS
     if unknown_default:
         errors.append(f"src/CMakeLists.txt references missing sources: {sorted(unknown_default)}")
 
-    missing_from_inventory = all_src - default_sources - conditional_sources - EXPECTED_NON_DEFAULT_SRCS
+    missing_from_inventory = all_src - src_default_sources - conditional_sources - EXPECTED_NON_DEFAULT_SRCS
     if missing_from_inventory:
         errors.append(f"src sources lack explicit build status: {sorted(missing_from_inventory)}")
 
-    unexpected_non_default = (all_src - default_sources - conditional_sources) - EXPECTED_NON_DEFAULT_SRCS
+    unexpected_non_default = (all_src - src_default_sources - conditional_sources) - EXPECTED_NON_DEFAULT_SRCS
     if unexpected_non_default:
         errors.append(f"unexpected non-default sources: {sorted(unexpected_non_default)}")
 
-    helper_audio_linked_by_default = HELPER_AUDIO_SRCS & default_sources
+    helper_audio_linked_by_default = HELPER_AUDIO_SRCS & src_default_sources
     if helper_audio_linked_by_default:
         errors.append(f"helper-only audio sources linked by default: {sorted(helper_audio_linked_by_default)}")
 
@@ -169,8 +178,9 @@ def main() -> int:
 
     print(
         "Source-inventory validation passed: "
-        f"{len(default_sources)} default, {len(conditional_sources)} conditional, "
-        f"{len(EXPECTED_NON_DEFAULT_SRCS - conditional_sources)} helper-only sources classified"
+        f"{len(src_default_sources)} src defaults, {len(conditional_sources)} src conditionals, "
+        f"{len(EXPECTED_NON_DEFAULT_SRCS - conditional_sources)} helper-only sources classified, "
+        f"{len(generated_default_sources)} generated app asset(s) excluded from inventory"
     )
     return 0
 

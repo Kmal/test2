@@ -1,5 +1,6 @@
 set(APP_INCLUDE_DIRS
     "."
+    "${CMAKE_SOURCE_DIR}/generated"
     "actions"
     "app"
     "audio"
@@ -39,6 +40,7 @@ set(APP_SRCS
     "rules/rule_runtime.c"
     "rules/rule_config_store.c"
     "rules/rule_web.c"
+    "${CMAKE_SOURCE_DIR}/generated/webui_assets.c"
     "triggers/trigger_sources.c"
     "triggers/trigger_gpio.c"
     "triggers/trigger_hat.c"
