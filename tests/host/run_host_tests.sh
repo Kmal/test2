@@ -15,6 +15,8 @@ if [[ -n "${LDFLAGS:-}" ]]; then
   EXTRA_LDFLAGS=(${LDFLAGS})
 fi
 mkdir -p "${BUILD_DIR}"
+python3 "${ROOT}/webui/build_webui.py" --check
+python3 "${ROOT}/tools/check_web_ui_budget.py"
 compile() {
   local output="$1"
   shift
@@ -89,8 +91,8 @@ compile test_rule_config_store -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/sr
   "${ROOT}/src/rules/rule_types.c" "${ROOT}/src/rules/capability_registry.c" "${ROOT}/src/rules/rule_config_store.c" "${ROOT}/tests/host/test_rule_config_store.c"
 compile test_action_modules -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
   "${ROOT}/src/rules/rule_types.c" "${ROOT}/src/rules/capability_registry.c" "${ROOT}/src/actions/action_http.c" "${ROOT}/src/actions/action_ir.c" "${ROOT}/src/actions/action_speaker.c" "${ROOT}/src/actions/action_hat.c" "${ROOT}/tests/host/test_action_modules.c"
-compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
-  "${ROOT}/src/rules/rule_types.c" "${ROOT}/src/rules/capability_registry.c" "${ROOT}/src/rules/rule_engine.c" "${ROOT}/src/triggers/trigger_sources.c" "${ROOT}/src/actions/action_dispatcher.c" "${ROOT}/src/board/m5pm1.c" "${ROOT}/src/board/board_power.c" "${ROOT}/src/board/bmi270.c" "${ROOT}/src/board/board_adc.c" "${ROOT}/src/board/hardware_fact_service.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/src/rules/rule_runtime.c" "${ROOT}/src/rules/rule_config_store.c" "${ROOT}/src/actions/action_http.c" "${ROOT}/src/app/app_wifi.c" "${ROOT}/src/app/app_time.c" "${ROOT}/src/rules/rule_web.c" "${ROOT}/src/triggers/trigger_gpio.c" "${ROOT}/src/triggers/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
+compile test_external_triggers_and_web -I"${FAKE_INC}" -I"${ROOT}/generated" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/rules" -I"${ROOT}/src/actions" -I"${ROOT}/src/triggers" -I"${ROOT}/src/transport" -I"${ROOT}/src/ui" \
+  "${ROOT}/src/rules/rule_types.c" "${ROOT}/src/rules/capability_registry.c" "${ROOT}/src/rules/rule_engine.c" "${ROOT}/src/triggers/trigger_sources.c" "${ROOT}/src/actions/action_dispatcher.c" "${ROOT}/src/board/m5pm1.c" "${ROOT}/src/board/board_power.c" "${ROOT}/src/board/bmi270.c" "${ROOT}/src/board/board_adc.c" "${ROOT}/src/board/hardware_fact_service.c" "${ROOT}/tests/host/fakes/fake_register_bus.c" "${ROOT}/src/rules/rule_runtime.c" "${ROOT}/src/rules/rule_config_store.c" "${ROOT}/src/actions/action_http.c" "${ROOT}/src/app/app_wifi.c" "${ROOT}/src/app/app_time.c" "${ROOT}/src/rules/rule_web.c" "${ROOT}/generated/webui_assets.c" "${ROOT}/src/triggers/trigger_gpio.c" "${ROOT}/src/triggers/trigger_hat.c" "${ROOT}/tests/host/test_external_triggers_and_web.c"
 
 compile test_uac_audio_buffer -I"${FAKE_INC}" -I"${ROOT}/src/app" -I"${ROOT}/src/audio" -I"${ROOT}/src/board" -I"${ROOT}/src/usb_audio" \
   "${ROOT}/src/usb_audio/uac_audio_buffer.c" "${ROOT}/tests/host/test_uac_audio_buffer.c"
