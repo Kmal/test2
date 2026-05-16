@@ -151,7 +151,42 @@ Main
 │       ├── Trigger → Key1 Short / Key2 Short / BLE Connected / Wi-Fi Connected
 │       └── Action → BLE Event / HTTP POST / Local UI / IR
 └── Settings
+    ├── Display
+    │   └── Edit Timezone [editable]
+    ├── Device
+    │   ├── Device Status [read-only]
+    │   └── About [read-only]
+    ├── Connectivity
+    │   ├── Wi-Fi Setup [editable flow]
+    │   ├── BLE Status [read-only]
+    │   ├── Web UI Service [editable toggle]
+    │   └── AP Mode [editable flow]
+    ├── Automation
+    │   ├── Automation 1 [editable]
+    │   └── Automation 2 [editable]
+    ├── Hardware
+    │   ├── Power Status [read-only]
+    │   ├── Buttons [read-only]
+    │   └── LCD [read-only]
+    ├── Maintenance
+    │   └── Restart Device [destructive]
+    └── About [read-only]
 ```
+
+Settings is organized as shallow branch menus so the LCD navigation stack stays within its fixed depth while still linking back to existing setup flows. **Read-only** Settings entries only display live firmware or hardware information and do not save state. **Editable** entries either open the existing 9-key edit overlay, run an existing setup flow, or toggle a persisted/runtime setting. **Destructive** entries take immediate device-level action; currently `Settings > Maintenance > Restart Device` restarts the firmware.
+
+| Settings entry | Type | Behavior |
+| --- | --- | --- |
+| `Display > Edit Timezone` | Editable | Opens the 9-key text editor and saves the timezone through the same time configuration used by `/api/time`. |
+| `Device > Device Status` | Read-only | Shows UI mode, Wi-Fi state, uptime, and free heap. |
+| `Device > About` and top-level `About` | Read-only | Shows project/version/ESP-IDF build information and product description. |
+| `Connectivity > Wi-Fi Setup` | Editable flow | Enters the existing station Wi-Fi scan/manual credential flow. |
+| `Connectivity > BLE Status` | Read-only | Opens the BLE status page and refresh action already used from `Main`. |
+| `Connectivity > Web UI Service` | Editable toggle | Toggles the on-demand HTTP Web UI service without editing saved Wi-Fi credentials. |
+| `Connectivity > AP Mode` | Editable flow | Enters the existing AP name/password/channel/start/show-URL setup flow. |
+| `Automation > Automation 1/2` | Editable | Links to the existing enable/trigger/action editors for the two LCD-visible automation slots. |
+| `Hardware > Power Status`, `Buttons`, `LCD` | Read-only | Shows battery/status-bar availability, the fixed KEY1/KEY2 control scheme, and LCD readiness. |
+| `Maintenance > Restart Device` | Destructive | Immediately requests a firmware restart. |
 
 `Web UI > Wi-Fi Mode` first checks the current station state. If the firmware is already connected to Wi-Fi, it enables the HTTP Web UI server and shows the Web UI URL. If the firmware is not connected, it redirects to the dedicated `Connect to Wi-Fi` flow instead of duplicating Wi-Fi setup inside the Web UI branch.
 

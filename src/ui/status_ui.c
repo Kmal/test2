@@ -23,6 +23,7 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #if CONFIG_APP_STATUS_UI_LCD
@@ -562,10 +563,34 @@ static bool status_ui_action_automation_edit_action(ui_runtime_t *ui, const ui_m
     return ok;
 }
 
-static bool status_ui_action_settings_open(ui_runtime_t *ui, const ui_menu_item_t *item)
+static bool status_ui_action_settings_edit_timezone(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    if (ui == NULL || item == NULL) return false;
+    app_time_config_t config;
+    if (!app_time_get_config(&config)) {
+        ui_runtime_set_toast(ui, UI_TOAST_ERROR, "Time config unavailable", 2000u);
+        return false;
+    }
+    return status_ui_keyboard_open_menu_edit_ex(ui, item, "Edit Timezone", config.timezone,
+                                                APP_TIME_TIMEZONE_MAX_LEN, UI_KEYBOARD_MODE_TEXT, false,
+                                                (status_ui_keyboard_cancel_policy_t){ .has_cancel_target = true, .cancel_target = UI_SCREEN_SETTINGS_DISPLAY });
+}
+
+static bool status_ui_action_settings_toggle_web_ui_service(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
     (void)item;
-    ui_runtime_set_toast(ui, UI_TOAST_INFO, "Setting pending", 1500u);
+    bool enabled = !status_ui_get_service_enabled();
+    status_ui_set_service_enabled(enabled);
+    ui_runtime_set_toast(ui, UI_TOAST_SUCCESS, enabled ? "Web UI enabled" : "Web UI disabled", 1800u);
+    return true;
+}
+
+static bool status_ui_action_settings_restart(ui_runtime_t *ui, const ui_menu_item_t *item)
+{
+    (void)item;
+    ui_runtime_set_toast(ui, UI_TOAST_WARNING, "Restarting device", 1000u);
+    ui->dirty = true;
+    esp_restart();
     return true;
 }
 #endif
@@ -593,7 +618,9 @@ static void status_ui_dispatch_action(ui_runtime_t *ui, const ui_menu_item_t *it
     case UI_ACTION_AUTOMATION_TOGGLE_ENABLE: (void)status_ui_action_automation_toggle_enable(ui, item); break;
     case UI_ACTION_AUTOMATION_EDIT_TRIGGER: (void)status_ui_action_automation_edit_trigger(ui, item); break;
     case UI_ACTION_AUTOMATION_EDIT_ACTION: (void)status_ui_action_automation_edit_action(ui, item); break;
-    case UI_ACTION_SETTINGS_OPEN: (void)status_ui_action_settings_open(ui, item); break;
+    case UI_ACTION_SETTINGS_EDIT_TIMEZONE: (void)status_ui_action_settings_edit_timezone(ui, item); break;
+    case UI_ACTION_SETTINGS_TOGGLE_WEB_UI_SERVICE: (void)status_ui_action_settings_toggle_web_ui_service(ui, item); break;
+    case UI_ACTION_SETTINGS_RESTART: (void)status_ui_action_settings_restart(ui, item); break;
 #else
     default: break;
 #endif
@@ -1229,6 +1256,15 @@ static void status_ui_complete_menu_keyboard_edit(const ui_menu_item_t *item,
         (void)ui_nav_enter(&s_ui.nav, item->target);
         break;
     }
+    case UI_ACTION_SETTINGS_EDIT_TIMEZONE:
+        if (app_time_set_timezone(text != NULL ? text : "", true)) {
+            ui_runtime_set_toast(&s_ui, UI_TOAST_SUCCESS, "Timezone saved", 1800u);
+            (void)ui_nav_enter(&s_ui.nav, item->target);
+            ui_runtime_refresh_status_bar(&s_ui);
+        } else {
+            ui_runtime_set_toast(&s_ui, UI_TOAST_WARNING, "Invalid timezone", 2500u);
+        }
+        break;
     default:
         break;
     }
