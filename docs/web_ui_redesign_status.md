@@ -10,7 +10,9 @@ The current implementation is a **Phase 0 + Phase 1 foundation only**:
 - The previous monolithic `s_rule_setup_page` C string has been extracted into `webui/` source files.
 - `webui/build_webui.py` generates checked-in `generated/webui_assets.c` and `generated/webui_assets.h`.
 - The firmware serves `GET /` from the generated const asset without allocating the large API response buffer used by JSON routes.
-- Existing `/api/*` behavior is intended to remain unchanged.
+- Existing `/api/*` behavior is intended to remain unchanged while the service is enabled.
+- The HTTP server lifecycle is on-demand: disabled after boot, enabled only by Web UI Wi-Fi/AP entry flows once connected, and stopped when the user exits the Web UI result/URL screens.
+- Short browser input/select fields are center-aligned for phone readability; larger textarea/status surfaces stay left-aligned.
 - Host validation checks generated-asset freshness and Web UI size budgets before running host tests.
 
 ## Phase checklist

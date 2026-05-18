@@ -257,8 +257,6 @@ static const char *ui_settings_item_value(const ui_runtime_t *ui, const ui_menu_
         }
         return "unknown";
     }
-    case UI_ACTION_SETTINGS_TOGGLE_WEB_UI_SERVICE:
-        return status_ui_get_service_enabled() ? "on" : "off";
     default:
         break;
     }

@@ -582,7 +582,12 @@ static void app_web_ui_service_changed(bool enabled, void *ctx)
             app_sound_level_demand_set_telemetry(&s_sound_level_demand, true);
             sound_telemetry_changed = true;
 #endif
-            ESP_LOGI(TAG, "web UI server started");
+            app_wifi_status_t wifi_status;
+            if (app_wifi_get_status(&wifi_status)) {
+                ESP_LOGI(TAG, "web UI server started: %s", wifi_status.web_url);
+            } else {
+                ESP_LOGI(TAG, "web UI server started");
+            }
         } else if (!s_rule_web.started) {
             ESP_LOGE(TAG, "web UI server failed to start");
         }
