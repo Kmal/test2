@@ -13,7 +13,7 @@ These values are intentionally documented before feature work so later changes a
 | `httpd_config_t.max_uri_handlers` | 17 | `rule_web_start()` |
 | `httpd_config_t.stack_size` | 8,192 bytes | `rule_web_start()` |
 
-The current route table already consumes the 17 registered URI-handler slots, so Phase 1 ships as a single generated HTML document instead of adding CSS/JS asset routes.
+The current route table already consumes the 17 registered URI-handler slots, so Phase 1 ships as a single generated HTML document instead of adding CSS/JS asset routes. The HTTP server is not a boot-time resident service: the LCD Web UI Wi-Fi/AP entry flows start it only after network connectivity is available, and backing out of the Web UI result/URL screens stops it so the HTTP server task, stack, handler table, and heap allocations are released.
 
 ## Accepted budgets
 
@@ -26,7 +26,7 @@ The current route table already consumes the 17 registered URI-handler slots, so
 | JavaScript source before minification | < 25 KiB | 25 KiB | `tools/check_web_ui_budget.py` |
 | Response buffer size | keep `RULE_WEB_MAX_RESPONSE` at 16 KiB | 16 KiB until reviewed | `tools/check_web_ui_budget.py` |
 | Request body size | keep `RULE_WEB_MAX_BODY` at 512 bytes | 512 bytes until `/api/config/op` exists | `tools/check_web_ui_budget.py` |
-| Peak additional heap during normal page load | < 4 KiB | 8 KiB | code review + hardware measurement |
+| Peak additional heap during normal page load | < 4 KiB while service is enabled; 0 KiB web-server heap after Web UI exit | 8 KiB | code review + hardware measurement |
 | Peak additional heap during save/import | < 8 KiB | 16 KiB | code review + hardware measurement |
 | Persistent background polling | no faster than 1 second | 1 second minimum interval | code review |
 
@@ -37,9 +37,9 @@ Measured by `webui/build_webui.py --check` and `tools/check_web_ui_budget.py` fo
 
 | Measurement | Current value | Budget status |
 | --- | ---: | --- |
-| Generated `webui_index_html` asset | 14,566 bytes | Under 32 KiB target |
+| Generated `webui_index_html` asset | 14,597 bytes | Under 32 KiB target |
 | Minified HTML shell source, excluding injected CSS/JS | 5,902 bytes | Under 8 KiB hard ceiling |
-| CSS source before minification | 1,666 bytes | Under 12 KiB hard ceiling |
+| CSS source before minification | 1,921 bytes | Under 12 KiB hard ceiling |
 | JavaScript source before minification | 7,009 bytes | Under 25 KiB hard ceiling |
 | URI handlers added for UI assets | 0 | Preserves existing 17-handler table |
 
@@ -53,4 +53,6 @@ On ESP-IDF, `GET /` sends the generated const asset directly with `httpd_resp_se
 - Keep temporary parse/import buffers short-lived.
 - Prefer existing APIs; add aggregate or operation APIs only when bounded payloads require them.
 - Prefer manual refresh for expensive diagnostics, Wi-Fi scans, and hardware probes.
+- Keep the HTTP server scoped to the explicit Web UI session: default disabled after boot, enable only from Web UI Wi-Fi/AP mode once connected, and disable on exit to release RAM.
+- Keep short browser form controls center-aligned for phone readability; keep textarea/status/log surfaces left-aligned.
 - Any change that raises `RULE_WEB_MAX_BODY`, `RULE_WEB_MAX_RESPONSE`, route count, or generated asset size must update this document and justify the impact.

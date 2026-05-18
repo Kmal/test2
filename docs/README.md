@@ -97,7 +97,7 @@ The default firmware includes capture-only sound-level telemetry for local autom
 
 `CONFIG_APP_WIFI_ENABLE=y` starts Wi-Fi during boot. The firmware attempts saved station credentials and can fall back to the configured setup AP name, which defaults to `M5StickS3-Setup`. `CONFIG_APP_WIFI_KEYBOARD_PROVISIONING` defaults to `n` so the LCD stays in the normal dashboard/menu hierarchy at boot; when enabled, the LCD keyboard can collect Wi-Fi credentials before AP fallback.
 
-To conserve RAM, the HTTP Web UI server is not started automatically at boot. It starts when the on-device **Web UI** flow enables Wi-Fi mode or AP mode, and it is stopped again when the user backs out of a Wi-Fi result screen to `Main`; stopping the server releases the ESP-IDF HTTP server task, handler table, stack, and related heap allocations.
+To conserve RAM, the HTTP Web UI server is not started automatically at boot. It starts only from the on-device **Web UI** entry: **Wi-Fi Mode** enables it after station Wi-Fi is connected, and **AP Mode** enables it after AP startup succeeds. It is stopped again when the user backs out of the Web UI Wi-Fi result screen or AP URL screen to `Main`; stopping the server releases the ESP-IDF HTTP server task, handler table, stack, and related heap allocations. The standalone **Connect to Wi-Fi** flow only saves station credentials and does not start or stop the Web UI service.
 
 When enabled, the web server exposes a small local configuration UI at `/` plus JSON endpoints:
 
@@ -159,8 +159,7 @@ Main
     ├── Connectivity
     │   ├── Wi-Fi Setup [editable flow]
     │   ├── BLE Status [read-only]
-    │   ├── Web UI Service [editable toggle]
-    │   └── AP Mode [editable flow]
+    │   └── Web UI [editable flow]
     ├── Automation
     │   ├── Automation 1 [editable]
     │   └── Automation 2 [editable]
@@ -182,19 +181,18 @@ Settings is organized as shallow branch menus so the LCD navigation stack stays 
 | `Device > About` and top-level `About` | Read-only | Shows project/version/ESP-IDF build information and product description. |
 | `Connectivity > Wi-Fi Setup` | Editable flow | Enters the existing station Wi-Fi scan/manual credential flow. |
 | `Connectivity > BLE Status` | Read-only | Opens the BLE status page and refresh action already used from `Main`. |
-| `Connectivity > Web UI Service` | Editable toggle | Toggles the on-demand HTTP Web UI service without editing saved Wi-Fi credentials. |
-| `Connectivity > AP Mode` | Editable flow | Enters the existing AP name/password/channel/start/show-URL setup flow. |
+| `Connectivity > Web UI` | Editable flow | Opens the same Web UI entry used from `Main`; the HTTP server is enabled only by the Web UI Wi-Fi/AP result flows and is disabled when exiting those result screens. |
 | `Automation > Automation 1/2` | Editable | Links to the existing enable/trigger/action editors for the two LCD-visible automation slots. |
 | `Hardware > Power Status`, `Buttons`, `LCD` | Read-only | Shows battery/status-bar availability, the fixed KEY1/KEY2 control scheme, and LCD readiness. |
 | `Maintenance > Restart Device` | Destructive | Immediately requests a firmware restart. |
 
-`Web UI > Wi-Fi Mode` first checks the current station state. If the firmware is already connected to Wi-Fi, it enables the HTTP Web UI server and shows the Web UI URL. If the firmware is not connected, it redirects to the dedicated `Connect to Wi-Fi` flow instead of duplicating Wi-Fi setup inside the Web UI branch.
+`Web UI > Wi-Fi Mode` first checks the current station state. If the firmware is already connected to Wi-Fi, it enables the HTTP Web UI server and shows the station Web UI URL. If the firmware is not connected, it stays inside the `Web UI > Wi-Fi Mode` branch so the user can scan or enter a network specifically for Web UI access; the server is enabled only after that Web UI Wi-Fi connection succeeds.
 
-The `Connect to Wi-Fi` station flow supports scanning nearby networks. Selecting a highlighted SSID tries the stored password when the selected SSID matches saved credentials; the bottom 9-key password input overlay is shown only when no password is stored or the saved password fails with a password-related authentication/handshake reason. Hidden networks use `Hidden / Manual SSID`, which opens SSID input first and then follows the same saved-password/enter-password logic. Successful manual password entry persists the credentials.
+The standalone `Connect to Wi-Fi` station flow supports the same scan/manual credential entry and persistence, but it does not enable the HTTP Web UI server. Selecting a highlighted SSID tries the stored password when the selected SSID matches saved credentials; the bottom 9-key password input overlay is shown only when no password is stored or the saved password fails with a password-related authentication/handshake reason. Hidden networks use `Hidden / Manual SSID`, which opens SSID input first and then follows the same saved-password/enter-password logic. Successful manual password entry persists the credentials.
 
-AP setup is only under `Web UI > AP Mode`, where the device can set AP name/password/channel, start AP mode, enable the HTTP Web UI server, and show the AP URL. Long-press/back from Wi-Fi result screens returns to `Main` and disables the Web UI service, stopping the HTTP server to free its RAM resources.
+AP setup for the Web UI is under `Web UI > AP Mode`, where the device can set AP name/password/channel, start AP mode, enable the HTTP Web UI server, and show the AP URL. Long-press/back from the Web UI Wi-Fi result screen or AP URL screen returns to `Main` and disables the Web UI service, stopping the HTTP server to free its RAM resources.
 
-The browser Web UI still exposes the HTTP Wi-Fi endpoints listed above for station/AP setup from a phone or desktop browser while the Web UI service is enabled. On boot, saved station credentials are tried first; if station connection fails, the firmware can start AP mode for setup, but the HTTP server remains deferred until Web UI is enabled.
+The browser Web UI still exposes the HTTP Wi-Fi endpoints listed above for station/AP setup from a phone or desktop browser while the Web UI service is enabled. On boot, saved station credentials are tried first; if station connection fails, the firmware can start AP mode for setup, but the HTTP server remains deferred until the user explicitly enters Web UI Wi-Fi/AP mode. Short browser form fields center-align their contents so SSIDs, passwords, AP names, channels, and timezone selections remain readable on phone-sized screens; large text/status blocks remain left-aligned for JSON and logs.
 
 LCD flow uses the onboard buttons when the menu is open:
 
@@ -280,7 +278,7 @@ Before claiming end-to-end hardware validation, run these checks on a real Stick
 | Boot | Flash the merged ESP-IDF image or use `idf.py flash`, power-cycle StickS3, and confirm the app reaches the launcher UI without error state. |
 | Status/events | Read or subscribe to `0xFFF4`, subscribe to `0xFFF5`, and confirm status plus automation rule-event packets update. |
 | Rule event | Configure a BLE-message rule, subscribe to `0xFFF5`, fire the rule, and confirm an `M5RE` event packet. |
-| Wi-Fi and web | Verify saved station credentials, setup AP fallback, LCD keyboard provisioning when enabled, enabling Web UI starts `/` and `/api/status`, and long-press/back from Wi-Fi result screens stops the Web UI server. |
+| Wi-Fi and web | Verify saved station credentials, setup AP fallback, LCD keyboard provisioning when enabled, Web UI Wi-Fi/AP entry starts `/` and `/api/status`, standalone Connect to Wi-Fi does not start the server, and long-press/back from Web UI result/URL screens stops the Web UI server. |
 | Config save/reload | Save a sound or button rule through `POST /api/config`, reboot, and confirm `GET /api/config` returns the saved rule with secrets masked. |
 | HTTP POST action | Configure an HTTP POST action to a local test endpoint, fire `/api/rules/test`, and confirm one bounded JSON event arrives. |
 | IR send action | Configure a NEC IR action, trigger `/api/rules/test`, and confirm a matching NEC frame on an IR receiver or logic analyzer. |

@@ -110,8 +110,7 @@ static const ui_menu_item_t s_settings_device_items[] = {
 static const ui_menu_item_t s_settings_connectivity_items[] = {
     UI_ITEM("Wi-Fi Setup", UI_SCREEN_CONNECT_WIFI, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_CONNECT_WIFI, 0),
     UI_ITEM("BLE Status", UI_SCREEN_CONNECT_BLUETOOTH, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_BLUETOOTH, 0),
-    UI_ITEM("Web UI Service", UI_SCREEN_SETTINGS_CONNECTIVITY, UI_ACTION_SETTINGS_TOGGLE_WEB_UI_SERVICE, UI_FIELD_NONE, UI_FLOW_SETTINGS, 0),
-    UI_ITEM("AP Mode", UI_SCREEN_CONFIG_AP_MODE, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_CONFIG_AP, 0),
+    UI_ITEM("Web UI", UI_SCREEN_CONFIG_WEB_UI, UI_ACTION_NAVIGATE, UI_FIELD_NONE, UI_FLOW_NONE, 0),
 };
 
 static const ui_menu_item_t s_settings_automation_items[] = {

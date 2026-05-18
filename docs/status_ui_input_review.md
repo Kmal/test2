@@ -79,7 +79,7 @@ machine-readable board manifest where applicable.
 | Remove cancel dependency on `screen->item_count == 0u`. | Done | No status UI keyboard cancel logic uses that heuristic. |
 | Set cancel policy for keyboard open paths. | Done | Wi-Fi, manual SSID/password, AP name/password/channel open paths pass explicit cancel policy. |
 | Scan screen consumes global input. | Done | `status_ui_scan_consume_input()` handles scan select/next/prev and lets Back fall through to menu navigation. |
-| Menu consumes global input. | Done | `status_ui_menu_consume_input()` handles active-menu select/next/prev/back and preserves Wi-Fi done Back service-disable behavior. |
+| Menu consumes global input. | Done | `status_ui_menu_consume_input()` handles active-menu select/next/prev/back and preserves Web UI exit-screen Back service-disable behavior for Web UI Wi-Fi/AP result screens only. |
 | Idle fallback consumes global input. | Done | `status_ui_idle_consume_input_to_effects()` handles idle `SELECT` and `NEXT` callback paths. |
 | Keep ISR/UI separation strict. | Done | No ISR code was introduced; a code comment now documents that GPIO polling/future ISR paths must not inspect UI focus or run cleanup. |
 | Optional module split. | Not done (optional) | The original plan allowed leaving this as a follow-up. |

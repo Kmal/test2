@@ -56,6 +56,11 @@ static const char *TAG = "STATUS_UI";
 
 static status_ui_button_handlers_t s_handlers;
 static status_ui_state_t s_state = STATUS_UI_STATE_BOOTING;
+/* The Web UI HTTP server is intentionally off after boot.  This flag is
+ * turned on only by the explicit Web UI entry flows (Wi-Fi Mode after a
+ * station connection is available, or AP Mode after AP startup succeeds) and
+ * turned off when the user backs out of the Web UI result/URL screens so the
+ * HTTP server task/stack/heap are released. */
 static bool s_service_enabled = false;
 static uint32_t s_key1_press_count = 0;
 static uint32_t s_key2_press_count = 0;
@@ -375,12 +380,11 @@ static bool status_ui_ap_start(ui_runtime_t *ui)
 
 static bool status_ui_action_web_ui_wifi_mode(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
-    (void)item;
-    if (ui == NULL) return false;
+    if (ui == NULL || item == NULL) return false;
     if (!app_wifi_is_sta_connected()) {
-        ui_runtime_set_toast(ui, UI_TOAST_WARNING, "Connect Wi-Fi first", 2500u);
-        (void)ui_nav_enter(&ui->nav, UI_SCREEN_CONNECT_WIFI);
-        return false;
+        ui_runtime_set_toast(ui, UI_TOAST_INFO, "Select Wi-Fi for Web UI", 2500u);
+        (void)ui_nav_enter(&ui->nav, item->target);
+        return true;
     }
 
     app_wifi_status_t status;
@@ -576,15 +580,6 @@ static bool status_ui_action_settings_edit_timezone(ui_runtime_t *ui, const ui_m
                                                 (status_ui_keyboard_cancel_policy_t){ .has_cancel_target = true, .cancel_target = UI_SCREEN_SETTINGS_DISPLAY });
 }
 
-static bool status_ui_action_settings_toggle_web_ui_service(ui_runtime_t *ui, const ui_menu_item_t *item)
-{
-    (void)item;
-    bool enabled = !status_ui_get_service_enabled();
-    status_ui_set_service_enabled(enabled);
-    ui_runtime_set_toast(ui, UI_TOAST_SUCCESS, enabled ? "Web UI enabled" : "Web UI disabled", 1800u);
-    return true;
-}
-
 static bool status_ui_action_settings_restart(ui_runtime_t *ui, const ui_menu_item_t *item)
 {
     (void)item;
@@ -619,7 +614,6 @@ static void status_ui_dispatch_action(ui_runtime_t *ui, const ui_menu_item_t *it
     case UI_ACTION_AUTOMATION_EDIT_TRIGGER: (void)status_ui_action_automation_edit_trigger(ui, item); break;
     case UI_ACTION_AUTOMATION_EDIT_ACTION: (void)status_ui_action_automation_edit_action(ui, item); break;
     case UI_ACTION_SETTINGS_EDIT_TIMEZONE: (void)status_ui_action_settings_edit_timezone(ui, item); break;
-    case UI_ACTION_SETTINGS_TOGGLE_WEB_UI_SERVICE: (void)status_ui_action_settings_toggle_web_ui_service(ui, item); break;
     case UI_ACTION_SETTINGS_RESTART: (void)status_ui_action_settings_restart(ui, item); break;
 #else
     default: break;
@@ -634,12 +628,15 @@ static void status_ui_activate_selected_item(void)
     status_ui_dispatch_action(&s_ui, item);
 }
 
-static bool status_ui_is_wifi_done_screen(ui_screen_id_t screen)
+/* Only screens reached from Main > Web UI represent an active Web UI session.
+ * Backing out of these screens disables the service and releases web-server
+ * resources.  The standalone Main > Connect to Wi-Fi result screens are not
+ * included because they save station credentials without opening the Web UI. */
+static bool status_ui_is_web_ui_exit_screen(ui_screen_id_t screen)
 {
     return screen == UI_SCREEN_CONFIG_WIFI_CONNECT_SAVE ||
            screen == UI_SCREEN_CONFIG_WIFI_MANUAL_CONNECT_SAVE ||
-           screen == UI_SCREEN_CONNECT_WIFI_CONNECT_SAVE ||
-           screen == UI_SCREEN_CONNECT_WIFI_MANUAL_CONNECT_SAVE;
+           screen == UI_SCREEN_CONFIG_AP_SHOW_URL;
 }
 
 static void status_ui_apply_input_effects(const status_ui_input_effects_t *effects)
@@ -969,7 +966,7 @@ static bool status_ui_menu_consume_input(status_ui_input_t input,
     case STATUS_UI_INPUT_BACK:
         if (s_ui.nav.current == UI_SCREEN_MAIN) {
             s_ui.menu_active = true;
-        } else if (status_ui_is_wifi_done_screen(s_ui.nav.current)) {
+        } else if (status_ui_is_web_ui_exit_screen(s_ui.nav.current)) {
             effects->disable_web_ui_service = true;
             ui_nav_init(&s_ui.nav);
         } else {

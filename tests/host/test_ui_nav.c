@@ -122,11 +122,12 @@ static void test_settings_hierarchy(void)
     ASSERT_TRUE(ui_nav_enter(&nav, UI_SCREEN_SETTINGS_CONNECTIVITY));
     const ui_screen_def_t *connectivity = ui_nav_current(&nav);
     ASSERT_TRUE(connectivity != NULL);
-    ASSERT_TRUE(find_item(connectivity, "Web UI Service") >= 0);
-    nav.selected_index = (uint8_t)find_item(connectivity, "Web UI Service");
+    ASSERT_TRUE(find_item(connectivity, "Web UI") >= 0);
+    nav.selected_index = (uint8_t)find_item(connectivity, "Web UI");
     item = ui_nav_selected_item(&nav);
     ASSERT_TRUE(item != NULL);
-    ASSERT_TRUE(item->action == UI_ACTION_SETTINGS_TOGGLE_WEB_UI_SERVICE);
+    ASSERT_TRUE(item->action == UI_ACTION_NAVIGATE);
+    ASSERT_TRUE(item->target == UI_SCREEN_CONFIG_WEB_UI);
 
     ASSERT_TRUE(ui_nav_enter(&nav, UI_SCREEN_SETTINGS_MAINTENANCE));
     item = ui_nav_selected_item(&nav);

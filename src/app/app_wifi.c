@@ -672,7 +672,11 @@ bool app_wifi_connect(const char *ssid, const char *password, bool persist)
     if (persist && !persist_config(&s_config)) {
         ESP_LOGW(TAG, "connected but failed to persist Wi-Fi credentials");
     }
-    ESP_LOGI(TAG, "web UI available on station network: http://%s/", s_sta_ip);
+    if (status_ui_get_service_enabled()) {
+        ESP_LOGI(TAG, "web UI available on station network: http://%s/", s_sta_ip);
+    } else {
+        ESP_LOGI(TAG, "station network ready: ip=%s; web UI service is off", s_sta_ip);
+    }
     return true;
 #endif
 }
